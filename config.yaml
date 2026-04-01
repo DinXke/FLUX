@@ -30,39 +30,30 @@ ports_description:
 # ---------------------------------------------------------------------------
 # Add-on configuration (shown in the HA add-on Configuration tab)
 # Leave a field empty to keep managing it via the SmartMarstek web UI instead.
+# Sensitive fields (token, keys, passwords) are masked with *** in the HA UI.
 # ---------------------------------------------------------------------------
 options:
-  # ── Home Assistant ────────────────────────────────────────────────────────
   ha_url: ""
   ha_token: ""
-
-  # ── ENTSO-E electricity prices ────────────────────────────────────────────
   entsoe_api_key: ""
   entsoe_country: "BE"
   timezone: "Europe/Brussels"
-
-  # ── InfluxDB (optional – for consumption history) ─────────────────────────
-  # Set influx_use_ha_addon: true to auto-discover the HA InfluxDB add-on via
-  # the Supervisor (no URL/credentials needed).
-  # Set to false and fill in influx_url to connect to an external InfluxDB.
   influx_use_ha_addon: false
   influx_url: ""
   influx_version: "v1"
   influx_username: ""
   influx_password: ""
-
-  # ── General ───────────────────────────────────────────────────────────────
   log_level: "info"
 
 schema:
-  ha_url: str?
-  ha_token: str?
-  entsoe_api_key: str?
-  entsoe_country: str?
-  timezone: str?
-  influx_use_ha_addon: bool?
-  influx_url: str?
-  influx_version: list(v1|v2)?
-  influx_username: str?
-  influx_password: str?
+  ha_url: str
+  ha_token: password
+  entsoe_api_key: password
+  entsoe_country: str
+  timezone: str
+  influx_use_ha_addon: bool
+  influx_url: str
+  influx_version: list(v1|v2)
+  influx_username: str
+  influx_password: password
   log_level: list(trace|debug|info|notice|warning|error|fatal)
