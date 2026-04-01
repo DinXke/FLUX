@@ -1648,6 +1648,9 @@ def get_strategy_plan():
         except Exception as exc:
             log.warning("Strategy: ENTSO-E fetch error: %s", exc)
 
+    if not is_historical:
+        return jsonify(_compute_forward_plan())
+
     if is_historical:
         # ── Historical mode: use InfluxDB actuals ─────────────────────────
         actuals = query_day_actuals(target_date, tz_name)   # {hour: {solar_w, house_w, bat_soc, ...}}
@@ -1693,132 +1696,8 @@ def get_strategy_plan():
             "consumption_by_hour": consumption_by_hour,
         })
 
-    # ── Forward mode (today + tomorrow) ───────────────────────────────────
-    solar_wh = {}
-    fs = _forecast_settings()
-    if fs.get("lat") and fs.get("lon"):
-        try:
-            forecast_result = _fetch_forecast(fs)
-            solar_wh = forecast_result.get("watt_hours_period", {})
-        except Exception as exc:
-            log.warning("Strategy: forecast fetch error: %s", exc)
-
-    history_days = s.get("history_days", 21)
-    ext_src = _load_influx_source()
-    ext_configured = bool(ext_src.get("mappings") and ext_src.get("database"))
-
-    # ── Consumption profile ──────────────────────────────────────────────
-    # Priority: external InfluxDB (HA) if configured → local Marstek InfluxDB → HA REST API
-    consumption_by_hour = []
-    consumption_source  = "none"
-
-    if ext_configured:
-        ext_consumption = _query_external_influx_consumption(days=history_days)
-        if len(ext_consumption) >= 18:
-            consumption_by_hour = ext_consumption
-            consumption_source  = "external_influx"
-            log.info("Consumption from external InfluxDB (%d hours)", len(ext_consumption))
-
-    if not consumption_by_hour:
-        local_consumption = query_avg_hourly_consumption(days=history_days)
-        if len(local_consumption) >= 18:
-            consumption_by_hour = local_consumption
-            consumption_source  = "local_influx"
-            log.info("Consumption from local Marstek InfluxDB (%d hours)", len(local_consumption))
-
-    if not consumption_by_hour:
-        log.info("Both InfluxDBs sparse – trying HA history API")
-        ha_consumption = _query_ha_hourly_consumption(days=history_days)
-        if ha_consumption:
-            consumption_by_hour = ha_consumption
-            consumption_source  = "ha_history"
-            log.info("Consumption from HA history API (%d hours)", len(ha_consumption))
-
-    log.info("Consumption source: %s  (%d/24 hours)", consumption_source, len(consumption_by_hour))
-
-    # ── Current SOC ──────────────────────────────────────────────────────
-    # Priority: external InfluxDB (HA) if configured → local Marstek InfluxDB → ESPHome SSE
-    soc_now = None
-
-    if ext_configured:
-        try:
-            ext_socs = _query_external_influx_slot_latest("bat_soc")
-            if ext_socs:
-                soc_now = sum(ext_socs) / len(ext_socs)
-                log.debug("SOC from external InfluxDB: %.1f%% (%d batteries)", soc_now, len(ext_socs))
-        except Exception as exc:
-            log.debug("External InfluxDB SOC failed: %s", exc)
-
-    if soc_now is None:
-        try:
-            recent  = query_recent_points(hours=1)
-            soc_now = next((p["bat_soc"] for p in reversed(recent) if "bat_soc" in p), None)
-            if soc_now is not None:
-                log.debug("SOC from local Marstek InfluxDB: %.1f%%", soc_now)
-        except Exception:
-            pass
-
-    if soc_now is None:
-        try:
-            from influx_writer import _poll_esphome, _resolve_slot
-            devices_dict = load_devices()
-            live_cfg: dict = {}
-            try:
-                with open(FLOW_CFG_SERVER_FILE, "r", encoding="utf-8") as f:
-                    raw = json.load(f)
-                for k, v in raw.items():
-                    live_cfg[k] = v if isinstance(v, list) else [v]
-            except Exception:
-                pass
-            soc_entries = live_cfg.get("bat_soc", [])
-            if soc_entries:
-                # Poll ESPHome devices via SSE
-                esphome_map = _poll_esphome(devices_dict)
-
-                # Also fetch HA entities needed for bat_soc resolution
-                ha_soc_data: dict = {}
-                ha_s = _ha_settings()
-                if ha_s.get("token") and ha_s.get("url"):
-                    ha_eids = [e["sensor"] for e in soc_entries
-                               if e.get("source") == "homeassistant" and e.get("sensor")]
-                    if ha_eids:
-                        headers = _ha_headers(ha_s["token"])
-                        for eid in ha_eids:
-                            try:
-                                r = _req.get(f"{ha_s['url']}/api/states/{eid}",
-                                             headers=headers, timeout=4, verify=False)
-                                if r.ok:
-                                    d = r.json()
-                                    try:
-                                        v = float(d.get("state", ""))
-                                    except Exception:
-                                        v = None
-                                    ha_soc_data[eid] = {"value": v}
-                            except Exception:
-                                pass
-
-                soc_val = _resolve_slot("bat_soc", live_cfg, esphome_map, None, ha_soc_data)
-                if soc_val is not None:
-                    soc_now = float(soc_val)
-                    log.debug("SOC from live poll: %.1f%%", soc_now)
-        except Exception as exc:
-            log.warning("SOC live poll fallback failed: %s", exc)
-
-    if soc_now is None:
-        soc_now = 50.0
-
-    plan   = build_plan(prices, solar_wh, consumption_by_hour, soc_now, s)
-    result = split_days(plan)
-    result["consumption_by_hour"] = consumption_by_hour
-    result["prices_available"]    = len(prices) > 0
-    result["solar_available"]     = len(solar_wh) > 0
-    result["soc_now"]             = soc_now
-    result["is_historical"]       = False
-    result["consumption_source"]  = consumption_source
-    # Cache forward plan for automation (non-historical only)
-    _plan_cache["slots"]      = result.get("slots", [])
-    _plan_cache["fetched_at"] = datetime.now(timezone.utc).isoformat()
-    return jsonify(result)
+    # (forward mode handled above via _compute_forward_plan())
+    abort(400)
 
 
 @app.route("/api/strategy/history")
@@ -2452,7 +2331,144 @@ def _influx_context():
 
 AUTOMATION_FILE = os.path.join(BASE_DIR, "automation.json")
 
-# Cache the last computed strategy plan (set by get_strategy_plan)
+def _compute_forward_plan() -> dict:
+    """
+    Build the forward charging plan (today + tomorrow).
+    Fetches fresh prices, solar forecast, consumption profile and live SoC.
+    Updates _plan_cache and returns the result dict.
+    Called both by the /api/strategy/plan route and by the automation thread
+    when the cached plan is stale.
+    """
+    s   = load_strategy_settings()
+    es  = _entsoe_settings()
+    fs  = _forecast_settings()
+    tz_name   = es.get("timezone", "Europe/Brussels")
+    today_str = date.today().isoformat()
+
+    # ── Prices (today + tomorrow) ─────────────────────────────────────────
+    prices = []
+    if es.get("apiKey"):
+        try:
+            target_d = date.fromisoformat(today_str)
+            prices  += _fetch_entsoe_day(es["apiKey"], target_d,
+                                         es.get("country", "BE"), tz_name)
+            prices  += _fetch_entsoe_day(es["apiKey"], target_d + timedelta(days=1),
+                                         es.get("country", "BE"), tz_name)
+        except Exception as exc:
+            log.warning("_compute_forward_plan: ENTSO-E fetch error: %s", exc)
+
+    # ── Solar forecast ────────────────────────────────────────────────────
+    solar_wh: dict = {}
+    if fs.get("lat") and fs.get("lon"):
+        try:
+            solar_wh = _fetch_forecast(fs).get("watt_hours_period", {})
+        except Exception as exc:
+            log.warning("_compute_forward_plan: forecast fetch error: %s", exc)
+
+    # ── Consumption profile ───────────────────────────────────────────────
+    history_days = s.get("history_days", 21)
+    ext_src = _load_influx_source()
+    ext_configured = bool(ext_src.get("mappings") and ext_src.get("database"))
+    consumption_by_hour: list = []
+    consumption_source  = "none"
+
+    if ext_configured:
+        ext_consumption = _query_external_influx_consumption(days=history_days)
+        if len(ext_consumption) >= 18:
+            consumption_by_hour = ext_consumption
+            consumption_source  = "external_influx"
+
+    if not consumption_by_hour:
+        local_consumption = query_avg_hourly_consumption(days=history_days)
+        if len(local_consumption) >= 18:
+            consumption_by_hour = local_consumption
+            consumption_source  = "local_influx"
+
+    if not consumption_by_hour:
+        ha_consumption = _query_ha_hourly_consumption(days=history_days)
+        if ha_consumption:
+            consumption_by_hour = ha_consumption
+            consumption_source  = "ha_history"
+
+    log.info("_compute_forward_plan: consumption=%s (%d/24 h), prices=%d, solar=%d",
+             consumption_source, len(consumption_by_hour), len(prices), len(solar_wh))
+
+    # ── Current SoC ───────────────────────────────────────────────────────
+    soc_now = None
+
+    if ext_configured:
+        try:
+            ext_socs = _query_external_influx_slot_latest("bat_soc")
+            if ext_socs:
+                soc_now = sum(ext_socs) / len(ext_socs)
+        except Exception:
+            pass
+
+    if soc_now is None:
+        try:
+            recent  = query_recent_points(hours=1)
+            soc_now = next((p["bat_soc"] for p in reversed(recent) if "bat_soc" in p), None)
+        except Exception:
+            pass
+
+    if soc_now is None:
+        try:
+            from influx_writer import _poll_esphome, _resolve_slot
+            devices_dict = load_devices()
+            live_cfg: dict = {}
+            try:
+                with open(FLOW_CFG_SERVER_FILE, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                for k, v in raw.items():
+                    live_cfg[k] = v if isinstance(v, list) else [v]
+            except Exception:
+                pass
+            soc_entries = live_cfg.get("bat_soc", [])
+            if soc_entries:
+                esphome_map = _poll_esphome(devices_dict)
+                ha_soc_data: dict = {}
+                ha_s = _ha_settings()
+                if ha_s.get("token") and ha_s.get("url"):
+                    ha_eids = [e["sensor"] for e in soc_entries
+                               if e.get("source") == "homeassistant" and e.get("sensor")]
+                    for eid in ha_eids:
+                        try:
+                            r = _req.get(f"{ha_s['url']}/api/states/{eid}",
+                                         headers=_ha_headers(ha_s["token"]), timeout=4, verify=False)
+                            if r.ok:
+                                try:
+                                    ha_soc_data[eid] = {"value": float(r.json().get("state", ""))}
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                soc_val = _resolve_slot("bat_soc", live_cfg, esphome_map, None, ha_soc_data)
+                if soc_val is not None:
+                    soc_now = float(soc_val)
+        except Exception as exc:
+            log.warning("_compute_forward_plan: SoC live-poll failed: %s", exc)
+
+    if soc_now is None:
+        soc_now = 50.0
+
+    log.info("_compute_forward_plan: SoC=%.1f%%", soc_now)
+
+    # ── Build plan & update cache ─────────────────────────────────────────
+    plan   = build_plan(prices, solar_wh, consumption_by_hour, soc_now, s)
+    result = split_days(plan)
+    result["consumption_by_hour"] = consumption_by_hour
+    result["prices_available"]    = len(prices) > 0
+    result["solar_available"]     = len(solar_wh) > 0
+    result["soc_now"]             = soc_now
+    result["is_historical"]       = False
+    result["consumption_source"]  = consumption_source
+
+    _plan_cache["slots"]      = result.get("slots", [])
+    _plan_cache["fetched_at"] = datetime.now(timezone.utc).isoformat()
+    return result
+
+
+# Cache the last computed strategy plan (set by _compute_forward_plan)
 _plan_cache: dict = {"slots": [], "fetched_at": None}
 
 # action → list of (domain, entity_name, value) commands
@@ -2517,6 +2533,19 @@ def _automation_tick() -> None:
     auto = _load_automation()
     if not auto.get("enabled"):
         return
+
+    # ── Auto-refresh plan when stale (new prices, updated solar forecast, live SoC) ──
+    fetched_at_str = _plan_cache.get("fetched_at")
+    plan_stale = fetched_at_str is None
+    if not plan_stale:
+        age_s = (datetime.now(timezone.utc) - datetime.fromisoformat(fetched_at_str)).total_seconds()
+        plan_stale = age_s >= 3600   # refresh every hour
+    if plan_stale:
+        log.info("Automation: plan stale – recomputing (fresh solar forecast + SoC + prices)...")
+        try:
+            _compute_forward_plan()
+        except Exception as exc:
+            log.warning("Automation: strategy refresh failed: %s", exc)
 
     action = _current_slot_action()
     if action is None:
