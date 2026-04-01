@@ -65,7 +65,8 @@ def _get_write_api():
 # Flow-config resolution (mirrors HomeFlow / EnergyMap logic in Python)
 # ---------------------------------------------------------------------------
 
-FLOW_CFG_FILE = os.path.join(os.path.dirname(__file__), "flow_cfg.json")
+_DATA_DIR     = os.environ.get("MARSTEK_DATA_DIR", os.path.dirname(__file__))
+FLOW_CFG_FILE = os.path.join(_DATA_DIR, "flow_cfg.json")
 
 
 def _load_flow_cfg() -> dict:

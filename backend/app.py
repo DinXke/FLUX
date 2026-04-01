@@ -24,7 +24,14 @@ from flask_cors import CORS
 # ---------------------------------------------------------------------------
 # Logging setup
 # ---------------------------------------------------------------------------
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "marstek.log")
+# CODE_DIR = location of this .py file (code, never changes)
+# DATA_DIR = where settings/data files are stored.
+#            Set MARSTEK_DATA_DIR env var to override (used by HA add-on → /data).
+_CODE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR  = os.environ.get("MARSTEK_DATA_DIR", _CODE_DIR)
+os.makedirs(DATA_DIR, exist_ok=True)
+
+LOG_FILE = os.path.join(DATA_DIR, "marstek.log")
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -48,9 +55,12 @@ def _log_request():
 # ---------------------------------------------------------------------------
 # Device storage
 # ---------------------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, "devices.json")
-FRONTEND_DIST = os.path.join(BASE_DIR, "..", "frontend", "dist")
+BASE_DIR      = DATA_DIR   # legacy alias – data files
+DATA_FILE     = os.path.join(DATA_DIR,   "devices.json")
+FRONTEND_DIST = os.environ.get(
+    "MARSTEK_FRONTEND_DIST",
+    os.path.join(_CODE_DIR, "..", "frontend", "dist"),
+)
 
 
 def load_devices() -> dict:

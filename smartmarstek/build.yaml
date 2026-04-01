@@ -1,0 +1,14 @@
+build_from:
+  aarch64: ghcr.io/home-assistant/aarch64-base-python:3.12
+  amd64:   ghcr.io/home-assistant/amd64-base-python:3.12
+  armhf:   ghcr.io/home-assistant/armhf-base-python:3.12
+  armv7:   ghcr.io/home-assistant/armv7-base-python:3.12
+  i386:    ghcr.io/home-assistant/i386-base-python:3.12
+
+squash: false
+labels:
+  io.hass.name: "SmartMarstek"
+  io.hass.description: "Smart battery management for Marstek batteries"
+  io.hass.arch: "aarch64|amd64|armhf|armv7|i386"
+  io.hass.type: "addon"
+  io.hass.version: "1.0.0"
