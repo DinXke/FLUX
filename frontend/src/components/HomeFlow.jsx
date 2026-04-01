@@ -189,7 +189,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
 
   const pollHw = useCallback(async () => {
     try {
-      const r = await fetch("/api/homewizard/data");
+      const r = await fetch("api/homewizard/data");
       if (r.ok) setHwData(await r.json());
     } catch { /* no HW configured */ }
   }, []);
@@ -201,7 +201,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
       .map((sc) => sc.sensor);
     if (!entityIds.length) return;
     try {
-      const r = await fetch("/api/ha/poll", {
+      const r = await fetch("api/ha/poll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entity_ids: entityIds }),

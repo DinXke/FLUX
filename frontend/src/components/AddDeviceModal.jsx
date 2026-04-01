@@ -18,7 +18,7 @@ export default function AddDeviceModal({ onClose, onAdded }) {
 
     setSaving(true);
     try {
-      const res = await fetch("/api/devices", {
+      const res = await fetch("api/devices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), ip: ip.trim(), port: parseInt(port) || 80 }),

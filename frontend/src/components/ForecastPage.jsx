@@ -152,7 +152,7 @@ export default function ForecastPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const r = await fetch("/api/forecast/estimate");
+      const r = await fetch("api/forecast/estimate");
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         throw new Error(d.error || `HTTP ${r.status}`);

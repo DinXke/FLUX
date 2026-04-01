@@ -33,7 +33,7 @@ export default function StrategySettings() {
   const [influx,  setInflux]  = useState(null);
 
   useEffect(() => {
-    fetch("/api/strategy/settings")
+    fetch("api/strategy/settings")
       .then((r) => r.json())
       .then((d) => setVals({
         ...DEFAULTS, ...d,
@@ -41,7 +41,7 @@ export default function StrategySettings() {
       }))
       .catch(() => {});
 
-    fetch("/api/influx/status")
+    fetch("api/influx/status")
       .then((r) => r.json())
       .then(setInflux)
       .catch(() => setInflux({ ok: false, error: "Niet bereikbaar" }));
@@ -65,7 +65,7 @@ export default function StrategySettings() {
         manual_peak_hours:    vals.manual_peak_hours
           .split(",").map((s) => s.trim()).filter(Boolean).map(Number).filter((n) => !isNaN(n)),
       };
-      const r = await fetch("/api/strategy/settings", {
+      const r = await fetch("api/strategy/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });

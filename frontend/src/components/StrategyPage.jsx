@@ -56,7 +56,7 @@ function fmtHour(ts) {
 // ── Sync flow config to backend so influx_writer can read it ─────────────
 function syncFlowCfgToBackend() {
   const cfg = loadFlowCfg();
-  fetch("/api/flow/cfg", {
+  fetch("api/flow/cfg", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(cfg),
   }).catch(() => {});
@@ -433,7 +433,7 @@ function AutomationToggle() {
 
   const load = async () => {
     try {
-      const r = await fetch("/api/automation");
+      const r = await fetch("api/automation");
       if (r.ok) setAuto(await r.json());
     } catch { /* ignore */ }
   };
@@ -448,7 +448,7 @@ function AutomationToggle() {
     if (!auto) return;
     setSaving(true);
     try {
-      const r = await fetch("/api/automation", {
+      const r = await fetch("api/automation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !auto.enabled }),

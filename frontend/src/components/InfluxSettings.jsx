@@ -262,11 +262,11 @@ export default function InfluxSettings() {
   const [saveOk,   setSaveOk]   = useState(false);
 
   useEffect(() => {
-    fetch("/api/influx/connection")
+    fetch("api/influx/connection")
       .then((r) => r.json())
       .then((d) => setConn((p) => ({ ...p, ...d })))
       .catch(() => {});
-    fetch("/api/influx/source")
+    fetch("api/influx/source")
       .then((r) => r.json())
       .then((d) => {
         if (d.mappings)    setMappings(d.mappings);
@@ -282,7 +282,7 @@ export default function InfluxSettings() {
     setScanning(true); setError(null); setResult(null);
     setSelectedDb(null); setSelectedMeas(null); setMeasResult(null); setFieldResult(null);
     try {
-      const r = await fetch("/api/influx/scan", {
+      const r = await fetch("api/influx/scan", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(conn),
       });
@@ -298,7 +298,7 @@ export default function InfluxSettings() {
     setScanning(true); setError(null);
     try {
       const body = { ...conn, [result?.version === "v2" ? "bucket" : "database"]: name };
-      const r = await fetch("/api/influx/scan", {
+      const r = await fetch("api/influx/scan", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -317,7 +317,7 @@ export default function InfluxSettings() {
         [result?.version === "v2" ? "bucket" : "database"]: selectedDb,
         measurement: name,
       };
-      const r = await fetch("/api/influx/scan", {
+      const r = await fetch("api/influx/scan", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -331,11 +331,11 @@ export default function InfluxSettings() {
   const save = async () => {
     setSaving(true); setSaveOk(false); setError(null);
     try {
-      await fetch("/api/influx/connection", {
+      await fetch("api/influx/connection", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(conn),
       });
-      const r = await fetch("/api/influx/source", {
+      const r = await fetch("api/influx/source", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           version:     result?.version || conn.version,

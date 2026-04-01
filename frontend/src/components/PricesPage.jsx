@@ -201,7 +201,7 @@ function LoginPanel({ onLogin, status }) {
     if (!email || !password) { setError("Vul email en wachtwoord in."); return; }
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/frank/login", {
+      const res = await fetch("api/frank/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -214,7 +214,7 @@ function LoginPanel({ onLogin, status }) {
   };
 
   const handleLogout = async () => {
-    await fetch("/api/frank/logout", { method: "POST" });
+    await fetch("api/frank/logout", { method: "POST" });
     onLogin(null);
   };
 
@@ -372,7 +372,7 @@ export default function PricesPage() {
   const saveSource     = (s) => { setSource(s);     localStorage.setItem(SOURCE_KEY, s); };
 
   const loadStatus = useCallback(async () => {
-    const r = await fetch("/api/frank/status");
+    const r = await fetch("api/frank/status");
     setStatus(await r.json());
   }, []);
 

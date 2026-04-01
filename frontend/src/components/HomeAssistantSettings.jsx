@@ -17,7 +17,7 @@ export default function HomeAssistantSettings() {
 
   const loadSettings = useCallback(async () => {
     try {
-      const r = await fetch("/api/ha/settings");
+      const r = await fetch("api/ha/settings");
       if (!r.ok) return;
       const d = await r.json();
       setConfigured(d.configured);
@@ -34,7 +34,7 @@ export default function HomeAssistantSettings() {
     try {
       const body = { url: url.trim() };
       if (token.trim()) body.token = token.trim();
-      const r = await fetch("/api/ha/settings", {
+      const r = await fetch("api/ha/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -57,7 +57,7 @@ export default function HomeAssistantSettings() {
   const handleTest = async () => {
     setTesting(true); setTestResult(null); setError(null);
     try {
-      const r = await fetch("/api/ha/test", { method: "POST" });
+      const r = await fetch("api/ha/test", { method: "POST" });
       const d = await r.json();
       setTestResult(d);
     } catch (e) {

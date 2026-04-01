@@ -2353,6 +2353,16 @@ def serve_frontend(path):
 
     index = os.path.join(dist, "index.html")
     if os.path.isfile(index):
+        # When running behind HA ingress the browser sees a path like
+        # /api/hassio_ingress/TOKEN/ – inject a <base> tag so all relative
+        # fetch("api/...") calls resolve through the ingress proxy.
+        ingress_path = request.headers.get("X-Ingress-Path", "")
+        if ingress_path:
+            base_href = ingress_path.rstrip("/") + "/"
+            with open(index, encoding="utf-8") as f:
+                html = f.read()
+            html = html.replace("<head>", f'<head>\n    <base href="{base_href}">', 1)
+            return Response(html, mimetype="text/html")
         return send_from_directory(dist, "index.html")
 
     abort(404)

@@ -69,7 +69,7 @@ function EntsoESection() {
   const [success,    setSuccess]    = useState(false);
 
   useState(() => {
-    fetch("/api/entsoe/settings").then((r) => r.json()).then((d) => {
+    fetch("api/entsoe/settings").then((r) => r.json()).then((d) => {
       setConfigured(d.configured); setHint(d.apiKeyHint || "");
       if (d.timezone) setTimezone(d.timezone);
       if (d.country)  setCountry(d.country);
@@ -81,7 +81,7 @@ function EntsoESection() {
     try {
       const body = { timezone, country };
       if (apiKey.trim()) body.apiKey = apiKey.trim();
-      const r = await fetch("/api/entsoe/settings", {
+      const r = await fetch("api/entsoe/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -146,7 +146,7 @@ function DebugPanel() {
   const load = async () => {
     setLoading(true); setError(null);
     try {
-      const r = await fetch("/api/debug");
+      const r = await fetch("api/debug");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setData(await r.json());
     } catch (e) {
@@ -229,7 +229,7 @@ function TabApparaten({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDevi
     if (!editName.trim() || !editIp.trim()) { setEditError("Naam en IP zijn verplicht."); return; }
     setEditSaving(true); setEditError(null);
     try {
-      const r = await fetch(`/api/devices/${editId}`, {
+      const r = await fetch(`api/devices/${editId}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: editName.trim(), ip: editIp.trim(), port: Number(editPort) }),
       });
@@ -241,7 +241,7 @@ function TabApparaten({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDevi
   };
 
   const handleDelete = async (id) => {
-    await fetch(`/api/devices/${id}`, { method: "DELETE" });
+    await fetch(`api/devices/${id}`, { method: "DELETE" });
     onDeviceDeleted(id); setConfirmDel(null);
   };
 

@@ -190,12 +190,12 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
   const [error,      setError]      = useState(null);
 
   const loadHw = useCallback(async () => {
-    try { const r = await fetch("/api/homewizard/data"); if (r.ok) setHwData(await r.json()); } catch {}
+    try { const r = await fetch("api/homewizard/data"); if (r.ok) setHwData(await r.json()); } catch {}
   }, []);
 
   const loadHa = useCallback(async () => {
     try {
-      const r = await fetch("/api/ha/entities");
+      const r = await fetch("api/ha/entities");
       if (r.ok) { const d = await r.json(); setHaEntities(d.entities ?? []); }
     } catch {}
   }, []);

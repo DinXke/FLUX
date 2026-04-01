@@ -25,7 +25,7 @@ export default function ForecastSettings() {
   const [error,      setError]      = useState(null);
 
   useEffect(() => {
-    fetch("/api/forecast/settings")
+    fetch("api/forecast/settings")
       .then((r) => r.json())
       .then((d) => {
         setConfigured(d.configured);
@@ -58,7 +58,7 @@ export default function ForecastSettings() {
         })),
       };
       if (apiKey.trim()) body.api_key = apiKey.trim();
-      const r = await fetch("/api/forecast/settings", {
+      const r = await fetch("api/forecast/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
