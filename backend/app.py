@@ -1774,13 +1774,20 @@ def save_influx_connection():
 def _influx_v1_query(url: str, username: str, password: str,
                      q: str, db: str = "") -> dict:
     """Execute an InfluxQL query against a v1 server and return parsed JSON."""
+    import base64 as _b64
     params = {"q": q}
     if db:
         params["db"] = db
+    headers = {}
+    if username:
+        # requests encodes Basic Auth credentials as latin-1, which fails for
+        # non-ASCII characters.  Build the header manually using UTF-8 instead.
+        token = _b64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+        headers["Authorization"] = f"Basic {token}"
     r = _req.get(
         f"{url.rstrip('/')}/query",
         params=params,
-        auth=(username, password) if username else None,
+        headers=headers,
         timeout=10,
         verify=False,
     )
