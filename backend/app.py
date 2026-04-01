@@ -1821,8 +1821,11 @@ def influx_scan():
     url      = (body.get("url")      or conn.get("url", "")).rstrip("/")
     version  = (body.get("version")  or conn.get("version", "auto")).lower()
     username = body.get("username")  or conn.get("username", "")
-    password = body.get("password")  or conn.get("password", "")
-    token    = body.get("token")     or conn.get("token", "")
+    # If the frontend sends the masked placeholder, fall back to the stored secret
+    raw_password = body.get("password", "")
+    password = conn.get("password", "") if raw_password.startswith("•") else (raw_password or conn.get("password", ""))
+    raw_token = body.get("token", "")
+    token    = conn.get("token", "") if (raw_token.startswith("•") or raw_token.startswith("…")) else (raw_token or conn.get("token", ""))
     org      = body.get("org")       or conn.get("org", "")
     database = body.get("database")  or ""
     bucket   = body.get("bucket")    or ""
