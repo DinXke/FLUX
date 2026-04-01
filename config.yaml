@@ -1,0 +1,63 @@
+name: SmartMarstek
+version: "1.0.0"
+slug: smartmarstek
+description: Smart battery management dashboard for Marstek batteries with ENTSO-E price strategy, solar forecast and Home Assistant integration.
+url: https://github.com/DinXke/SmartMarstek
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+
+startup: application
+boot: auto
+init: false
+
+map:
+  - data:rw
+
+ingress: true
+ingress_port: 5000
+panel_icon: mdi:battery-charging
+panel_title: SmartMarstek
+
+ports:
+  5000/tcp: 5000
+ports_description:
+  5000/tcp: SmartMarstek web interface
+
+# ---------------------------------------------------------------------------
+# Add-on configuration (shown in the HA add-on Configuration tab)
+# Leave a field empty to keep managing it via the SmartMarstek web UI instead.
+# ---------------------------------------------------------------------------
+options:
+  # ── Home Assistant ────────────────────────────────────────────────────────
+  ha_url: ""
+  ha_token: ""
+
+  # ── ENTSO-E electricity prices ────────────────────────────────────────────
+  entsoe_api_key: ""
+  entsoe_country: "BE"
+  timezone: "Europe/Brussels"
+
+  # ── InfluxDB (optional – for consumption history) ─────────────────────────
+  influx_url: ""
+  influx_version: "v1"
+  influx_username: ""
+  influx_password: ""
+
+  # ── General ───────────────────────────────────────────────────────────────
+  log_level: "info"
+
+schema:
+  ha_url: str?
+  ha_token: str?
+  entsoe_api_key: str?
+  entsoe_country: str?
+  timezone: str?
+  influx_url: str?
+  influx_version: list(v1|v2)?
+  influx_username: str?
+  influx_password: str?
+  log_level: list(trace|debug|info|notice|warning|error|fatal)

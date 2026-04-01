@@ -24,13 +24,14 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 
 COPY backend/ ./
 
-# ── Startup script ────────────────────────────────────────────────────────
-COPY smartmarstek/run.sh /run.sh
+# ── Add-on helpers ────────────────────────────────────────────────────────
+COPY run.sh /run.sh
+COPY setup_config.py /app/setup_config.py
 RUN chmod +x /run.sh
 
 # ── Environment ───────────────────────────────────────────────────────────
-# Data (settings, devices, ...) → /data  (HA persistent add-on storage)
-# Frontend dist built into the image at /app/frontend/dist
+# /data  → HA persistent add-on storage (mapped as data:rw in config.yaml)
+# /app/frontend/dist  → pre-built frontend assets
 ENV MARSTEK_DATA_DIR=/data \
     MARSTEK_FRONTEND_DIST=/app/frontend/dist \
     PYTHONUNBUFFERED=1
