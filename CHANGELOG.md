@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.9.0] - 2026-04-02
+
+### Fixed
+- Energieprijzen pagina 404: leading slash verwijderd uit API paden
+- Werkelijke zonneopbrengst timezone: UTC query range uitgebreid met ±14u
+  zodat Belgische data (UTC+1/+2) niet meer afgekapt wordt
+
+### Added
+- Dag navigatie (◀ ▶) op de forecast pagina: blader naar vorige dagen
+  voor historische werkelijke opbrengst (cyane balkjes, zonder forecast)
+
 ## [1.8.0] - 2026-04-02
 
 ### Added
