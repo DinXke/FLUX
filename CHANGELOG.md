@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0] - 2026-04-02
+
+### Changed
+- Add-on now uses a pre-built Docker image from GHCR instead of building
+  locally on the HA device — updates install in seconds instead of minutes
+- Added GitHub Actions workflow (`.github/workflows/build.yml`) that
+  automatically builds and pushes `amd64` + `aarch64` images on every version tag
+
 ## [1.5.0] - 2026-04-02
 
 ### Added
