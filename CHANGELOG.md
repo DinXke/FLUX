@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.8.0] - 2026-04-02
+
+### Added
+- Solar forecast grafiek: werkelijke opbrengst overlay (cyaan balk over gele
+  voorspellingsbalk) voor vergelijking forecast vs realiteit
+- Instellingen → Forecast.Solar: "Werkelijke opbrengst bron" selectie —
+  kies InfluxDB zonnepanelen slot of een Home Assistant entiteit
+- Werkelijk totaal (Wh) + % van voorspelling getoond in de dag-statistieken
+- Backend `/api/forecast/actuals` endpoint: haalt 15-min gemiddelden op uit
+  InfluxDB of HA history API voor de geselecteerde bron
+
 ## [1.7.0] - 2026-04-02
 
 ### Fixed

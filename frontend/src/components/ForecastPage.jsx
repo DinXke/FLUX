@@ -38,10 +38,14 @@ function filterDay(obj, date) {
 
 // ── Bar chart ─────────────────────────────────────────────────────────────────
 
-function BarChart({ slots, color, unit, maxVal }) {
+function BarChart({ slots, color, unit, maxVal, actuals }) {
   const now    = new Date();
   const nowStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
-  const max    = maxVal || Math.max(1, ...slots.map(([, v]) => v));
+  const actualVals = actuals ? Object.values(actuals).filter((v) => v > 0) : [];
+  const max    = maxVal || Math.max(1,
+    ...slots.map(([, v]) => v),
+    ...actualVals,
+  );
 
   if (!slots.length) {
     return (
@@ -54,23 +58,39 @@ function BarChart({ slots, color, unit, maxVal }) {
   return (
     <div className="forecast-chart">
       {slots.map(([ts, val], i) => {
-        const h    = fmtHour(ts);
-        const pct  = Math.round((val / max) * 100);
-        const isPast = h <= nowStr;
+        const h       = fmtHour(ts);
+        const pct     = Math.round((val / max) * 100);
+        const isPast  = h <= nowStr;
         const showLabel = i % 4 === 0 || i === slots.length - 1;
+        // Find matching actual slot (same HH:MM prefix)
+        const actualVal = actuals
+          ? Object.entries(actuals).find(([k]) => k.slice(11, 16) === h)?.[1]
+          : null;
+        const actualPct = actualVal != null ? Math.round((actualVal / max) * 100) : null;
         return (
-          <div key={ts} className="forecast-bar-col" title={`${h}  ${unit === "W" ? fmtW(val) : fmtKwh(val)}`}>
-            <div className="forecast-bar-track">
+          <div key={ts} className="forecast-bar-col"
+            title={`${h}  ${unit === "W" ? fmtW(val) : fmtKwh(val)}${actualVal != null ? `  •  Werkelijk: ${fmtW(actualVal)}` : ""}`}>
+            <div className="forecast-bar-track" style={{ position: "relative" }}>
+              {/* Forecast bar */}
               <div
                 className="forecast-bar-fill"
                 style={{
                   height: `${pct}%`,
-                  background: isPast
-                    ? `rgba(${color},0.35)`
-                    : `rgba(${color},0.85)`,
+                  background: isPast ? `rgba(${color},0.25)` : `rgba(${color},0.85)`,
                   boxShadow: isPast ? "none" : `0 0 6px rgba(${color},0.7)`,
                 }}
               />
+              {/* Actual overlay bar */}
+              {actualPct != null && (
+                <div style={{
+                  position: "absolute", bottom: 0, left: "15%", right: "15%",
+                  height: `${actualPct}%`,
+                  background: "rgba(56,189,248,0.7)",
+                  borderRadius: "2px 2px 0 0",
+                  boxShadow: "0 0 5px rgba(56,189,248,0.5)",
+                  pointerEvents: "none",
+                }} />
+              )}
             </div>
             {showLabel && (
               <div className="forecast-bar-label">{h}</div>
@@ -84,7 +104,7 @@ function BarChart({ slots, color, unit, maxVal }) {
 
 // ── Day panel ─────────────────────────────────────────────────────────────────
 
-function DayPanel({ title, date, watts, whPeriod, whDay, isToday }) {
+function DayPanel({ title, date, watts, whPeriod, whDay, isToday, actualWatts }) {
   const wSlots  = filterDay(watts,    date);
   const wpSlots = filterDay(whPeriod, date);
   const totalWh = whDay[date] ?? wpSlots.reduce((s, [, v]) => s + v, 0);
@@ -102,6 +122,11 @@ function DayPanel({ title, date, watts, whPeriod, whDay, isToday }) {
       .filter(([k]) => k <= nowStr)
       .reduce((s, [, v]) => s + v, 0);
   }
+
+  // Actual totaal (Wh from 15-min W averages × 0.25h)
+  const actualTotalWh = actualWatts && Object.keys(actualWatts).length
+    ? Object.values(actualWatts).reduce((s, v) => s + v * 0.25, 0)
+    : null;
 
   return (
     <div className="forecast-day-panel">
@@ -123,20 +148,40 @@ function DayPanel({ title, date, watts, whPeriod, whDay, isToday }) {
           )}
           {isToday && producedWh != null && (
             <span className="forecast-stat">
-              <span className="forecast-stat-label">Geproduceerd</span>
+              <span className="forecast-stat-label">Geproduceerd (verwacht)</span>
               <span className="forecast-stat-value" style={{ color: "#38bdf8" }}>{fmtKwh(producedWh)}</span>
+            </span>
+          )}
+          {actualTotalWh != null && (
+            <span className="forecast-stat">
+              <span className="forecast-stat-label">Werkelijk</span>
+              <span className="forecast-stat-value" style={{ color: "#38bdf8" }}>
+                {fmtKwh(actualTotalWh)}
+                {totalWh > 0 && (
+                  <span style={{ color: "var(--text-muted)", fontWeight: 400, marginLeft: 6 }}>
+                    ({Math.round((actualTotalWh / totalWh) * 100)}%)
+                  </span>
+                )}
+              </span>
             </span>
           )}
         </div>
       </div>
 
+      {actualWatts && Object.keys(actualWatts).length > 0 && (
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6, display: "flex", gap: 16 }}>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, background: "rgba(255,214,0,0.85)", borderRadius: 2, marginRight: 4 }} />Voorspelling</span>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, background: "rgba(56,189,248,0.7)", borderRadius: 2, marginRight: 4 }} />Werkelijk</span>
+        </div>
+      )}
+
       {/* Power (W) chart */}
       <div className="forecast-chart-label">Vermogen (W)</div>
-      <BarChart slots={wSlots}  color="255,214,0"  unit="W"   />
+      <BarChart slots={wSlots}  color="255,214,0"  unit="W"  actuals={actualWatts} />
 
       {/* Energy per period (Wh) chart */}
       <div className="forecast-chart-label" style={{ marginTop: 12 }}>Energie per kwartier (Wh)</div>
-      <BarChart slots={wpSlots} color="74,222,128" unit="Wh"  />
+      <BarChart slots={wpSlots} color="74,222,128" unit="Wh" />
     </div>
   );
 }
@@ -144,10 +189,21 @@ function DayPanel({ title, date, watts, whPeriod, whDay, isToday }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function ForecastPage() {
-  const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const [lastFetch, setLastFetch] = useState(null);
+  const [data,       setData]       = useState(null);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [lastFetch,  setLastFetch]  = useState(null);
+  const [actualWatts, setActualWatts] = useState(null);
+
+  const loadActuals = useCallback(async (date) => {
+    try {
+      const r = await fetch(`api/forecast/actuals?date=${date}`);
+      if (r.ok) {
+        const d = await r.json();
+        if (d.watts && Object.keys(d.watts).length > 0) setActualWatts(d.watts);
+      }
+    } catch { /* actuals optional */ }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -159,9 +215,10 @@ export default function ForecastPage() {
       }
       setData(await r.json());
       setLastFetch(new Date());
+      loadActuals(today());
     } catch (e) { setError(e.message); }
     finally     { setLoading(false); }
-  }, []);
+  }, [loadActuals]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -219,6 +276,7 @@ export default function ForecastPage() {
             whPeriod={data.watt_hours_period}
             whDay={data.watt_hours_day}
             isToday={true}
+            actualWatts={actualWatts}
           />
           <DayPanel
             title="Morgen"

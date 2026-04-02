@@ -1382,6 +1382,133 @@ def get_forecast_estimate():
 
 
 # ---------------------------------------------------------------------------
+# Forecast actuals (werkelijke zonneopbrengst vs voorspelling)
+# ---------------------------------------------------------------------------
+
+FORECAST_ACTUAL_FILE = os.path.join(BASE_DIR, "forecast_actual_source.json")
+
+
+def _forecast_actual_source() -> dict:
+    try:
+        with open(FORECAST_ACTUAL_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"source": "none", "entity_id": ""}
+
+
+@app.route("/api/forecast/actual-source", methods=["GET"])
+def get_forecast_actual_source():
+    return jsonify(_forecast_actual_source())
+
+
+@app.route("/api/forecast/actual-source", methods=["POST"])
+def save_forecast_actual_source():
+    body = request.get_json(force=True) or {}
+    with open(FORECAST_ACTUAL_FILE, "w", encoding="utf-8") as f:
+        json.dump({"source": body.get("source", "none"),
+                   "entity_id": body.get("entity_id", "")}, f, indent=2)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/forecast/actuals")
+def get_forecast_actuals():
+    """Return 15-min actual solar watts for a given date from InfluxDB or HA history."""
+    from datetime import datetime as _dt, timedelta as _td
+    import pytz as _pytz
+
+    date_str = request.args.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    cfg  = _forecast_actual_source()
+    src  = cfg.get("source", "none")
+    result: dict[str, float] = {}
+
+    if src == "influx":
+        influx_src  = _load_influx_source()
+        conn        = _load_influx_conn()
+        mapping     = influx_src.get("mappings", {}).get("solar_w")
+        if not mapping:
+            return jsonify({"error": "InfluxDB zonnepanelen slot niet geconfigureerd."}), 400
+        if isinstance(mapping, list):
+            mapping = mapping[0]
+        url      = influx_src.get("url") or conn.get("url", "")
+        version  = influx_src.get("version") or conn.get("version", "v1")
+        database = influx_src.get("database", "")
+        username = conn.get("username", "")
+        password = conn.get("password", "")
+        token    = conn.get("token", "")
+        org      = conn.get("org", "")
+        field    = mapping.get("field", "value")
+        meas     = mapping.get("measurement") or influx_src.get("measurement", "")
+        tag_key  = mapping.get("tag_key", "")
+        tag_val  = mapping.get("tag_value", "")
+        tz_name  = (_forecast_settings().get("timezone") or
+                    _entsoe_settings().get("timezone") or "Europe/Brussels")
+        if not url or not meas:
+            return jsonify({"error": "InfluxDB niet volledig geconfigureerd."}), 400
+        try:
+            if version == "v1":
+                where_parts = [f"time >= '{date_str}T00:00:00Z' AND time < '{date_str}T23:59:59Z'"]
+                if tag_key and tag_val:
+                    where_parts.append(f'"{tag_key}" = \'{tag_val}\'')
+                q = (f'SELECT mean("{field}") AS val FROM "{meas}"'
+                     f' WHERE {" AND ".join(where_parts)}'
+                     f" GROUP BY time(15m) fill(null) tz('{tz_name}')")
+                data = _influx_v1_query(url, username, password, q, db=database)
+                for res in data.get("results", []):
+                    for series in res.get("series", []):
+                        for row in series.get("values", []):
+                            ts_raw, val = row[0], row[1]
+                            if val is None:
+                                continue
+                            # normalise timestamp → "YYYY-MM-DD HH:MM:00"
+                            ts = ts_raw[:19].replace("T", " ")
+                            result[ts] = float(val)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 502
+
+    elif src == "ha":
+        entity_id = cfg.get("entity_id", "").strip()
+        if not entity_id:
+            return jsonify({"error": "Geen HA entiteit geconfigureerd."}), 400
+        s = _ha_settings()
+        if not s.get("url") or not s.get("token"):
+            return jsonify({"error": "HA niet geconfigureerd."}), 400
+        try:
+            url_ha = f"{s['url']}/api/history/period/{date_str}T00:00:00"
+            r = _req.get(url_ha,
+                         headers=_ha_headers(s["token"]),
+                         params={"end_time": f"{date_str}T23:59:59",
+                                 "filter_entity_id": entity_id,
+                                 "minimal_response": "true"},
+                         timeout=15, verify=False)
+            r.raise_for_status()
+            history = r.json()
+            if not history or not history[0]:
+                return jsonify({"watts": {}})
+            states = history[0]
+            # Bin into 15-min slots
+            buckets: dict[str, list[float]] = {}
+            for state in states:
+                try:
+                    val = float(state["state"])
+                except (ValueError, TypeError, KeyError):
+                    continue
+                ts_raw = state.get("last_changed", "")[:19].replace("T", " ")
+                if not ts_raw.startswith(date_str):
+                    continue
+                # round down to 15-min boundary
+                h, m = int(ts_raw[11:13]), int(ts_raw[14:16])
+                slot_m = (m // 15) * 15
+                slot = f"{date_str} {h:02d}:{slot_m:02d}:00"
+                buckets.setdefault(slot, []).append(val)
+            for slot, vals in buckets.items():
+                result[slot] = sum(vals) / len(vals)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 502
+
+    return jsonify({"watts": result})
+
+
+# ---------------------------------------------------------------------------
 # Debug endpoint
 # ---------------------------------------------------------------------------
 

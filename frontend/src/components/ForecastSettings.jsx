@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const DEFAULT_STRING = { label: "", kwp: 1.0, az: 0, dec: 35 };
 
@@ -24,6 +24,20 @@ export default function ForecastSettings() {
   const [success,    setSuccess]    = useState(false);
   const [error,      setError]      = useState(null);
 
+  // ── Actual solar source ──────────────────────────────────────────────────
+  const [actualSource,   setActualSource]   = useState("none");   // "none"|"influx"|"ha"
+  const [actualEntityId, setActualEntityId] = useState("");
+  const [haEntities,     setHaEntities]     = useState([]);
+  const [entitySearch,   setEntitySearch]   = useState("");
+  const [entityOpen,     setEntityOpen]     = useState(false);
+  const entityRef = useRef(null);
+
+  useEffect(() => {
+    const close = (e) => { if (entityRef.current && !entityRef.current.contains(e.target)) setEntityOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
   useEffect(() => {
     fetch("api/forecast/settings")
       .then((r) => r.json())
@@ -34,6 +48,14 @@ export default function ForecastSettings() {
         if (d.lon) setLon(String(d.lon));
         if (d.strings && d.strings.length) setStrings(d.strings);
       })
+      .catch(() => {});
+    fetch("api/forecast/actual-source")
+      .then((r) => r.json())
+      .then((d) => { setActualSource(d.source || "none"); setActualEntityId(d.entity_id || ""); })
+      .catch(() => {});
+    fetch("api/ha/entities")
+      .then((r) => r.json())
+      .then((d) => setHaEntities(d.entities ?? []))
       .catch(() => {});
   }, []);
 
@@ -65,11 +87,21 @@ export default function ForecastSettings() {
       });
       if (!r.ok) throw new Error("Opslaan mislukt");
       if (apiKey.trim()) { setConfigured(true); setHint(`…${apiKey.trim().slice(-4)}`); setApiKey(""); }
+      await fetch("api/forecast/actual-source", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: actualSource, entity_id: actualEntityId }),
+      });
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (e) { setError(e.message); }
     finally     { setSaving(false); }
   };
+
+  const filteredEntities = haEntities.filter((e) =>
+    !entitySearch ||
+    e.friendly_name?.toLowerCase().includes(entitySearch.toLowerCase()) ||
+    e.entity_id.toLowerCase().includes(entitySearch.toLowerCase())
+  );
 
   return (
     <div className="settings-section">
@@ -153,6 +185,57 @@ export default function ForecastSettings() {
           </div>
         ))}
         <button className="btn btn-ghost btn-sm" onClick={addString}>+ String toevoegen</button>
+      </div>
+
+      {/* Actual solar source */}
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
+        <div>
+          <div className="settings-row-label">Werkelijke opbrengst bron</div>
+          <div className="settings-row-desc">
+            Overlay van echte zonneopbrengst op de forecast grafiek.
+          </div>
+        </div>
+        <select className="form-input" value={actualSource} onChange={(e) => setActualSource(e.target.value)}
+          style={{ width: 260 }}>
+          <option value="none">Geen</option>
+          <option value="influx">InfluxDB — zonnepanelen slot</option>
+          <option value="ha">Home Assistant entiteit</option>
+        </select>
+        {actualSource === "ha" && (
+          <div ref={entityRef} style={{ position: "relative", width: "100%", maxWidth: 400 }}>
+            <input className="form-input" placeholder="Zoek entiteit…"
+              value={entitySearch || actualEntityId}
+              onFocus={() => { setEntityOpen(true); setEntitySearch(""); }}
+              onChange={(e) => { setEntitySearch(e.target.value); setEntityOpen(true); }}
+              style={{ width: "100%" }} />
+            {entityOpen && filteredEntities.length > 0 && (
+              <div style={{
+                position: "absolute", zIndex: 100, background: "var(--bg-card)",
+                border: "1px solid var(--border)", borderRadius: 8,
+                maxHeight: 220, overflowY: "auto", width: "100%", top: "100%", marginTop: 4,
+              }}>
+                {filteredEntities.slice(0, 80).map((e) => (
+                  <div key={e.entity_id}
+                    style={{ padding: "6px 12px", cursor: "pointer", fontSize: 12 }}
+                    onMouseDown={() => {
+                      setActualEntityId(e.entity_id);
+                      setEntitySearch("");
+                      setEntityOpen(false);
+                    }}>
+                    <span style={{ color: "var(--text-primary)" }}>{e.friendly_name || e.entity_id}</span>
+                    <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>{e.entity_id}</span>
+                    {e.unit && <span style={{ color: "var(--accent)", marginLeft: 6 }}>{e.unit}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {actualEntityId && !entityOpen && (
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                Geselecteerd: <span style={{ color: "var(--accent)" }}>{actualEntityId}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Save */}
