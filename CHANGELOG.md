@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.13.0] - 2026-04-02
+
+### Fixed
+- HA HTTP 502 / HTML-respons: alle interne HA API-aanroepen (entiteiten,
+  history, poll, SOC-opzoek, …) gebruiken nu `http://supervisor/core` +
+  `SUPERVISOR_TOKEN` wanneer die beschikbaar is — de enige gegarandeerd
+  werkende route vanuit een HA add-on. Eigen URL/token blijft zichtbaar
+  in de instellingen maar wordt niet meer gebruikt voor interne calls.
+
 ## [1.12.0] - 2026-04-02
 
 ### Fixed

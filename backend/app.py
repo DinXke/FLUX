@@ -1122,6 +1122,19 @@ def _ha_settings() -> dict:
     return {}
 
 
+def _ha_effective_settings() -> dict:
+    """
+    Effective HA connection for backend API calls.
+    Inside a HA add-on, always use http://supervisor/core + SUPERVISOR_TOKEN
+    because that is the only reliably authenticated path.
+    Falls back to the user-configured settings when no supervisor token exists.
+    """
+    sup_token = os.environ.get("SUPERVISOR_TOKEN", "").strip()
+    if sup_token:
+        return {"url": "http://supervisor/core", "token": sup_token}
+    return _ha_settings()
+
+
 def _ha_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -1157,7 +1170,7 @@ def post_ha_settings():
 @app.route("/api/ha/test", methods=["POST"])
 def test_ha():
     """Test HA connection and return server info."""
-    s = _ha_settings()
+    s = _ha_effective_settings()
     if not s.get("token") or not s.get("url"):
         return jsonify({"error": "Niet geconfigureerd."}), 400
     try:
@@ -1174,7 +1187,7 @@ def test_ha():
 @app.route("/api/ha/entities")
 def get_ha_entities():
     """Return all HA states (numeric entities only) for sensor selection."""
-    s = _ha_settings()
+    s = _ha_effective_settings()
     if not s.get("token") or not s.get("url"):
         return jsonify({"entities": []})
 
@@ -1222,7 +1235,7 @@ def get_ha_entities():
 @app.route("/api/ha/state/<path:entity_id>")
 def get_ha_state(entity_id):
     """Fetch current state of a single HA entity."""
-    s = _ha_settings()
+    s = _ha_effective_settings()
     if not s.get("token") or not s.get("url"):
         return jsonify({"error": "Niet geconfigureerd."}), 400
     try:
@@ -1246,7 +1259,7 @@ def get_ha_state(entity_id):
 @app.route("/api/ha/poll", methods=["POST"])
 def poll_ha_sensors():
     """Batch-poll a list of entity_ids. Returns {entity_id: {value, unit}} map."""
-    s = _ha_settings()
+    s = _ha_effective_settings()
     if not s.get("token") or not s.get("url"):
         return jsonify({"error": "Niet geconfigureerd."}), 400
 
@@ -1484,7 +1497,7 @@ def get_forecast_actuals():
         entity_id = cfg.get("entity_id", "").strip()
         if not entity_id:
             return jsonify({"error": "Geen HA entiteit geconfigureerd."}), 400
-        s = _ha_settings()
+        s = _ha_effective_settings()
         if not s.get("url") or not s.get("token"):
             return jsonify({"error": "HA niet geconfigureerd."}), 400
         try:
@@ -1619,7 +1632,7 @@ def _query_ha_hourly_consumption(days: int = 21) -> list[dict]:
     Returns [{hour: int, avg_wh: float}] averaged over `days` days.
     Falls back to influx_source.json entity_ids if flow_cfg has no HA sensors.
     """
-    ha_s = _ha_settings()
+    ha_s = _ha_effective_settings()
     if not ha_s.get("token") or not ha_s.get("url"):
         log.debug("HA history fallback: no HA token/URL configured")
         return []
@@ -2473,7 +2486,7 @@ def _influx_context():
 
     # Poll HA for configured sensors
     ha_data: dict = {}
-    ha_s = _ha_settings()
+    ha_s = _ha_effective_settings()
     if ha_s.get("token") and ha_s.get("url"):
         ha_entity_ids = list({
             sc["sensor"]
@@ -2607,7 +2620,7 @@ def _compute_forward_plan() -> dict:
             if soc_entries:
                 esphome_map = _poll_esphome(devices_dict)
                 ha_soc_data: dict = {}
-                ha_s = _ha_settings()
+                ha_s = _ha_effective_settings()
                 if ha_s.get("token") and ha_s.get("url"):
                     ha_eids = [e["sensor"] for e in soc_entries
                                if e.get("source") == "homeassistant" and e.get("sensor")]
