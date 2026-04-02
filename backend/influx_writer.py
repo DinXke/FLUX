@@ -266,6 +266,16 @@ def _collect_and_write(app_context_fn):
         log.debug("No fields to write – sensors not configured/reachable")
         return
 
+    # ── Persist bat_soc to a JSON cache so the strategy can always read it ──
+    if "bat_soc" in fields:
+        import json as _json, time as _time
+        _soc_file = os.path.join(_DATA_DIR, "last_soc.json")
+        try:
+            with open(_soc_file, "w", encoding="utf-8") as _f:
+                _json.dump({"soc": fields["bat_soc"], "ts": _time.time()}, _f)
+        except Exception:
+            pass
+
     write_api = _get_write_api()
     if write_api is None:
         return

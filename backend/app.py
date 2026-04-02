@@ -2629,6 +2629,19 @@ def _compute_forward_plan() -> dict:
             log.warning("_compute_forward_plan: SoC live-poll failed: %s", exc)
 
     if soc_now is None:
+        # Final fallback: read last known SoC from the live-data cache file
+        try:
+            import time as _time
+            _soc_file = os.path.join(DATA_DIR, "last_soc.json")
+            with open(_soc_file, encoding="utf-8") as _f:
+                _sc = json.load(_f)
+            if _time.time() - _sc.get("ts", 0) < 3600:   # max 1 hour old
+                soc_now = float(_sc["soc"])
+                log.info("_compute_forward_plan: SoC from cache file: %.1f%%", soc_now)
+        except Exception:
+            pass
+
+    if soc_now is None:
         soc_now = 50.0
 
     log.info("_compute_forward_plan: SoC=%.1f%%", soc_now)

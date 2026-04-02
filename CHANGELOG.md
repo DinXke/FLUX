@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.12.0] - 2026-04-02
+
+### Fixed
+- SOC altijd 50%: live data-collector schrijft nu de gemeten SOC weg naar
+  `last_soc.json`; strategie leest dit cachebestand als alle andere bronnen
+  (InfluxDB extern, lokaal, ESPHome/HA live-poll) niets opleveren
+- Werkelijke zonneopbrengst: foutmelding nu zichtbaar onder de grafiek als
+  het ophalen mislukt (HA niet bereikbaar, entiteit niet geconfigureerd, …)
+
 ## [1.11.0] - 2026-04-02
 
 ### Fixed

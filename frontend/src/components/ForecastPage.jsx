@@ -244,7 +244,8 @@ export default function ForecastPage() {
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
   const [lastFetch,   setLastFetch]   = useState(null);
-  const [actualWatts, setActualWatts] = useState(null);
+  const [actualWatts,  setActualWatts]  = useState(null);
+  const [actualsError, setActualsError] = useState(null);
   // Navigation: null = forecast view (today+tomorrow), date string = historical
   const [histDate,    setHistDate]    = useState(null);
   const [histWatts,   setHistWatts]   = useState(null);
@@ -254,11 +255,15 @@ export default function ForecastPage() {
   const tomorrowStr = tomorrow();
 
   const loadActuals = useCallback(async (date) => {
+    setActualsError(null);
     try {
       const r = await fetch(`api/forecast/actuals?date=${date}`);
+      const d = await r.json().catch(() => ({}));
       if (r.ok) {
-        const d = await r.json();
         if (d.watts && Object.keys(d.watts).length > 0) setActualWatts(d.watts);
+        else if (d.error) setActualsError(d.error);
+      } else {
+        setActualsError(d.error || `HTTP ${r.status}`);
       }
     } catch { /* actuals optional */ }
   }, []);
@@ -379,6 +384,12 @@ export default function ForecastPage() {
           {data.errors?.length > 0 && (
             <div className="forecast-error" style={{ marginBottom: 16 }}>
               {data.errors.map((e, i) => <div key={i}>⚠ {e}</div>)}
+            </div>
+          )}
+          {actualsError && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8, padding: "4px 8px",
+              background: "rgba(239,68,68,0.08)", borderRadius: 6, border: "1px solid rgba(239,68,68,0.2)" }}>
+              ⚠ Werkelijke opbrengst: {actualsError}
             </div>
           )}
           <DayPanel
