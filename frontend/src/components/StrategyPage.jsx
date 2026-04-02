@@ -200,13 +200,17 @@ function DayChart({ title, slots, isToday }) {
         ))}
       </div>
 
-      {slots.some((s) => s.action !== "neutral") && (
+      {slots.length > 0 && (
         <div className="strat-detail-list">
-          {slots.filter((s) => s.action !== "neutral").map((slot) => {
-            const ac = ACTION_COLOR[slot.action] || ACTION_COLOR.neutral;
+          {slots.map((slot) => {
+            const ac      = ACTION_COLOR[slot.action] || ACTION_COLOR.neutral;
+            const isNeu   = slot.action === "neutral";
             return (
               <div key={slot.time} className="strat-detail-row"
-                style={{ borderLeft: `3px solid ${ac.border}` }}>
+                style={{
+                  borderLeft: `3px solid ${ac.border}`,
+                  opacity: isNeu ? 0.45 : 1,
+                }}>
                 <span className="strat-detail-time">{fmtHour(slot.time)}</span>
                 <span className="strat-detail-icon">{ac.icon}</span>
                 <span className="strat-detail-action" style={{ color: ac.border }}>{ac.label}</span>

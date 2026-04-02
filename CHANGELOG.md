@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.0] - 2026-04-02
+
+### Changed
+- Alle uursloten getoond in de detaillijst, inclusief neutrale uren
+  (gedimde weergave met 45% opacity)
+
 ## [1.17.0] - 2026-04-02
 
 ### Fixed
