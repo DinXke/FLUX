@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.14.0] - 2026-04-02
+
+### Changed
+- HA instellingen: tekst verduidelijkt dat URL en token als add-on niet
+  vereist zijn — de Supervisor-verbinding werkt automatisch
+
 ## [1.13.0] - 2026-04-02
 
 ### Fixed

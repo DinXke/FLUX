@@ -71,8 +71,8 @@ export default function HomeAssistantSettings() {
       <div className="settings-section-title">🏠 Home Assistant</div>
 
       <div style={{ padding: "4px 20px 4px", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-        Koppel met Home Assistant via een Long-Lived Access Token om HA-sensoren te gebruiken
-        als bron in het vermogensstroom-schema.
+        Als add-on gebruikt de app automatisch de interne Supervisor-verbinding — URL en token
+        zijn dan <strong>niet vereist</strong>. Vul ze alleen in bij externe toegang (buiten HA).
       </div>
 
       {/* URL */}
