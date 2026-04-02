@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.15.0] - 2026-04-02
+
+### Fixed
+- HA instellingen opslaan: URL is niet meer verplicht — als add-on werkt
+  de Supervisor-verbinding zonder URL
+
 ## [1.14.0] - 2026-04-02
 
 ### Changed

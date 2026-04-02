@@ -1154,12 +1154,10 @@ def post_ha_settings():
     body = request.get_json(force=True)
     current = _ha_settings()
 
-    url = (body.get("url") or current.get("url", "")).rstrip("/")
+    url = (body.get("url") or "").strip().rstrip("/")
     token = body.get("token", "").strip()
 
-    if not url:
-        return jsonify({"error": "URL is verplicht."}), 400
-
+    # URL is optional when running as a HA add-on (supervisor handles connection)
     s = {"url": url, "token": token if token else current.get("token", "")}
     with open(HA_SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(s, f, indent=2)
