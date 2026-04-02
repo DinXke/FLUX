@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.0] - 2026-04-02
+
+### Fixed
+- `homeassistant_api: true` toegevoegd aan config.yaml — zonder deze vlag
+  heeft de add-on geen toegang tot `http://supervisor/core`, waardoor alle
+  HA API-aanroepen 401 gaven ondanks het gebruik van de Supervisor-route
+
 ## [1.15.0] - 2026-04-02
 
 ### Fixed

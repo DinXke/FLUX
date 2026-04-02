@@ -1,5 +1,5 @@
 name: SmartMarstek
-version: "1.15.0"
+version: "1.16.0"
 slug: smartmarstek
 description: Smart battery management dashboard for Marstek batteries with ENTSO-E price strategy, solar forecast and Home Assistant integration.
 url: https://github.com/DinXke/SmartMarstek
@@ -12,6 +12,9 @@ image: ghcr.io/dinxke/smartmarstek/{arch}
 startup: application
 boot: auto
 init: false
+
+# Allow the add-on to call the HA Core API via http://supervisor/core
+homeassistant_api: true
 
 map:
   - data:rw
