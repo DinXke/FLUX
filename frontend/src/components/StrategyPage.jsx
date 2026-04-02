@@ -530,7 +530,7 @@ export default function StrategyPage() {
     setLoading(true); setError(null);
     syncFlowCfgToBackend();
     try {
-      const url = date ? `/api/strategy/plan?date=${date}` : "/api/strategy/plan";
+      const url = date ? `api/strategy/plan?date=${date}` : "api/strategy/plan";
       const r   = await fetch(url);
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
