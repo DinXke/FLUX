@@ -3150,12 +3150,31 @@ def _automation_tick() -> None:
         log.debug("Automation: action unchanged (%s) – no commands sent", action)
         return
 
-    commands = _AUTOMATION_MODES.get(action, _AUTOMATION_MODES["neutral"])
-    devices  = load_devices()
+    base_commands = list(_AUTOMATION_MODES.get(action, _AUTOMATION_MODES["neutral"]))
+    devices       = load_devices()
 
     if not devices:
         log.debug("Automation: no devices configured")
         return
+
+    # For grid_charge: also set Forcible Charge Power (W per battery) and Charge to SoC.
+    # max_charge_kw is the total grid charge power across all batteries.
+    # Divide evenly across devices; Marstek expects watts as an integer.
+    extra_commands: list[tuple] = []
+    if action == "grid_charge":
+        s_now      = load_strategy_settings()
+        num_dev    = len(devices)
+        total_w    = float(s_now.get("max_charge_kw", 3.0)) * 1000.0
+        per_bat_w  = int(round(total_w / num_dev))
+        charge_soc = int(s_now.get("max_soc", 95))
+        extra_commands = [
+            ("number", "Marstek Forcible Charge Power",    str(per_bat_w)),
+            ("number", "Marstek Charge to SoC",            str(charge_soc)),
+        ]
+        log.info("Automation: grid_charge  total=%.1fkW  per_battery=%dW  charge_to_soc=%d%%  devices=%d",
+                 total_w / 1000, per_bat_w, charge_soc, num_dev)
+
+    commands = base_commands + extra_commands
 
     log.info("Automation: action changed %s → %s  (devices=%d)",
              prev_action or "none", action, len(devices))

@@ -215,8 +215,8 @@ export default function StrategySettings() {
       </Row>
 
       {/* Max charge rate */}
-      <Row label="Max. laadvermogen netwerk (kW)"
-        desc="Maximale laadsnelheid van het net (niet de zon).">
+      <Row label="Max. laadvermogen netwerk (kW) — totaal"
+        desc={`Totaal laadvermogen van alle batterijen samen via het net. Bij geforceerd laden (grid_charge) wordt dit evenredig verdeeld over alle geconfigureerde apparaten. Voorbeeld: 5 kW met 2 batterijen = 2500 W per batterij (ingesteld via Forcible Charge Power). Gebruik max. wat jouw netaansluiting toelaat.`}>
         <input className="form-input" type="number" step="0.5" min="0.5" max="11" style={{ width: 80 }}
           value={vals.max_charge_kw} onChange={(e) => set("max_charge_kw", e.target.value)} />
       </Row>
