@@ -1489,7 +1489,8 @@ def get_forecast_actuals():
                             if ts.startswith(date_str):
                                 result[ts] = float(val)
         except Exception as exc:
-            return jsonify({"error": str(exc)}), 502
+            log.warning("forecast/actuals influx error: %s", exc)
+            return jsonify({"watts": {}, "warning": f"InfluxDB niet bereikbaar: {exc}"})
 
     elif src == "ha":
         entity_id = cfg.get("entity_id", "").strip()
@@ -1541,9 +1542,10 @@ def get_forecast_actuals():
             for slot, vals in buckets.items():
                 result[slot] = sum(vals) / len(vals)
         except Exception as exc:
-            return jsonify({"error": str(exc)}), 502
+            log.warning("forecast/actuals ha error: %s", exc)
+            return jsonify({"watts": {}, "warning": f"HA history niet bereikbaar: {exc}"})
 
-    return jsonify({"watts": result})
+    return jsonify({"watts": result, "source": src})
 
 
 # ---------------------------------------------------------------------------
