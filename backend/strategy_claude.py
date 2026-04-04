@@ -64,14 +64,13 @@ def _append_usage(ran_at: str, model: str, in_tok: int, out_tok: int, eur: float
 
 
 def get_usage_stats() -> dict:
-    """Return aggregated usage: today / this week / this month / all-time."""
+    """Return aggregated usage: last 1 day / last 7 days / last 31 days / all-time."""
     records = _load_usage()
     now     = datetime.now(timezone.utc)
 
-    day_start   = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    week_start  = (now - timedelta(days=now.weekday())).replace(
-                    hour=0, minute=0, second=0, microsecond=0).isoformat()
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    cut_1d  = (now - timedelta(days=1)).isoformat()
+    cut_7d  = (now - timedelta(days=7)).isoformat()
+    cut_31d = (now - timedelta(days=31)).isoformat()
 
     def _agg(recs):
         calls = len(recs)
@@ -81,11 +80,11 @@ def get_usage_stats() -> dict:
         return {"calls": calls, "tokens_in": in_t, "tokens_out": out_t, "eur": round(eur, 5)}
 
     return {
-        "today":     _agg([r for r in records if r.get("ran_at", "") >= day_start]),
-        "this_week": _agg([r for r in records if r.get("ran_at", "") >= week_start]),
-        "this_month":_agg([r for r in records if r.get("ran_at", "") >= month_start]),
-        "all_time":  _agg(records),
-        "records":   len(records),
+        "last_1d":  _agg([r for r in records if r.get("ran_at", "") >= cut_1d]),
+        "last_7d":  _agg([r for r in records if r.get("ran_at", "") >= cut_7d]),
+        "last_31d": _agg([r for r in records if r.get("ran_at", "") >= cut_31d]),
+        "all_time": _agg(records),
+        "records":  len(records),
     }
 
 

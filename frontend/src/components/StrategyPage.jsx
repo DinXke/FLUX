@@ -402,6 +402,70 @@ function ConsumptionProfile({ hours, standbyW = 0 }) {
   );
 }
 
+// ── Claude usage stats panel ─────────────────────────────────────────────
+
+function ClaudeStatsPanel() {
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    const load = () =>
+      fetch("api/claude/usage")
+        .then((r) => r.ok ? r.json() : null)
+        .then(setStats)
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!stats) return null;
+
+  const fmtEur = (e) => e == null ? "€0"
+    : e < 0.0001 ? `${(e * 100).toFixed(4)} ct`
+    : e < 0.01   ? `${(e * 100).toFixed(3)} ct`
+    : `€${e.toFixed(4)}`;
+
+  const rows = [
+    { label: "Laatste 24 uur", s: stats.last_1d },
+    { label: "Laatste 7 dagen", s: stats.last_7d },
+    { label: "Laatste 31 dagen", s: stats.last_31d },
+    { label: "Totaal ooit",      s: stats.all_time },
+  ];
+
+  return (
+    <div className="strat-day-panel">
+      <div className="strat-day-title">🤖 Claude AI — gebruik &amp; kosten</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8, marginTop: 8 }}>
+        {rows.map(({ label, s }) => (
+          <div key={label} style={{
+            background: "rgba(99,102,241,0.07)", borderRadius: 8,
+            border: "1px solid rgba(99,102,241,0.2)", padding: "10px 14px",
+          }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{label}</div>
+            {s && s.calls > 0 ? (
+              <>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#818cf8" }}>
+                  {fmtEur(s.eur)}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                  {s.calls} {s.calls === 1 ? "aanroep" : "aanroepen"}
+                  {" · "}{((s.tokens_in + s.tokens_out) / 1000).toFixed(1)}k tokens
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 13, color: "var(--text-muted)" }}>—</div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+        Roldende vensters (24u / 7d / 31d). Prijzen gebaseerd op Claude Haiku 4.5 ($0.80/$4.00 per MTok).
+        Claude wordt enkel aangeroepen bij nieuwe prijzen (~1×/dag).
+      </div>
+    </div>
+  );
+}
+
 // ── Claude debug panel ────────────────────────────────────────────────────
 
 const ACTION_LABEL_SHORT = {
@@ -884,6 +948,7 @@ export default function StrategyPage() {
                   naarmate data binnenkomt. Manuele piekuren zijn in te stellen via Instellingen → Laadstrategie.
                 </div>
               )}
+              <ClaudeStatsPanel />
             </>
           )}
         </>
