@@ -316,11 +316,13 @@ def start_background_writer(app_context_fn, interval: int = WRITE_INTERVAL):
 # Query helpers (used by strategy endpoint)
 # ---------------------------------------------------------------------------
 
-def query_avg_hourly_consumption(days: int = 21) -> list[dict]:
+def query_avg_hourly_consumption(days: int = 21,
+                                 tz_name: str = "Europe/Brussels") -> list[dict]:
     """
-    Return average consumption per hour-of-day [0..23]
-    based on the last `days` days of house_w data.
-    Returns list of 24 dicts: {hour: int, avg_wh: float}.
+    Return average consumption per (weekday, hour-of-day).
+    weekday: 0 = Monday … 6 = Sunday (Python convention).
+    Returns list of dicts: {weekday: int, hour: int, avg_wh: float},
+    up to 7×24 = 168 entries (only entries with data are included).
     """
     write_api = _get_write_api()
     if write_api is None:
@@ -328,27 +330,33 @@ def query_avg_hourly_consumption(days: int = 21) -> list[dict]:
 
     try:
         from influxdb_client import InfluxDBClient  # type: ignore
+        from zoneinfo import ZoneInfo
         client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
         query_api = client.query_api()
 
+        # Fetch hourly averages; weekday grouping is done in Python so
+        # timezone conversions are handled correctly.
         flux = f"""
 from(bucket: "{INFLUX_BUCKET}")
   |> range(start: -{days}d)
   |> filter(fn: (r) => r._measurement == "energy_flow" and r._field == "house_w")
   |> aggregateWindow(every: 1h, fn: mean, createEmpty: false)
-  |> map(fn: (r) => ({{r with hour: int(v: r._time) / 3600000000000 % 24}}))
-  |> group(columns: ["hour"])
-  |> mean(column: "_value")
 """
         tables = query_api.query(flux, org=INFLUX_ORG)
-        result = []
+        tz = ZoneInfo(tz_name)
+        by_wd_hour: dict[tuple, list] = {}
         for table in tables:
             for record in table.records:
-                hour = record.values.get("hour")
-                val  = record.get_value()
-                if hour is not None and val is not None:
-                    result.append({"hour": int(hour), "avg_wh": float(val)})
-        result.sort(key=lambda x: x["hour"])
+                val = record.get_value()
+                if val is None:
+                    continue
+                t = record.get_time().astimezone(tz)
+                key = (t.weekday(), t.hour)
+                by_wd_hour.setdefault(key, []).append(float(val))
+
+        result = []
+        for (wd, h), vals in sorted(by_wd_hour.items()):
+            result.append({"weekday": wd, "hour": h, "avg_wh": round(sum(vals) / len(vals), 1)})
         return result
     except Exception as exc:
         log.warning("InfluxDB hourly query error: %s", exc)

@@ -49,6 +49,14 @@ DEFAULT_SETTINGS = {
     "history_days":         21,
     # Tax / distribution markup on top of market price (€/kWh)
     "grid_markup_eur_kwh":  0.12,
+    # Price source for strategy: "entsoe" or "frank"
+    # When "frank": uses Frank Energie all-in prices (incl. taxes/markup).
+    #   Set grid_markup_eur_kwh to only network/distribution fee (~0.05–0.07).
+    # When "entsoe": uses ENTSO-E wholesale prices + grid_markup_eur_kwh.
+    "price_source":         "entsoe",
+    # Consumption profile source: "auto" | "local_influx" | "external_influx" | "ha_history"
+    # "auto": tries external_influx → local_influx → ha_history (fallback chain).
+    "consumption_source":   "auto",
 }
 
 
@@ -110,8 +118,26 @@ def build_plan(
     tz            = ZoneInfo(tz_name)
     manual_peaks  = s.get("manual_peak_hours", [])
 
-    # Consumption lookup {hour: avg_Wh}
-    cons_by_hour = {int(x["hour"]): float(x["avg_wh"]) for x in (consumption_by_hour or [])}
+    # Consumption lookup — supports both weekday-aware {(weekday, hour): avg_Wh}
+    # and legacy {hour: avg_Wh} formats.
+    cons_by_wd_hour: dict[tuple, float] = {}
+    cons_by_hour:    dict[int,   float] = {}
+    for x in (consumption_by_hour or []):
+        h  = int(x["hour"])
+        v  = float(x["avg_wh"])
+        wd = x.get("weekday")
+        if wd is not None:
+            cons_by_wd_hour[(int(wd), h)] = v
+        else:
+            cons_by_hour[h] = v
+
+    has_wd_data = bool(cons_by_wd_hour)
+
+    def _cons(weekday: int, hour: int) -> float:
+        if has_wd_data:
+            return cons_by_wd_hour.get((weekday, hour),
+                   cons_by_hour.get(hour, 300.0))
+        return cons_by_hour.get(hour, 300.0)
 
     # ── Build 48 hourly price slots ──────────────────────────────────────────
     # Expand prices to 1-hour buckets if they're quarter-hour
@@ -174,16 +200,35 @@ def build_plan(
         p25 = p75 = price_median = 0.10
 
     # ── Determine peak hours ─────────────────────────────────────────────────
+    # With weekday data: compute per-weekday peak sets (top 25% hours per day).
+    # Fallback to global set for legacy / manual overrides.
     if manual_peaks:
-        peak_hours = set(int(h) for h in manual_peaks)
+        _manual_set = set(int(h) for h in manual_peaks)
+        def _is_peak(weekday: int, hour: int) -> bool:
+            return hour in _manual_set
+
+    elif has_wd_data:
+        _wd_peaks: dict[int, set] = {}
+        for wd in range(7):
+            wd_vals = {h: cons_by_wd_hour.get((wd, h), 0.0) for h in range(24)}
+            sorted_v = sorted(wd_vals.values())
+            threshold = sorted_v[int(24 * 0.75)]
+            _wd_peaks[wd] = {h for h, c in wd_vals.items() if c >= threshold}
+
+        def _is_peak(weekday: int, hour: int) -> bool:
+            return hour in _wd_peaks.get(weekday, {7, 8, 9, 17, 18, 19, 20, 21})
+
     elif cons_by_hour:
-        # Top 25% consumption hours = peak
         cons_vals = list(cons_by_hour.values())
         threshold = sorted(cons_vals)[int(len(cons_vals) * 0.75)]
-        peak_hours = {h for h, c in cons_by_hour.items() if c >= threshold}
+        _fallback_peaks = {h for h, c in cons_by_hour.items() if c >= threshold}
+
+        def _is_peak(weekday: int, hour: int) -> bool:
+            return hour in _fallback_peaks
+
     else:
-        # Default peak: morning 7-9 and evening 17-22
-        peak_hours = {7, 8, 9, 17, 18, 19, 20, 21}
+        def _is_peak(weekday: int, hour: int) -> bool:
+            return hour in {7, 8, 9, 17, 18, 19, 20, 21}
 
     # ── Simulate battery state over time ────────────────────────────────────
     bat_kwh = cap_kwh * (bat_soc_now / 100.0)
@@ -195,11 +240,12 @@ def build_plan(
     for i, slot_dt in enumerate(all_slots):
         slot_key = slot_dt.isoformat()
         hour     = slot_dt.hour
+        weekday  = slot_dt.weekday()   # 0 = Monday, 6 = Sunday
         price_raw = price_slots.get(slot_key)
         buy_price = (price_raw + markup) if price_raw is not None else None
 
         solar_wh_slot  = solar_by_slot.get(slot_key, 0.0)
-        cons_wh_slot   = cons_by_hour.get(hour, 300.0)  # default 300 Wh/h if no history
+        cons_wh_slot   = _cons(weekday, hour)
         net_wh         = solar_wh_slot - cons_wh_slot   # positive = solar excess
 
         soc_start = (bat_kwh / cap_kwh) * 100.0
@@ -231,7 +277,7 @@ def build_plan(
                 if fp is not None:
                     future_prices.append(fp + markup)
             max_future = max(future_prices) if future_prices else buy_price
-            is_peak_hour = (hour in peak_hours)
+            is_peak_hour = _is_peak(weekday, hour)
 
             # Effective charge cost = buy_price / rte + depreciation
             eff_charge_cost = buy_price / rte + depr
@@ -273,7 +319,7 @@ def build_plan(
             elif bat_kwh > bat_min + 0.3 and buy_price > price_median:
                 # Battery has charge and upcoming peak: hold it
                 upcoming_peak = any(
-                    all_slots[j].hour in peak_hours
+                    _is_peak(all_slots[j].weekday(), all_slots[j].hour)
                     for j in range(i + 1, min(i + 6, num_slots))
                 )
                 if upcoming_peak:
@@ -300,7 +346,7 @@ def build_plan(
             "discharge_kwh":  round(discharge_kwh, 3),
             "soc_start":      round(soc_start, 1),
             "soc_end":        round(soc_end, 1),
-            "is_peak":        hour in peak_hours,
+            "is_peak":        _is_peak(weekday, hour),
             "is_past":        slot_dt < real_now,
         })
 

@@ -11,6 +11,8 @@ const DEFAULTS = {
   grid_markup_eur_kwh:  0.12,
   manual_peak_hours:    "",   // stored as comma-sep string in UI
   history_days:         21,
+  price_source:         "entsoe",
+  consumption_source:   "auto",
 };
 
 function Row({ label, desc, children }) {
@@ -26,11 +28,12 @@ function Row({ label, desc, children }) {
 }
 
 export default function StrategySettings() {
-  const [vals,    setVals]    = useState(DEFAULTS);
-  const [saving,  setSaving]  = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error,   setError]   = useState(null);
-  const [influx,  setInflux]  = useState(null);
+  const [vals,      setVals]      = useState(DEFAULTS);
+  const [saving,    setSaving]    = useState(false);
+  const [success,   setSuccess]   = useState(false);
+  const [error,     setError]     = useState(null);
+  const [influx,    setInflux]    = useState(null);
+  const [frankStat, setFrankStat] = useState(null);
 
   useEffect(() => {
     fetch("api/strategy/settings")
@@ -45,6 +48,11 @@ export default function StrategySettings() {
       .then((r) => r.json())
       .then(setInflux)
       .catch(() => setInflux({ ok: false, error: "Niet bereikbaar" }));
+
+    fetch("api/frank/status")
+      .then((r) => r.json())
+      .then(setFrankStat)
+      .catch(() => setFrankStat({ loggedIn: false }));
   }, []);
 
   const set = (k, v) => setVals((p) => ({ ...p, [k]: v }));
@@ -64,6 +72,8 @@ export default function StrategySettings() {
         history_days:         parseInt(vals.history_days),
         manual_peak_hours:    vals.manual_peak_hours
           .split(",").map((s) => s.trim()).filter(Boolean).map(Number).filter((n) => !isNaN(n)),
+        price_source:         vals.price_source,
+        consumption_source:   vals.consumption_source,
       };
       const r = await fetch("api/strategy/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -124,9 +134,55 @@ export default function StrategySettings() {
         </div>
       </Row>
 
+      {/* Price source */}
+      <Row label="Prijsbron voor laadstrategie"
+        desc={vals.price_source === "frank"
+          ? "Frank Energie all-in tarieven (marktprijs + belasting + opslag). Zet nettarief hieronder op enkel distributiekosten (~5–7 ct/kWh)."
+          : "ENTSO-E groothandelsprijzen. Voeg nettarief + belasting toe via de instelling hieronder (typisch 10–15 ct/kWh)."}>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[{ val: "entsoe", label: "ENTSO-E" }, { val: "frank", label: "Frank Energie" }].map(({ val, label }) => {
+            const disabled = val === "frank" && frankStat && !frankStat.loggedIn;
+            return (
+              <button
+                key={val}
+                type="button"
+                disabled={disabled}
+                title={disabled ? "Niet ingelogd bij Frank Energie" : undefined}
+                onClick={() => !disabled && set("price_source", val)}
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: 6,
+                  border: "1px solid",
+                  fontSize: 12,
+                  cursor: disabled ? "not-allowed" : "pointer",
+                  borderColor: vals.price_source === val ? "var(--accent)" : "var(--border)",
+                  background: vals.price_source === val ? "var(--accent)" : "transparent",
+                  color: disabled ? "var(--text-muted)" : vals.price_source === val ? "#fff" : "var(--text)",
+                  opacity: disabled ? 0.5 : 1,
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        {vals.price_source === "frank" && frankStat?.loggedIn && (
+          <div style={{ fontSize: 11, color: "var(--green)", marginTop: 4 }}>
+            ✓ Ingelogd als {frankStat.email}
+          </div>
+        )}
+        {vals.price_source === "frank" && frankStat && !frankStat.loggedIn && (
+          <div style={{ fontSize: 11, color: "var(--red)", marginTop: 4 }}>
+            ✗ Niet ingelogd — ga naar Prijzen → Frank Energie om in te loggen
+          </div>
+        )}
+      </Row>
+
       {/* Grid markup */}
       <Row label="Nettarief + belasting (€/kWh)"
-        desc="Vaste opslag bovenop de marktprijs: distributie, heffingen, btw (excl.). Typisch 10–15 ct/kWh.">
+        desc={vals.price_source === "frank"
+          ? "Bij Frank-prijzen: enkel distributie/transportkost (~5–7 ct/kWh). Belastingen zitten al in de Frank-prijs."
+          : "Vaste opslag bovenop de marktprijs: distributie, heffingen, btw (excl.). Typisch 10–15 ct/kWh."}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input className="form-input" type="number" step="0.005" min="0" max="0.50" style={{ width: 80 }}
             value={vals.grid_markup_eur_kwh} onChange={(e) => set("grid_markup_eur_kwh", e.target.value)} />
@@ -162,9 +218,21 @@ export default function StrategySettings() {
           onClick={() => set("sell_back", !vals.sell_back)} type="button" />
       </Row>
 
+      {/* Consumption source */}
+      <Row label="Verbruiksprofiel bron"
+        desc="Welke databron gebruiken voor het historisch verbruiksprofiel (per uur/weekdag).">
+        <select className="form-input" style={{ width: 200 }}
+          value={vals.consumption_source} onChange={(e) => set("consumption_source", e.target.value)}>
+          <option value="auto">Automatisch (aanbevolen)</option>
+          <option value="local_influx">Lokale InfluxDB</option>
+          <option value="external_influx">Externe InfluxDB</option>
+          <option value="ha_history">Home Assistant historiek</option>
+        </select>
+      </Row>
+
       {/* History */}
       <Row label="Historiedagen voor verbruiksprofiel"
-        desc="Aantal dagen om gemiddeld verbruik per uur te berekenen uit InfluxDB.">
+        desc="Aantal dagen om gemiddeld verbruik per uur + weekdag te berekenen.">
         <input className="form-input" type="number" step="7" min="7" max="90" style={{ width: 80 }}
           value={vals.history_days} onChange={(e) => set("history_days", e.target.value)} />
       </Row>

@@ -1752,17 +1752,17 @@ def _query_ha_hourly_consumption(days: int = 21) -> list[dict]:
     if not entity_hourly:
         return []
 
-    # Collect all (date, hour) keys present
+    # Collect all (date_str, hour) keys present
     all_keys: set = set()
     for d in entity_hourly.values():
         all_keys.update(d.keys())
 
-    by_hour_of_day: dict[int, list] = {h: [] for h in range(24)}
+    by_wd_hour: dict[tuple, list] = {}  # (weekday 0=Mon, hour) → [Wh]
 
     for date_str, hour in all_keys:
         key = (date_str, hour)
 
-        solar_wh = sum(
+        solar_wh_val = sum(
             (-entity_hourly[eid].get(key, 0.0) if inv else entity_hourly[eid].get(key, 0.0))
             for eid, inv, _sc in sol_entities
             if eid in entity_hourly
@@ -1773,18 +1773,17 @@ def _query_ha_hourly_consumption(days: int = 21) -> list[dict]:
             if eid in entity_hourly
         )
         # house ≈ solar + grid_import (battery not tracked here)
-        house_wh = solar_wh + max(net_wh, 0.0)
+        house_wh = solar_wh_val + max(net_wh, 0.0)
         if house_wh >= 0:
-            by_hour_of_day[hour].append(house_wh)
+            from datetime import date as _date
+            wd = _date.fromisoformat(date_str).weekday()  # 0=Mon, 6=Sun
+            by_wd_hour.setdefault((wd, hour), []).append(house_wh)
 
     result = []
-    for hour in range(24):
-        vals = by_hour_of_day[hour]
-        if vals:
-            result.append({"hour": hour, "avg_wh": round(sum(vals) / len(vals), 1)})
+    for (wd, hour), vals in sorted(by_wd_hour.items()):
+        result.append({"weekday": wd, "hour": hour, "avg_wh": round(sum(vals) / len(vals), 1)})
 
-    result.sort(key=lambda x: x["hour"])
-    log.info("HA consumption history: %d hour-of-day buckets from %d days", len(result), days)
+    log.info("HA consumption history: %d (weekday, hour) buckets from %d days", len(result), days)
     return result
 
 
@@ -2228,6 +2227,8 @@ def _query_external_influx_consumption(days: int = 21) -> list[dict]:
     try:
         tz_name = _entsoe_settings().get("timezone", "Europe/Brussels")
 
+        by_wd_hour: dict[tuple, list] = {}  # (weekday 0=Mon, hour) → [Wh]
+
         if version == "v1":
             where_parts = []
             if tag_key and tag_value:
@@ -2240,7 +2241,6 @@ def _query_external_influx_consumption(days: int = 21) -> list[dict]:
                  f' GROUP BY time(1h) fill(none) tz(\'{tz_name}\')')
 
             data = _influx_v1_query(url, username, password, q, db=database)
-            by_hour: dict[int, list] = {h: [] for h in range(24)}
             for res in data.get("results", []):
                 for series in res.get("series", []):
                     cols = series.get("columns", [])
@@ -2252,7 +2252,8 @@ def _query_external_influx_consumption(days: int = 21) -> list[dict]:
                         try:
                             t = datetime.fromisoformat(d["time"].replace("Z", "+00:00"))
                             t_local = t.astimezone(ZoneInfo(tz_name))
-                            by_hour[t_local.hour].append(float(v) * sign * scale)
+                            key = (t_local.weekday(), t_local.hour)
+                            by_wd_hour.setdefault(key, []).append(float(v) * sign * scale)
                         except Exception:
                             pass
 
@@ -2272,7 +2273,6 @@ def _query_external_influx_consumption(days: int = 21) -> list[dict]:
                           headers=headers, params={"org": org},
                           json={"query": flux, "type": "flux"}, timeout=30, verify=False)
             r.raise_for_status()
-            by_hour = {h: [] for h in range(24)}
             for line in r.text.splitlines():
                 if line.startswith("#") or not line.strip():
                     continue
@@ -2283,18 +2283,17 @@ def _query_external_influx_consumption(days: int = 21) -> list[dict]:
                     t = datetime.fromisoformat(parts[5].strip().replace("Z", "+00:00"))
                     t_local = t.astimezone(ZoneInfo(tz_name))
                     v = float(parts[-1].strip())
-                    by_hour[t_local.hour].append(v)
+                    key = (t_local.weekday(), t_local.hour)
+                    by_wd_hour.setdefault(key, []).append(v)
                 except Exception:
                     pass
         else:
             return []
 
         result = []
-        for hour in range(24):
-            vals = by_hour[hour]
-            if vals:
-                result.append({"hour": hour, "avg_wh": round(sum(vals) / len(vals), 1)})
-        log.info("External InfluxDB consumption: %d hours from %s", len(result), url)
+        for (wd, hour), vals in sorted(by_wd_hour.items()):
+            result.append({"weekday": wd, "hour": hour, "avg_wh": round(sum(vals) / len(vals), 1)})
+        log.info("External InfluxDB consumption: %d (weekday, hour) buckets from %s", len(result), url)
         return result
 
     except Exception as exc:
@@ -2538,7 +2537,33 @@ def _compute_forward_plan() -> dict:
 
     # ── Prices (today + tomorrow) ─────────────────────────────────────────
     prices = []
-    if es.get("apiKey"):
+    price_source = s.get("price_source", "entsoe")
+
+    if price_source == "frank":
+        frank_sess = _frank_session()
+        frank_token   = frank_sess.get("authToken")
+        frank_country = frank_sess.get("country", "BE")
+        if frank_token or frank_country == "BE":
+            try:
+                target_d = date.fromisoformat(today_str)
+                for d_off in [0, 1]:
+                    day = target_d + timedelta(days=d_off)
+                    frank_rows = _fetch_prices(frank_token, day, day + timedelta(days=1), frank_country)
+                    for row in frank_rows:
+                        all_in = (
+                            (row.get("marketPrice")         or 0.0) +
+                            (row.get("marketPriceTax")      or 0.0) +
+                            (row.get("sourcingMarkupPrice") or 0.0) +
+                            (row.get("energyTaxPrice")      or 0.0)
+                        )
+                        prices.append({"from": row["from"], "till": row["till"], "marketPrice": all_in})
+            except Exception as exc:
+                log.warning("_compute_forward_plan: Frank fetch error: %s", exc)
+        if not prices:
+            log.warning("_compute_forward_plan: Frank prices empty – falling back to ENTSO-E")
+            price_source = "entsoe"
+
+    if price_source == "entsoe" and es.get("apiKey"):
         try:
             target_d = date.fromisoformat(today_str)
             prices  += _fetch_entsoe_day(es["apiKey"], target_d,
@@ -2557,31 +2582,46 @@ def _compute_forward_plan() -> dict:
             log.warning("_compute_forward_plan: forecast fetch error: %s", exc)
 
     # ── Consumption profile ───────────────────────────────────────────────
-    history_days = s.get("history_days", 21)
-    ext_src = _load_influx_source()
-    ext_configured = bool(ext_src.get("mappings") and ext_src.get("database"))
+    history_days     = s.get("history_days", 21)
+    cons_source_pref = s.get("consumption_source", "auto")
+    ext_src          = _load_influx_source()
+    ext_configured   = bool(ext_src.get("mappings") and ext_src.get("database"))
     consumption_by_hour: list = []
     consumption_source  = "none"
 
-    if ext_configured:
-        ext_consumption = _query_external_influx_consumption(days=history_days)
-        if len(ext_consumption) >= 18:
-            consumption_by_hour = ext_consumption
-            consumption_source  = "external_influx"
+    def _try_external():
+        if ext_configured:
+            data = _query_external_influx_consumption(days=history_days)
+            if len(data) >= 18:
+                return data, "external_influx"
+        return [], ""
 
-    if not consumption_by_hour:
-        local_consumption = query_avg_hourly_consumption(days=history_days)
-        if len(local_consumption) >= 18:
-            consumption_by_hour = local_consumption
-            consumption_source  = "local_influx"
+    def _try_local():
+        data = query_avg_hourly_consumption(days=history_days, tz_name=tz_name)
+        if len(data) >= 18:
+            return data, "local_influx"
+        return [], ""
 
-    if not consumption_by_hour:
-        ha_consumption = _query_ha_hourly_consumption(days=history_days)
-        if ha_consumption:
-            consumption_by_hour = ha_consumption
-            consumption_source  = "ha_history"
+    def _try_ha():
+        data = _query_ha_hourly_consumption(days=history_days)
+        if data:
+            return data, "ha_history"
+        return [], ""
 
-    log.info("_compute_forward_plan: consumption=%s (%d/24 h), prices=%d, solar=%d",
+    if cons_source_pref == "external_influx":
+        consumption_by_hour, consumption_source = _try_external()
+    elif cons_source_pref == "local_influx":
+        consumption_by_hour, consumption_source = _try_local()
+    elif cons_source_pref == "ha_history":
+        consumption_by_hour, consumption_source = _try_ha()
+    else:
+        # "auto": cascade external → local → HA
+        for _fn in (_try_external, _try_local, _try_ha):
+            consumption_by_hour, consumption_source = _fn()
+            if consumption_by_hour:
+                break
+
+    log.info("_compute_forward_plan: consumption=%s (%d slots), prices=%d, solar=%d",
              consumption_source, len(consumption_by_hour), len(prices), len(solar_wh))
 
     # ── Current SoC ───────────────────────────────────────────────────────
@@ -2666,6 +2706,7 @@ def _compute_forward_plan() -> dict:
     result["soc_now"]             = soc_now
     result["is_historical"]       = False
     result["consumption_source"]  = consumption_source
+    result["price_source_used"]   = price_source
 
     _plan_cache["slots"]      = result.get("all", [])
     _plan_cache["fetched_at"] = datetime.now(timezone.utc).isoformat()

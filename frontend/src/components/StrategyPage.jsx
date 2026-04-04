@@ -337,15 +337,43 @@ function ActualsChart({ actuals }) {
 
 // ── Consumption profile chart ─────────────────────────────────────────────
 
+const WD_NAMES = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
+
 function ConsumptionProfile({ hours }) {
   if (!hours || !hours.length) return null;
-  const max = Math.max(1, ...hours.map((h) => h.avg_wh));
+
+  const hasWdData = hours.some((h) => h.weekday !== undefined);
+  // JS getDay(): 0=Sun…6=Sat → Python weekday 0=Mon…6=Sun
+  const todayWd = (new Date().getDay() + 6) % 7;
+  const [selWd, setSelWd] = React.useState(todayWd);
+
+  const filtered = hasWdData ? hours.filter((h) => h.weekday === selWd) : hours;
+  const max = Math.max(1, ...filtered.map((h) => h.avg_wh));
+
   return (
     <div className="strat-day-panel">
-      <div className="strat-day-title">📊 Gemiddeld verbruiksprofiel (historiek)</div>
+      <div className="strat-day-title" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span>📊 Verbruiksprofiel (historiek)</span>
+        {hasWdData && (
+          <div style={{ display: "flex", gap: 4 }}>
+            {WD_NAMES.map((name, wd) => (
+              <button key={wd} type="button" onClick={() => setSelWd(wd)}
+                style={{
+                  padding: "2px 7px", borderRadius: 5, fontSize: 11, cursor: "pointer",
+                  border: "1px solid", borderColor: selWd === wd ? "var(--accent)" : "var(--border)",
+                  background: selWd === wd ? "var(--accent)" : "transparent",
+                  color: selWd === wd ? "#fff" : "var(--text)",
+                  fontWeight: wd === todayWd ? 700 : 400,
+                }}>
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="strat-chart" style={{ marginTop: 8 }}>
         {Array.from({ length: 24 }, (_, h) => {
-          const entry = hours.find((x) => x.hour === h);
+          const entry = filtered.find((x) => x.hour === h);
           const wh    = entry?.avg_wh || 0;
           const pct   = (wh / max) * 100;
           return (
@@ -360,7 +388,9 @@ function ConsumptionProfile({ hours }) {
         })}
       </div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-        Gebaseerd op InfluxDB historiek · piekuren zijn automatisch bepaald
+        {hasWdData
+          ? `Profiel voor ${WD_NAMES[selWd]}${selWd === todayWd ? " (vandaag)" : ""} · piekuren automatisch bepaald per weekdag`
+          : "Gebaseerd op historiek · piekuren zijn automatisch bepaald"}
       </div>
     </div>
   );
