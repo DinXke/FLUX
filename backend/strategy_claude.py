@@ -103,8 +103,16 @@ Houd rekening met: energieprijzen per uur, zonneopbrengst, verwacht verbruik, ba
 - NOOIT onder min_reserve_soc_pct
 - NOOIT boven max_soc_pct
 
+## Sluipverbruik en nachtelijk SOC-verlies
+- De woning heeft altijd een basisverbruik (koelkast, router, standby-apparaten): het **sluipverbruik**.
+- Dit is zichtbaar in consumption_wh voor uren 00–06: typisch 150–500 Wh/u zelfs als iedereen slaapt.
+- Bij **neutral** 's nachts: de batterij ontlaadt voor dit sluipverbruik. De SOC daalt elk uur met ~consumption_wh / capacity_kwh × 100%.
+- Voorbeeld: 300 Wh sluipverbruik op 10 kWh batterij = 3% SOC per nachtuur → 6 uur nacht = −18% SOC.
+- Het soc_start_pct in de invoer is al gesimuleerd met dit nachtelijk verbruik, zodat je de werkelijke SOC-evolutie ziet.
+- Houd hiermee rekening bij grid_charge plannen: als je wil dat de batterij 's ochtends vol genoeg is voor de ochtendpiek, laad dan voldoende op voor de nacht.
+
 ## Typisch dagpatroon (Belgische gezinswoning)
-- **00–06u**: sluipverbruik (~200–400 Wh/u), prijzen laag → neutral (ontladen OK want goedkoop uur)
+- **00–06u**: sluipverbruik (~200–400 Wh/u), prijzen laag → neutral (batterij ontlaadt langzaam, OK)
 - **07–09u**: ochtendpiek (500–800 Wh/u), prijs vaak hoog → discharge of save als 2u later nog duurder
 - **10–15u**: zonne-overschot → solar_charge; geen zon: neutral
 - **16–20u**: avondpiek + hoge prijzen → discharge bij p75-uren; save 1u vóór het duurste uur
@@ -252,6 +260,10 @@ def build_plan_claude(
     breakeven = round(p_min / rte + depr, 4) if known_prices else None
 
     # ── Build input slots for Claude ──────────────────────────────────────
+    # Simulate a realistic SOC baseline assuming "neutral" for all future slots:
+    # neutral = anti-feed = battery drains for consumption load when no solar.
+    # This gives Claude a realistic picture of how the SOC evolves overnight
+    # instead of a flat line that suggests the battery never drains.
     slots_input = []
     _bat_sim = bat_soc_now / 100.0 * cap_kwh
 
@@ -274,6 +286,15 @@ def build_plan_claude(
             "soc_start_pct":     round((_bat_sim / cap_kwh) * 100, 1),
             "is_past":           slot_dt < real_now,
         })
+
+        # Advance simulated SOC assuming neutral (battery covers net consumption)
+        if slot_dt >= real_now:
+            if net >= 0:
+                # Solar surplus: battery charges (up to max)
+                _bat_sim = min(bat_max, _bat_sim + (net / 1000.0) * rte)
+            else:
+                # Consumption exceeds solar: battery drains (down to reserve)
+                _bat_sim = max(bat_min, _bat_sim + net / 1000.0)
 
     # ── Build Claude request payload ──────────────────────────────────────
     payload = {
@@ -455,7 +476,23 @@ def build_plan_claude(
                 bat_kwh       -= use
                 discharge_kwh  = use
 
-        # SAVE and NEUTRAL: no bat_kwh change in simulation
+        elif action == NEUTRAL:
+            # anti-feed: battery covers net consumption load (no solar at night = drains)
+            if net >= 0:
+                surplus_kwh = (net / 1000.0) * rte
+                headroom    = bat_max - bat_kwh
+                store       = min(surplus_kwh, headroom)
+                if store > 0:
+                    bat_kwh    += store
+                    charge_kwh  = net / 1000.0
+            else:
+                avail = bat_kwh - bat_min
+                use   = min((-net) / 1000.0, avail)
+                if use > 0:
+                    bat_kwh       -= use
+                    discharge_kwh  = use
+
+        # SAVE: battery completely passive — no bat_kwh change
 
         soc_end = (bat_kwh / cap_kwh) * 100.0
 

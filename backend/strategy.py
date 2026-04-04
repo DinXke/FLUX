@@ -410,6 +410,23 @@ def build_plan(
             else:
                 action = NEUTRAL
 
+        # ── Neutral SOC simulation ────────────────────────────────────────
+        # anti-feed: battery covers net consumption when no explicit charge/
+        # discharge action is set.  Without this the predicted SOC stays flat
+        # overnight which is misleading (sluipverbruik drains the battery).
+        if action == NEUTRAL:
+            if net_wh >= 0:
+                surplus_kwh = (net_wh / 1000.0) * rte
+                headroom    = (max_soc * cap_kwh) - bat_kwh
+                store       = min(surplus_kwh, headroom)
+                if store > 0:
+                    bat_kwh += store
+            else:
+                avail = bat_kwh - (min_soc * cap_kwh)
+                use   = min((-net_wh) / 1000.0, avail)
+                if use > 0:
+                    bat_kwh -= use
+
         soc_end = (bat_kwh / cap_kwh) * 100.0
 
         slots.append({
