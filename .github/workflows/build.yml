@@ -24,7 +24,7 @@ jobs:
             base: ghcr.io/home-assistant/aarch64-base-python:3.13-alpine3.21
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3.6.0
