@@ -345,7 +345,7 @@ function ConsumptionProfile({ hours }) {
   const hasWdData = hours.some((h) => h.weekday !== undefined);
   // JS getDay(): 0=Sun…6=Sat → Python weekday 0=Mon…6=Sun
   const todayWd = (new Date().getDay() + 6) % 7;
-  const [selWd, setSelWd] = React.useState(todayWd);
+  const [selWd, setSelWd] = useState(todayWd);
 
   const filtered = hasWdData ? hours.filter((h) => h.weekday === selWd) : hours;
   const max = Math.max(1, ...filtered.map((h) => h.avg_wh));
