@@ -65,6 +65,12 @@ DEFAULT_SETTINGS = {
     # 0.30 = best upcoming price must be ≥30% above current price (AND above p75).
     # Lower = more aggressive saving; higher = only save for very large spreads.
     "save_price_factor":    0.30,
+    # Strategy engine: "rule_based" (default) or "claude" (uses Anthropic API)
+    "strategy_mode":        "rule_based",
+    # Anthropic API key (only used when strategy_mode = "claude")
+    "claude_api_key":       "",
+    # Claude model to use for planning (Haiku = cheapest/fastest)
+    "claude_model":         "claude-haiku-4-5-20251001",
 }
 
 

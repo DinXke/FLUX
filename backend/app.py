@@ -2727,7 +2727,16 @@ def _compute_forward_plan() -> dict:
              consumption_source, len(consumption_by_hour), len(prices), len(solar_wh), soc_now)
 
     # ── Build plan & update cache ─────────────────────────────────────────
-    plan   = build_plan(prices, solar_wh, consumption_by_hour, soc_now, s)
+    if s.get("strategy_mode") == "claude":
+        try:
+            from strategy_claude import build_plan_claude
+            plan = build_plan_claude(prices, solar_wh, consumption_by_hour, soc_now, s)
+            log.info("_compute_forward_plan: using Claude AI engine")
+        except Exception as _ce:
+            log.warning("_compute_forward_plan: Claude engine failed (%s) — rule-based fallback", _ce)
+            plan = build_plan(prices, solar_wh, consumption_by_hour, soc_now, s)
+    else:
+        plan = build_plan(prices, solar_wh, consumption_by_hour, soc_now, s)
     result = split_days(plan)
     result["consumption_by_hour"] = consumption_by_hour
     result["prices_available"]    = len(prices) > 0
@@ -2736,6 +2745,7 @@ def _compute_forward_plan() -> dict:
     result["is_historical"]       = False
     result["consumption_source"]  = consumption_source
     result["price_source_used"]   = price_source
+    result["strategy_engine"]     = s.get("strategy_mode", "rule_based")
     # Expose calculated (or configured) standby for display in the UI
     from strategy import load_strategy_settings as _lss
     _ss = _lss()

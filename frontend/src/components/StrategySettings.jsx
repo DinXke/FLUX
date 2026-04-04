@@ -15,6 +15,9 @@ const DEFAULTS = {
   consumption_source:   "auto",
   standby_w:            0,
   save_price_factor:    0.30,
+  strategy_mode:        "rule_based",
+  claude_api_key:       "",
+  claude_model:         "claude-haiku-4-5-20251001",
 };
 
 function Row({ label, desc, children }) {
@@ -78,6 +81,9 @@ export default function StrategySettings() {
         consumption_source:   vals.consumption_source,
         standby_w:            parseFloat(vals.standby_w) || 0,
         save_price_factor:    parseFloat(vals.save_price_factor) || 0.30,
+        strategy_mode:        vals.strategy_mode || "rule_based",
+        claude_api_key:       vals.claude_api_key || "",
+        claude_model:         vals.claude_model   || "claude-haiku-4-5-20251001",
       };
       const r = await fetch("api/strategy/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -271,6 +277,60 @@ export default function StrategySettings() {
           placeholder="bv: 7, 8, 18, 19, 20 (leeg = automatisch)"
           value={vals.manual_peak_hours} onChange={(e) => set("manual_peak_hours", e.target.value)} />
       </Row>
+
+      {/* Strategy engine */}
+      <div className="settings-row" style={{ background: "rgba(99,102,241,0.06)", borderRadius: 8, margin: "8px 0 4px", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+          <div>
+            <div className="settings-row-label">Planningsengine</div>
+            <div className="settings-row-desc">
+              Regelgebaseerd = lokaal algoritme, altijd beschikbaar.
+              Claude AI = Anthropic API, vereist API-sleutel. Haiku is ~€0,001/berekening.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            {[{ val: "rule_based", label: "Regelgebaseerd" }, { val: "claude", label: "Claude AI" }].map(({ val, label }) => (
+              <button key={val} type="button"
+                onClick={() => set("strategy_mode", val)}
+                style={{
+                  padding: "4px 12px", borderRadius: 6, border: "1px solid", fontSize: 12, cursor: "pointer",
+                  borderColor: vals.strategy_mode === val ? "var(--accent)" : "var(--border)",
+                  background:  vals.strategy_mode === val ? "var(--accent)" : "transparent",
+                  color:       vals.strategy_mode === val ? "#fff" : "var(--text)",
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {vals.strategy_mode === "claude" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", paddingTop: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div className="settings-row-label" style={{ marginBottom: 4 }}>Anthropic API-sleutel</div>
+                <input className="form-input" type="password" style={{ width: "100%" }}
+                  placeholder="sk-ant-…"
+                  value={vals.claude_api_key}
+                  onChange={(e) => set("claude_api_key", e.target.value)} />
+              </div>
+              <div style={{ flexShrink: 0 }}>
+                <div className="settings-row-label" style={{ marginBottom: 4 }}>Model</div>
+                <select className="form-input" style={{ width: 220 }}
+                  value={vals.claude_model} onChange={(e) => set("claude_model", e.target.value)}>
+                  <option value="claude-haiku-4-5-20251001">Haiku 4.5 — snel &amp; goedkoop (~€0,001)</option>
+                  <option value="claude-sonnet-4-5">Sonnet 4.5 — beter redeneren (~€0,01)</option>
+                  <option value="claude-opus-4-5">Opus 4.5 — meest intelligent (~€0,05)</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              Slaat de batterijstatus, prijzen en verbruiksprofiel op als JSON en stuurt die naar Claude.
+              Bij fout of geen sleutel valt het systeem automatisch terug op de regelgebaseerde engine.
+            </div>
+          </div>
+        )}
+      </div>
 
       <div style={{ padding: "12px 20px 4px", display: "flex", gap: 10, alignItems: "center" }}>
         <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
