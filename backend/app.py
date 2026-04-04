@@ -1545,6 +1545,120 @@ def get_forecast_actuals():
             log.warning("forecast/actuals ha error: %s", exc)
             return jsonify({"watts": {}, "warning": f"HA history niet bereikbaar: {exc}"})
 
+    elif src == "flow":
+        # Use solar_power entries from flow_cfg (same sources as the live dashboard).
+        # Queries HA history for HA-sourced sensors; ESPHome sensors are read from
+        # InfluxDB (written by the background writer) when available, else HA history
+        # using the sensor name derived from the ESPHome entity.
+        ha_s     = _ha_effective_settings()
+        tz_name  = _entsoe_settings().get("timezone", "Europe/Brussels")
+        import pytz as _pytz2
+        _tz2     = _pytz2.timezone(tz_name)
+
+        # Load flow_cfg to find solar_power entities
+        flow_cfg2: dict = {}
+        try:
+            with open(FLOW_CFG_SERVER_FILE, "r", encoding="utf-8") as _ff:
+                raw2 = json.load(_ff)
+            for k, v in raw2.items():
+                flow_cfg2[k] = v if isinstance(v, list) else [v]
+        except Exception:
+            pass
+
+        sol_entries = [
+            (e["sensor"], bool(e.get("invert", False)), float(e.get("scale", 1) or 1))
+            for e in flow_cfg2.get("solar_power", [])
+            if e.get("source") == "homeassistant" and e.get("sensor")
+        ]
+
+        # Also pick up ESPHome solar sensors via InfluxDB if mapped
+        influx_src2 = _load_influx_source()
+        sol_mapping = influx_src2.get("mappings", {}).get("solar_w")
+        use_influx_flow = bool(sol_mapping and influx_src2.get("database"))
+
+        if use_influx_flow:
+            # Delegate to influx path by temporarily acting as src=="influx"
+            conn2    = _load_influx_conn()
+            mapping2 = sol_mapping if not isinstance(sol_mapping, list) else sol_mapping[0]
+            url2     = influx_src2.get("url") or conn2.get("url", "")
+            version2 = influx_src2.get("version") or conn2.get("version", "v1")
+            db2      = influx_src2.get("database", "")
+            user2    = conn2.get("username", "")
+            pass2    = conn2.get("password", "")
+            field2   = mapping2.get("field", "value")
+            meas2    = mapping2.get("measurement") or influx_src2.get("measurement", "")
+            tkey2    = mapping2.get("tag_key", "")
+            tval2    = mapping2.get("tag_value", "")
+            if url2 and meas2:
+                try:
+                    from datetime import datetime as _dt3, timedelta as _td3
+                    _d3 = _dt3.strptime(date_str, "%Y-%m-%d")
+                    _s3 = (_d3 - _td3(hours=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    _e3 = (_d3 + _td3(hours=38)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    where3 = [f"time >= '{_s3}' AND time < '{_e3}'"]
+                    if tkey2 and tval2:
+                        where3.append(f'"{tkey2}" = \'{tval2}\'')
+                    q3 = (f'SELECT mean("{field2}") AS val FROM "{meas2}"'
+                          f' WHERE {" AND ".join(where3)}'
+                          f" GROUP BY time(15m) fill(null)")
+                    data3 = _influx_v1_query(url2, user2, pass2, q3, db=db2)
+                    for res3 in data3.get("results", []):
+                        for ser3 in res3.get("series", []):
+                            for row3 in ser3.get("values", []):
+                                ts3, val3 = row3[0], row3[1]
+                                if val3 is None:
+                                    continue
+                                try:
+                                    from datetime import datetime as _dti
+                                    import pytz as _pyi
+                                    dt_u = _dti.strptime(ts3[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_pyi.utc)
+                                    ts_loc = dt_u.astimezone(_tz2).strftime("%Y-%m-%d %H:%M:%S")
+                                except Exception:
+                                    ts_loc = ts3[:19].replace("T", " ")
+                                if ts_loc.startswith(date_str):
+                                    result[ts_loc] = float(val3)
+                except Exception as exc:
+                    log.warning("forecast/actuals flow→influx error: %s", exc)
+
+        if not result and sol_entries and ha_s.get("url") and ha_s.get("token"):
+            # Fall back to HA history for the solar HA entities
+            base2 = ha_s["url"].rstrip("/")
+            hdrs2 = _ha_headers(ha_s["token"])
+            for eid2, inv2, sc2 in sol_entries:
+                try:
+                    r2 = _req.get(
+                        f"{base2}/api/history/period/{date_str}T00:00:00",
+                        headers=hdrs2,
+                        params={"end_time": f"{date_str}T23:59:59",
+                                "filter_entity_id": eid2,
+                                "minimal_response": "true"},
+                        timeout=15, verify=False)
+                    if not r2.ok:
+                        continue
+                    hist2 = r2.json()
+                    if not hist2 or not hist2[0]:
+                        continue
+                    from datetime import datetime as _dth
+                    import pytz as _pyh
+                    for st2 in hist2[0]:
+                        try:
+                            val2 = float(st2["state"]) * sc2 * (-1 if inv2 else 1)
+                        except (ValueError, TypeError):
+                            continue
+                        traw2 = st2.get("last_changed", "")
+                        try:
+                            dtu2 = _dth.strptime(traw2[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_pyh.utc)
+                            dtl2 = dtu2.astimezone(_tz2)
+                            if dtl2.strftime("%Y-%m-%d") != date_str:
+                                continue
+                            h2, m2 = dtl2.hour, dtl2.minute
+                        except Exception:
+                            continue
+                        slot2 = f"{date_str} {h2:02d}:{(m2 // 15)*15:02d}:00"
+                        result[slot2] = result.get(slot2, 0.0) + val2
+                except Exception as exc2:
+                    log.warning("forecast/actuals flow→ha %s error: %s", eid2, exc2)
+
     return jsonify({"watts": result, "source": src})
 
 

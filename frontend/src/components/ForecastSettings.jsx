@@ -196,11 +196,17 @@ export default function ForecastSettings() {
           </div>
         </div>
         <select className="form-input" value={actualSource} onChange={(e) => setActualSource(e.target.value)}
-          style={{ width: 260 }}>
+          style={{ width: 320 }}>
           <option value="none">Geen</option>
+          <option value="flow">Databronnen (aanbevolen — zelfde als flow dashboard)</option>
           <option value="influx">InfluxDB — zonnepanelen slot</option>
           <option value="ha">Home Assistant entiteit</option>
         </select>
+        {actualSource === "flow" && (
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+            Gebruikt de solar_power bron uit Bronnen. Werkt met ESPHome, InfluxDB en HA-sensoren.
+          </div>
+        )}
         {actualSource === "ha" && (
           <div ref={entityRef} style={{ position: "relative", width: "100%", maxWidth: 400 }}>
             <input className="form-input" placeholder="Zoek entiteit…"
