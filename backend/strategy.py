@@ -61,6 +61,10 @@ DEFAULT_SETTINGS = {
     # 0 = auto-detect from 02:00–06:00 historical average.
     # Used to filter standby-only hours out of peak detection.
     "standby_w":            0,
+    # Minimum price premium for "save for better hour" to trigger.
+    # 0.30 = best upcoming price must be ≥30% above current price (AND above p75).
+    # Lower = more aggressive saving; higher = only save for very large spreads.
+    "save_price_factor":    0.30,
 }
 
 
@@ -379,15 +383,21 @@ def build_plan(
                         action = DISCHARGE
                         reason = f"Duur net ({buy_price*100:.1f}ct/kWh)"
 
-            elif bat_kwh > bat_min + 0.3 and buy_price > price_median:
-                # Battery has charge and upcoming peak: hold it
+            elif bat_kwh > bat_min + 0.3:
+                # Battery has charge — decide whether to save or go neutral
                 upcoming_peak = any(
                     _is_peak(all_slots[j].weekday(), all_slots[j].hour)
                     for j in range(i + 1, min(i + 6, num_slots))
                 )
-                if upcoming_peak:
+                # A much more expensive hour is coming soon (30% above current AND above p75)
+                better_soon = best_future_16 > buy_price * (1.0 + settings.get("save_price_factor", 0.30)) and best_future_16 > p75
+
+                if buy_price > price_median and upcoming_peak:
                     action = SAVE
                     reason = "Sparen voor komende piekuren"
+                elif better_soon:
+                    action = SAVE
+                    reason = f"Goedkoop nu ({buy_price*100:.0f}ct) – sparen voor {best_future_16*100:.0f}ct"
                 else:
                     action = NEUTRAL
             else:

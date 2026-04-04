@@ -14,6 +14,7 @@ const DEFAULTS = {
   price_source:         "entsoe",
   consumption_source:   "auto",
   standby_w:            0,
+  save_price_factor:    0.30,
 };
 
 function Row({ label, desc, children }) {
@@ -76,6 +77,7 @@ export default function StrategySettings() {
         price_source:         vals.price_source,
         consumption_source:   vals.consumption_source,
         standby_w:            parseFloat(vals.standby_w) || 0,
+        save_price_factor:    parseFloat(vals.save_price_factor) || 0.30,
       };
       const r = await fetch("api/strategy/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -247,6 +249,18 @@ export default function StrategySettings() {
             placeholder="0 = auto"
             value={vals.standby_w || ""} onChange={(e) => set("standby_w", e.target.value)} />
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>W</span>
+        </div>
+      </Row>
+
+      {/* Save price factor */}
+      <Row label="Spaardrempel (factor)"
+        desc={`Hoe groot het prijsverschil moet zijn om nu te sparen voor een duurder uur. 0.30 = de beste komende prijs moet ≥30% hoger zijn dan de huidige prijs. Lager = sneller sparen; hoger = enkel sparen bij grote spreiding. Huidig: ${Math.round(parseFloat(vals.save_price_factor || 0) * 100)}%`}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input className="form-input" type="number" step="0.05" min="0.10" max="1.00" style={{ width: 80 }}
+            value={vals.save_price_factor} onChange={(e) => set("save_price_factor", e.target.value)} />
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            ({Math.round(parseFloat(vals.save_price_factor || 0) * 100)}%)
+          </span>
         </div>
       </Row>
 
