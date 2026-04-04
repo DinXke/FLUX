@@ -4,6 +4,15 @@
  * Navigeer terug voor historische werkelijke opbrengst.
  */
 import { useState, useEffect, useCallback } from "react";
+import { loadFlowCfg } from "./FlowSourcesSettings.jsx";
+
+function syncFlowCfgToBackend() {
+  const cfg = loadFlowCfg();
+  fetch("api/flow/cfg", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cfg),
+  }).catch(() => {});
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -256,12 +265,20 @@ export default function ForecastPage() {
 
   const loadActuals = useCallback(async (date) => {
     setActualsError(null);
+    syncFlowCfgToBackend();
+    // Small delay so the flow_cfg POST completes before the actuals GET
+    await new Promise((r) => setTimeout(r, 300));
     try {
       const r = await fetch(`api/forecast/actuals?date=${date}`);
       const d = await r.json().catch(() => ({}));
       if (r.ok) {
-        if (d.watts && Object.keys(d.watts).length > 0) setActualWatts(d.watts);
-        else if (d.error) setActualsError(d.error);
+        if (d.watts && Object.keys(d.watts).length > 0) {
+          setActualWatts(d.watts);
+        } else if (d.error) {
+          setActualsError(d.error);
+        } else if (d.warning) {
+          setActualsError(d.warning);
+        }
       } else {
         setActualsError(d.error || `HTTP ${r.status}`);
       }

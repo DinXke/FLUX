@@ -1620,6 +1620,19 @@ def get_forecast_actuals():
                 except Exception as exc:
                     log.warning("forecast/actuals flow→influx error: %s", exc)
 
+        # Diagnose empty result: warn when flow_cfg has no usable historical source
+        if not result and not sol_entries and not use_influx_flow:
+            all_solar = flow_cfg2.get("solar_power", [])
+            if not all_solar:
+                return jsonify({"watts": {}, "warning":
+                    "Geen zonnepanelen bron ingesteld in Instellingen → Bronnen."})
+            non_ha = [e.get("source", "?") for e in all_solar if e.get("source") != "homeassistant"]
+            if non_ha:
+                return jsonify({"watts": {}, "warning":
+                    f"Historische data is alleen beschikbaar voor Home Assistant entiteiten. "
+                    f"Huidige bron(nen): {', '.join(set(non_ha))}. "
+                    f"Voeg een HA-sensor toe als zonnepanelen bron, of gebruik InfluxDB."})
+
         if not result and sol_entries and ha_s.get("url") and ha_s.get("token"):
             # Fall back to HA history for the solar HA entities
             base2 = ha_s["url"].rstrip("/")
