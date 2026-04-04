@@ -1799,18 +1799,23 @@ def get_strategy_plan():
     target_date   = date_param if date_param else today_str
 
     if not is_historical:
-        # For forward mode: use cached plan if < 5 minutes old (avoids redundant
-        # network + DB fetches on every page load).
-        # Pass ?refresh=1 (from the Vernieuwen button) to bypass the cache.
         force_refresh = request.args.get("refresh") == "1"
-        if not force_refresh:
-            cached_at_str = _plan_cache.get("fetched_at")
-            if cached_at_str and _plan_cache.get("result"):
-                age_s = (datetime.now(timezone.utc)
-                         - datetime.fromisoformat(cached_at_str)).total_seconds()
-                if age_s < 300:
-                    return jsonify(_plan_cache["result"])
-        return jsonify(_compute_forward_plan())
+        if not force_refresh and _plan_cache.get("result"):
+            if s.get("strategy_mode") == "claude":
+                # Claude mode: serve cache as long as prices haven't changed.
+                # The fingerprint check inside _compute_forward_plan handles
+                # invalidation; we still call it so SoC stays current, but it
+                # returns instantly when the fingerprint matches.
+                pass  # fall through to _compute_forward_plan (fingerprint-gated)
+            else:
+                # Rule-based: 5-minute TTL
+                cached_at_str = _plan_cache.get("fetched_at")
+                if cached_at_str:
+                    age_s = (datetime.now(timezone.utc)
+                             - datetime.fromisoformat(cached_at_str)).total_seconds()
+                    if age_s < 300:
+                        return jsonify(_plan_cache["result"])
+        return jsonify(_compute_forward_plan(force_claude=force_refresh))
 
     if is_historical:
         # ── Historical mode: use InfluxDB actuals ─────────────────────────
@@ -2528,13 +2533,16 @@ def _influx_context():
 
 AUTOMATION_FILE = os.path.join(BASE_DIR, "automation.json")
 
-def _compute_forward_plan() -> dict:
+def _compute_forward_plan(force_claude: bool = False) -> dict:
     """
     Build the forward charging plan (today + tomorrow).
     Fetches fresh prices, solar forecast, consumption profile and live SoC.
     Updates _plan_cache and returns the result dict.
     Called both by the /api/strategy/plan route and by the automation thread
     when the cached plan is stale.
+
+    force_claude=True bypasses the price-fingerprint cache check for the Claude
+    engine (used when the user explicitly clicks Vernieuwen).
     """
     s   = load_strategy_settings()
     es  = _entsoe_settings()
@@ -2726,9 +2734,31 @@ def _compute_forward_plan() -> dict:
     log.info("_compute_forward_plan: consumption=%s (%d slots), prices=%d, solar=%d, SoC=%.1f%%",
              consumption_source, len(consumption_by_hour), len(prices), len(solar_wh), soc_now)
 
+    # ── Price fingerprint (for Claude cache invalidation) ─────────────────
+    # Hash the sorted "from" timestamps of all price slots. Changes only when
+    # new prices are published (once per day, ~14:00 for next day).
+    import hashlib as _hashlib
+    _price_fp = _hashlib.md5(
+        json.dumps(sorted(p.get("from", "") for p in prices)).encode()
+    ).hexdigest()[:12]
+
     # ── Build plan & update cache ─────────────────────────────────────────
     _claude_debug = None
     if s.get("strategy_mode") == "claude":
+        # Only call Claude when prices have actually changed.
+        # Serve cached plan otherwise (price-fingerprint based, not time-based).
+        _cached_fp  = _plan_cache.get("price_fingerprint")
+        _have_cache = bool(_plan_cache.get("result"))
+        if not force_claude and _have_cache and _cached_fp == _price_fp:
+            log.info("_compute_forward_plan: Claude mode – prices unchanged (fp=%s), serving cache",
+                     _price_fp)
+            # Update SoC in cached result so the UI reflects current battery level
+            _plan_cache["result"]["soc_now"] = soc_now
+            return _plan_cache["result"]
+
+        log.info("_compute_forward_plan: Claude mode – %s (fp %s→%s)",
+                 "forced refresh" if force_claude else "new prices",
+                 _cached_fp or "none", _price_fp)
         try:
             import strategy_claude as _sc_mod
             plan = _sc_mod.build_plan_claude(prices, solar_wh, consumption_by_hour, soc_now, s)
@@ -2749,6 +2779,7 @@ def _compute_forward_plan() -> dict:
     result["consumption_source"]  = consumption_source
     result["price_source_used"]   = price_source
     result["strategy_engine"]     = s.get("strategy_mode", "rule_based")
+    result["price_fingerprint"]   = _price_fp
     if _claude_debug:
         result["claude_debug"]    = _claude_debug
     # Expose calculated (or configured) standby for display in the UI
@@ -2764,9 +2795,10 @@ def _compute_forward_plan() -> dict:
                   (x.get("weekday") is not None and x.get("hour") in {2, 3, 4, 5})]
         result["standby_w"] = round(sum(_sv) / len(_sv), 0) if _sv else 0
 
-    _plan_cache["slots"]      = result.get("all", [])
-    _plan_cache["fetched_at"] = datetime.now(timezone.utc).isoformat()
-    _plan_cache["result"]     = result
+    _plan_cache["slots"]             = result.get("all", [])
+    _plan_cache["fetched_at"]        = datetime.now(timezone.utc).isoformat()
+    _plan_cache["result"]            = result
+    _plan_cache["price_fingerprint"] = _price_fp
     return result
 
 

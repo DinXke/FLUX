@@ -412,7 +412,7 @@ const ACTION_LABEL_SHORT = {
   neutral:      "· Neutraal",
 };
 
-function ClaudeDebugPanel({ debug }) {
+function ClaudeDebugPanel({ debug, plan }) {
   const [open, setOpen] = useState(false);
   if (!debug) return null;
 
@@ -427,6 +427,7 @@ function ClaudeDebugPanel({ debug }) {
   const costStr = costEur != null
     ? costEur < 0.001 ? `~${(costEur * 100).toFixed(3)} ct` : `~€${costEur.toFixed(4)}`
     : null;
+  const fp = plan?.price_fingerprint;
 
   return (
     <div style={{
@@ -452,6 +453,12 @@ function ClaudeDebugPanel({ debug }) {
             <span style={{ color: "var(--text-muted)" }}>
               Tijd: <strong style={{ color: "var(--text)" }}>{debug.elapsed_s}s</strong>
             </span>
+            {fp && (
+              <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
+                prijzen-fp: <code style={{ color: "var(--text-dim)" }}>{fp}</code>
+                {" · "}Claude enkel herberekend bij nieuwe prijzen
+              </span>
+            )}
             {debug.action_counts && (
               <span style={{ color: "var(--text-muted)" }}>
                 {Object.entries(debug.action_counts)
@@ -793,7 +800,7 @@ export default function StrategyPage() {
       {!viewDate && <AutomationToggle planLoadedAt={planLoadedAt} />}
 
       {/* Claude debug panel – shown when Claude engine was used */}
-      {plan?.claude_debug && <ClaudeDebugPanel debug={plan.claude_debug} />}
+      {plan?.claude_debug && <ClaudeDebugPanel debug={plan.claude_debug} plan={plan} />}
 
       {loading && !plan && (
         <div className="loading-overlay" style={{ position: "relative", height: 100 }}>
