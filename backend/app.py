@@ -3120,10 +3120,9 @@ _AUTOMATION_MODES: dict[str, list] = {
 }
 
 
-def _read_live_net_w() -> float | None:
-    """Return current net grid power (W) from flow_cfg sources.
-    Negative = exporting to grid (overproduction), positive = importing.
-    Returns None when no net_power source is configured or readable."""
+def _read_live_flow_slots(*slot_keys: str) -> dict[str, float | None]:
+    """Read one or more flow_cfg slots live (ESPHome + HA sources).
+    Returns {slot_key: value_or_None}."""
     try:
         from influx_writer import _poll_esphome, _resolve_slot
         devices_dict = load_devices()
@@ -3134,29 +3133,62 @@ def _read_live_net_w() -> float | None:
             for k, v in raw.items():
                 live_cfg[k] = v if isinstance(v, list) else [v]
         except Exception:
-            return None
-        if not live_cfg.get("net_power"):
-            return None
+            return {k: None for k in slot_keys}
+
         esphome_map = _poll_esphome(devices_dict)
-        # Fetch live HA states for any HA net_power sensors
-        ha_net_data: dict = {}
+
+        # Collect all HA entity IDs needed across requested slots
+        ha_eids: list[str] = []
+        for slot_key in slot_keys:
+            ha_eids += [e["sensor"] for e in live_cfg.get(slot_key, [])
+                        if e.get("source") == "homeassistant" and e.get("sensor")]
+
+        ha_data: dict = {}
         ha_s = _ha_effective_settings()
-        if ha_s.get("token") and ha_s.get("url"):
-            ha_eids = [e["sensor"] for e in live_cfg.get("net_power", [])
-                       if e.get("source") == "homeassistant" and e.get("sensor")]
-            for eid in ha_eids:
+        if ha_eids and ha_s.get("token") and ha_s.get("url"):
+            for eid in set(ha_eids):
                 try:
                     r = _req.get(f"{ha_s['url']}/api/states/{eid}",
                                  headers=_ha_headers(ha_s["token"]),
                                  timeout=3, verify=False)
                     if r.ok:
-                        ha_net_data[eid] = {"value": float(r.json().get("state", "nan"))}
+                        ha_data[eid] = {"value": float(r.json().get("state", "nan"))}
                 except Exception:
                     pass
-        return _resolve_slot("net_power", live_cfg, esphome_map, None, ha_net_data)
+
+        return {k: _resolve_slot(k, live_cfg, esphome_map, None, ha_data)
+                for k in slot_keys}
     except Exception as exc:
-        log.debug("_read_live_net_w failed: %s", exc)
+        log.debug("_read_live_flow_slots failed: %s", exc)
+        return {k: None for k in slot_keys}
+
+
+def _solar_overproduction_w() -> float | None:
+    """Return how many watts solar exceeds house consumption right now.
+    Positive = overproduction, negative = solar < consumption, None = unknown.
+    Uses solar_power and net_power from flow_cfg:
+      house_w = solar_w + net_w  (net positive = importing, negative = exporting)
+    This is independent of battery mode, so it never oscillates."""
+    slots = _read_live_flow_slots("solar_power", "net_power")
+    solar_w = slots.get("solar_power")
+    net_w   = slots.get("net_power")
+    if solar_w is None:
         return None
+    if net_w is not None:
+        # house = solar + net (when net<0 we're exporting, house < solar)
+        house_w = solar_w + net_w
+        return solar_w - house_w   # = -net_w
+    # No net sensor: fall back to consumption profile for this hour
+    try:
+        tz_name = _entsoe_settings().get("timezone", "Europe/Brussels")
+        now_h   = datetime.now(ZoneInfo(tz_name)).hour
+        cons_by_hour = _plan_cache.get("consumption_by_hour", {})
+        house_w = cons_by_hour.get(now_h) or cons_by_hour.get(str(now_h))
+        if house_w is not None:
+            return solar_w - float(house_w)
+    except Exception:
+        pass
+    return None
 
 
 def _load_automation() -> dict:
@@ -3214,18 +3246,18 @@ def _automation_tick() -> None:
         return
 
     # ── Solar overproduction override ────────────────────────────────────────
-    # If the plan says "save" (battery passive) but we are currently exporting
-    # to the grid, switch to anti-feed (neutral) so the battery absorbs the
-    # surplus instead of feeding it back. Reverts to save the moment net power
-    # becomes positive (importing) again.
+    # If the plan says "save" (battery passive) but solar production currently
+    # exceeds house consumption, switch to anti-feed (neutral) so the battery
+    # absorbs the surplus. Uses solar_power vs house load — independent of
+    # battery mode, so no oscillation when anti-feed drives net back to ~0.
     override_reason: str | None = None
     effective_action = action
     if action == "save":
-        net_w = _read_live_net_w()
-        if net_w is not None and net_w < -50:   # >50 W export → overproduction
+        surplus_w = _solar_overproduction_w()
+        if surplus_w is not None and surplus_w > 50:   # >50 W surplus → absorb
             effective_action = "neutral"
-            override_reason  = f"☀️ Zonne-overproductie ({abs(net_w):.0f} W export) – anti-feed actief"
-            log.info("Automation: save→neutral override (net_w=%.0fW, solar overproduction)", net_w)
+            override_reason  = f"☀️ Zonne-overproductie ({surplus_w:.0f} W) – anti-feed actief"
+            log.info("Automation: save→neutral override (solar surplus=%.0fW)", surplus_w)
 
     prev_action = auto.get("last_action")
     if effective_action == prev_action:
