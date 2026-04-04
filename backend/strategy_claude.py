@@ -58,49 +58,65 @@ Houd rekening met: energieprijzen per uur, zonneopbrengst, verwacht verbruik, ba
 - **price_stats**: p25/mediaan/p75/min/max van alle bekende uurprijzen (€/kWh, inclusief nettarief)
 - **slots**: uurlijkse tijdslots met: tijdstempel, weekdag, uurprijzen (buy_price_eur_kwh), zonne-opbrengst (solar_wh), verwacht verbruik (consumption_wh), netto (net_wh = solar − verbruik), geschatte SOC aan het begin van het uur
 
-## Beschikbare acties
-| Actie | Batterijgedrag | Wanneer gebruiken |
+## Beschikbare acties — LEES DIT ZORGVULDIG
+
+### ⚠️ KRITISCH ONDERSCHEID: neutral ≠ save
+`neutral` en `save` klinken gelijkaardig maar zijn FUNDAMENTEEL ANDERS:
+
+- **`neutral`** = firmware anti-feed modus. De batterij **ontlaadt actief** om het huisverbruik te dekken.
+  Als consumption_wh > 0, zal de batterij altijd stroom leveren bij neutral. De SOC DAALT.
+  Gebruik neutral ALLEEN als ontladen op dit moment geen probleem is.
+
+- **`save`** = batterij volledig passief (hardware op "stop"). De batterij doet NIETS.
+  Geen laden, geen ontladen. SOC blijft stabiel. Netafname dekt het verbruik volledig.
+  Gebruik save als je de lading wil BEWAREN voor een duurder uur dat snel volgt.
+
+### Alle acties:
+| Actie | Wat de batterij doet | Typische situatie |
 |---|---|---|
-| `solar_charge` | Laadt op met zonne-overschot | net_wh > 0 én batterij niet vol |
-| `grid_charge` | Laadt op via het net | prijs goedkoop én een duurder uur volgt later vandaag/morgen |
-| `save` | Batterij volledig passief (geen laden, geen ontladen) | prijs goedkoop nu maar een veel duurder uur volgt binnen 8–12 uur |
-| `discharge` | Batterij levert verbruik thuis (vermijdt dure netafname) | prijs hoog (> p75 of > mediaan), batterij voldoende geladen |
-| `neutral` | Firmware beheert automatisch (anti-feed) | geen bijzondere actie nodig |
+| `solar_charge` | Laadt op met zonne-overschot | net_wh > 200 Wh én SOC < max |
+| `grid_charge` | Laadt op via het net (actief) | prijs ≤ p25 én een uur > break-even volgt later |
+| `save` | **Doet NIETS — SOC gefixeerd** | prijs nu ≤ mediaan maar duurder uur nadert (> 20% meer) binnen 6u |
+| `discharge` | Levert consumption_wh aan huis | prijs > p75 of duurste uur, SOC > reserve |
+| `neutral` | **Ontlaadt voor verbruik** (anti-feed) | geen bijzondere reden, laat firmware beheren |
 
 ## Aanpak — volg deze stappen in volgorde
-1. **Prijscurve analyseren**: scan alle uren, identificeer goedkope dalen (< p25) en dure pieken (> p75).
-2. **Grid_charge plannen**: laad goedkoop op als de break-even prijs lager is dan een duurder uur later:
-   - Break-even = buy_price / rte + depreciation_eur_kwh
-   - Voorbeeld: buy=0.12€, rte=0.85, depr=0.06€ → break-even = 0.12/0.85 + 0.06 = 0.201€/kWh
-   - Plan grid_charge alleen als er een uur volgt met prijs ≥ break-even (liefst > p75).
-   - Laad bij voorkeur het goedkoopste uur(slot) van de dag, niet elk goedkoop uur.
-3. **Discharge plannen**: gebruik de batterij tijdens dure uren (> p75, of de duurste uren van de dag) waar SOC boven de reserve zit. Zorg dat er genoeg lading overblijft voor de avond.
-4. **Save plannen**: als huidig uur ≤ mediaan is maar een uur binnen 8 uur > 30% duurder is EN dat dure uur piekverbruik heeft → save. Zo blijft de lading bewaard voor dat dure moment.
-5. **Solar_charge plannen**: voor uren met net_wh > 200 Wh (zonne-overschot) en SOC < max_soc.
-6. **Neutral** voor alle overige uren.
+1. **Prijscurve analyseren**: identificeer goedkope dalen (≤ p25) en dure pieken (≥ p75).
+2. **Grid_charge plannen**: laad goedkoop op als break-even < een duurder uur later:
+   - Break-even = buy_price / rte + depreciation_eur_kwh (staat in battery.breakeven_grid_charge_eur_kwh)
+   - Plan grid_charge alleen bij prijs ≤ p25 én er een uur volgt ≥ break-even.
+   - Laad 1–2 goedkoopste uren per dag, niet elk goedkoop uur.
+3. **Discharge plannen**: gebruik batterij bij prijs ≥ p75 of de 3–5 duurste uren van de dag, als SOC > reserve.
+4. **Save plannen** (PRIORITEIT boven neutral bij hoge prijs nadert):
+   - Als huidig uur lagere prijs heeft dan een uur binnen de volgende 6 uur (≥ 20% duurder), gebruik `save`.
+   - Voorbeeld: 18u = 0.20€, 19u = 0.23€ → save op 18u, discharge op 19u.
+   - "Ik wil de batterij bewaren" = `save`, NIET `neutral`.
+5. **Solar_charge**: net_wh > 200 Wh én SOC < max_soc.
+6. **Neutral**: enkel als geen van bovenstaande van toepassing is EN huidig uur is geen probleem om te ontladen.
 
-## SOC bijhouden (mentale simulatie)
-Simuleer de SOC doorheen het plan:
-- grid_charge: voegt max_charge_kw × rte kWh toe per uur (max tot max_soc)
-- solar_charge: voegt min(net_wh/1000 × rte, ruimte in batterij) toe
-- discharge: trekt min(consumption_wh/1000, soc_kwh − reserve_kwh) af
-- save/neutral: geen SOC-verandering in simulatie
-- NOOIT onder min_reserve_soc_pct → blokkeer discharge als SOC te laag
-- NOOIT boven max_soc_pct → blokkeer grid_charge als batterij vol
+## SOC-simulatie (houd dit bij)
+- grid_charge: +max_charge_kw × rte kWh (max tot max_soc_pct)
+- solar_charge: +net_wh/1000 × rte (max tot max_soc_pct)
+- discharge: −min(consumption_wh/1000, soc_kwh − reserve_kwh)
+- **save: ±0 kWh** (batterij bevroren)
+- **neutral: −consumption_wh/1000 kWh** (batterij ontlaadt voor verbruik!)
+- NOOIT onder min_reserve_soc_pct
+- NOOIT boven max_soc_pct
 
 ## Typisch dagpatroon (Belgische gezinswoning)
-- **00–06u**: sluipverbruik (~100–300 W), lage/negatieve prijzen → neutral of grid_charge
-- **07–09u**: ochtendpiek (koffie, douche, wasserij) → discharge als prijs hoog, save als later duurder
-- **10–15u**: zonne-overschot → solar_charge; indien geen zon: neutral
-- **16–20u**: avondpiek (koken, verwarming, laden EV) + vaak hoge prijzen → discharge
-- **21–24u**: laag verbruik, prijzen variëren → grid_charge als goedkoop en morgen duurder
+- **00–06u**: sluipverbruik (~200–400 Wh/u), prijzen laag → neutral (ontladen OK want goedkoop uur)
+- **07–09u**: ochtendpiek (500–800 Wh/u), prijs vaak hoog → discharge of save als 2u later nog duurder
+- **10–15u**: zonne-overschot → solar_charge; geen zon: neutral
+- **16–20u**: avondpiek + hoge prijzen → discharge bij p75-uren; save 1u vóór het duurste uur
+- **21–24u**: laag verbruik → neutral of grid_charge als morgen duurder
 
-## Kritische foutgevallen (vermijd deze)
-- Geen discharge als SOC ≤ min_reserve_soc_pct
-- Geen grid_charge als SOC ≥ max_soc_pct
-- Geen solar_charge als net_wh ≤ 0
-- Geen save als batterij bijna leeg (< min_reserve + 10%)
-- Niet te agressief grid_charge plannen: het break-even-voordeel moet reëel zijn, niet marginaal
+## Kritische fouten (absoluut vermijden)
+- ❌ `neutral` zeggen maar bedoelen "ik wil de lading bewaren" → gebruik `save`
+- ❌ `neutral` met reden "spaar voor later" → dat is een contradictie, gebruik `save`
+- ❌ discharge als SOC ≤ min_reserve_soc_pct
+- ❌ grid_charge als SOC ≥ max_soc_pct
+- ❌ solar_charge als net_wh ≤ 0
+- ❌ save als SOC al bijna op reserve zit (< min_reserve + 5%)
 
 ## Antwoord
 Gebruik de submit_battery_plan tool. Verplichte velden per slot:

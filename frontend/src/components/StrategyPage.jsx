@@ -420,8 +420,12 @@ function ClaudeDebugPanel({ debug }) {
     .replace("claude-", "")
     .replace("-20251001", "")
     .replace("-20240229", "");
-  const cost = debug.input_tokens && debug.output_tokens
-    ? ((debug.input_tokens * 0.00000025 + debug.output_tokens * 0.00000125) * 1000).toFixed(3)
+  // Haiku 4.5: $0.80/MTok in, $4.00/MTok out (convert to EUR ≈ ×0.92)
+  const costEur = debug.input_tokens && debug.output_tokens
+    ? (debug.input_tokens * 0.00000080 + debug.output_tokens * 0.000004) * 0.92
+    : null;
+  const costStr = costEur != null
+    ? costEur < 0.001 ? `~${(costEur * 100).toFixed(3)} ct` : `~€${costEur.toFixed(4)}`
     : null;
 
   return (
@@ -440,9 +444,9 @@ function ClaudeDebugPanel({ debug }) {
             <span style={{ color: "var(--text-muted)" }}>
               Tokens: <strong style={{ color: "var(--text)" }}>{debug.input_tokens ?? "?"} in / {debug.output_tokens ?? "?"} out</strong>
             </span>
-            {cost && (
+            {costStr && (
               <span style={{ color: "var(--text-muted)" }}>
-                Kosten: <strong style={{ color: "var(--text)" }}>~€{cost}</strong>
+                Kosten: <strong style={{ color: "var(--text)" }}>{costStr}</strong>
               </span>
             )}
             <span style={{ color: "var(--text-muted)" }}>
