@@ -2736,6 +2736,18 @@ def _compute_forward_plan() -> dict:
     result["is_historical"]       = False
     result["consumption_source"]  = consumption_source
     result["price_source_used"]   = price_source
+    # Expose calculated (or configured) standby for display in the UI
+    from strategy import load_strategy_settings as _lss
+    _ss = _lss()
+    _cfg_standby = float(_ss.get("standby_w", 0))
+    if _cfg_standby > 0:
+        result["standby_w"] = _cfg_standby
+    else:
+        # Re-derive from consumption profile (mirrors strategy.py logic)
+        _sv = [x["avg_wh"] for x in consumption_by_hour
+               if x.get("hour") in {2, 3, 4, 5} or
+                  (x.get("weekday") is not None and x.get("hour") in {2, 3, 4, 5})]
+        result["standby_w"] = round(sum(_sv) / len(_sv), 0) if _sv else 0
 
     _plan_cache["slots"]      = result.get("all", [])
     _plan_cache["fetched_at"] = datetime.now(timezone.utc).isoformat()

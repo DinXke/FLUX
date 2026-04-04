@@ -57,6 +57,10 @@ DEFAULT_SETTINGS = {
     # Consumption profile source: "auto" | "local_influx" | "external_influx" | "ha_history"
     # "auto": tries external_influx → local_influx → ha_history (fallback chain).
     "consumption_source":   "auto",
+    # Standby/parasitic consumption in Watt (always-on appliances, fridges, …).
+    # 0 = auto-detect from 02:00–06:00 historical average.
+    # Used to filter standby-only hours out of peak detection.
+    "standby_w":            0,
 }
 
 
@@ -205,9 +209,38 @@ def build_plan(
     else:
         p25 = p75 = price_median = 0.10
 
+    # ── Standby / parasitic consumption ─────────────────────────────────────
+    # Auto-detect from 02:00–06:00 historical average (sleeping hours).
+    # Falls back to the manual setting value, then to 0.
+    _STANDBY_HOURS = {2, 3, 4, 5}
+    _configured_standby = float(s.get("standby_w", 0))
+
+    if _configured_standby > 0:
+        standby_w = _configured_standby
+    else:
+        _standby_vals: list[float] = []
+        for h in _STANDBY_HOURS:
+            if has_wd_data:
+                for wd in range(7):
+                    v = cons_by_wd_hour.get((wd, h))
+                    if v is not None:
+                        _standby_vals.append(v)
+            else:
+                v = cons_by_hour.get(h)
+                if v is not None:
+                    _standby_vals.append(v)
+        standby_w = sum(_standby_vals) / len(_standby_vals) if _standby_vals else 0.0
+
+    log.debug("strategy: standby_w=%.0f W (%s)",
+              standby_w, "configured" if _configured_standby > 0 else "auto-detected")
+
     # ── Determine peak hours ─────────────────────────────────────────────────
-    # With weekday data: compute per-weekday peak sets (top 25% hours per day).
-    # Fallback to global set for legacy / manual overrides.
+    # Peak = top 25% of consumption *above* standby baseline so that
+    # always-on hours (night standby ~02–06) are never wrongly flagged as peak.
+    def _excess(wh: float) -> float:
+        """Consumption above standby baseline."""
+        return max(0.0, wh - standby_w)
+
     if manual_peaks:
         _manual_set = set(int(h) for h in manual_peaks)
         def _is_peak(weekday: int, hour: int) -> bool:
@@ -216,18 +249,22 @@ def build_plan(
     elif has_wd_data:
         _wd_peaks: dict[int, set] = {}
         for wd in range(7):
-            wd_vals = {h: cons_by_wd_hour.get((wd, h), 0.0) for h in range(24)}
-            sorted_v = sorted(wd_vals.values())
+            wd_excess = {h: _excess(cons_by_wd_hour.get((wd, h), 0.0)) for h in range(24)}
+            sorted_v  = sorted(wd_excess.values())
             threshold = sorted_v[int(24 * 0.75)]
-            _wd_peaks[wd] = {h for h, c in wd_vals.items() if c >= threshold}
+            # Only flag hours that actually have meaningful excess above standby
+            _wd_peaks[wd] = {h for h, e in wd_excess.items()
+                             if e >= threshold and e > standby_w * 0.20}
 
         def _is_peak(weekday: int, hour: int) -> bool:
             return hour in _wd_peaks.get(weekday, {7, 8, 9, 17, 18, 19, 20, 21})
 
     elif cons_by_hour:
-        cons_vals = list(cons_by_hour.values())
-        threshold = sorted(cons_vals)[int(len(cons_vals) * 0.75)]
-        _fallback_peaks = {h for h, c in cons_by_hour.items() if c >= threshold}
+        _excess_vals = {h: _excess(c) for h, c in cons_by_hour.items()}
+        sorted_v  = sorted(_excess_vals.values())
+        threshold = sorted_v[int(len(sorted_v) * 0.75)]
+        _fallback_peaks = {h for h, e in _excess_vals.items()
+                           if e >= threshold and e > standby_w * 0.20}
 
         def _is_peak(weekday: int, hour: int) -> bool:
             return hour in _fallback_peaks

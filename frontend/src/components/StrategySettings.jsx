@@ -9,10 +9,11 @@ const DEFAULTS = {
   max_charge_kw:        3.0,
   sell_back:            false,
   grid_markup_eur_kwh:  0.12,
-  manual_peak_hours:    "",   // stored as comma-sep string in UI
+  manual_peak_hours:    "",
   history_days:         21,
   price_source:         "entsoe",
   consumption_source:   "auto",
+  standby_w:            0,
 };
 
 function Row({ label, desc, children }) {
@@ -74,6 +75,7 @@ export default function StrategySettings() {
           .split(",").map((s) => s.trim()).filter(Boolean).map(Number).filter((n) => !isNaN(n)),
         price_source:         vals.price_source,
         consumption_source:   vals.consumption_source,
+        standby_w:            parseFloat(vals.standby_w) || 0,
       };
       const r = await fetch("api/strategy/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -235,6 +237,17 @@ export default function StrategySettings() {
         desc="Aantal dagen om gemiddeld verbruik per uur + weekdag te berekenen.">
         <input className="form-input" type="number" step="7" min="7" max="90" style={{ width: 80 }}
           value={vals.history_days} onChange={(e) => set("history_days", e.target.value)} />
+      </Row>
+
+      {/* Standby */}
+      <Row label="Sluipverbruik (W)"
+        desc="Basisverbruik van altijd-aan toestellen (koelkast, modem, …). Wordt auto-berekend uit 02:00–06:00 historiek. Vul in om te overschrijven.">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input className="form-input" type="number" step="10" min="0" max="2000" style={{ width: 90 }}
+            placeholder="0 = auto"
+            value={vals.standby_w || ""} onChange={(e) => set("standby_w", e.target.value)} />
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>W</span>
+        </div>
       </Row>
 
       {/* Manual peak hours */}

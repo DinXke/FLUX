@@ -339,7 +339,7 @@ function ActualsChart({ actuals }) {
 
 const WD_NAMES = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
 
-function ConsumptionProfile({ hours }) {
+function ConsumptionProfile({ hours, standbyW = 0 }) {
   if (!hours || !hours.length) return null;
 
   const hasWdData = hours.some((h) => h.weekday !== undefined);
@@ -387,10 +387,16 @@ function ConsumptionProfile({ hours }) {
           );
         })}
       </div>
-      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+      {standbyW > 0 && (
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+          Sluipverbruik: <strong style={{ color: "var(--text)" }}>{Math.round(standbyW)} W</strong>
+          {" "}(gem. 02–06u) · piekuren bepaald op verbruik bóven sluipverbruik
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
         {hasWdData
-          ? `Profiel voor ${WD_NAMES[selWd]}${selWd === todayWd ? " (vandaag)" : ""} · piekuren automatisch bepaald per weekdag`
-          : "Gebaseerd op historiek · piekuren zijn automatisch bepaald"}
+          ? `Profiel voor ${WD_NAMES[selWd]}${selWd === todayWd ? " (vandaag)" : ""} · piekuren per weekdag`
+          : "Gebaseerd op historiek · piekuren automatisch bepaald"}
       </div>
     </div>
   );
@@ -604,6 +610,7 @@ export default function StrategyPage() {
   const today    = plan?.today    || [];
   const tomorrow = plan?.tomorrow || [];
   const consHours = plan?.consumption_by_hour || [];
+  const standbyW  = plan?.standby_w || 0;
 
   return (
     <div className="strat-page">
@@ -709,7 +716,7 @@ export default function StrategyPage() {
             <>
               <DayChart title="Vandaag" slots={today}    isToday={true}  />
               <DayChart title="Morgen"  slots={tomorrow} isToday={false} />
-              {consHours.length > 0 && <ConsumptionProfile hours={consHours} />}
+              {consHours.length > 0 && <ConsumptionProfile hours={consHours} standbyW={standbyW} />}
               {consHours.length === 0 && (
                 <div className="strat-day-panel" style={{ color: "var(--text-muted)", fontSize: 13 }}>
                   📊 Nog geen verbruikshistoriek in InfluxDB. Het profiel wordt automatisch opgebouwd
