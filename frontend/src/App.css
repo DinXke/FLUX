@@ -149,6 +149,7 @@ html, body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
 #root {
@@ -218,48 +219,31 @@ html, body {
   gap: 24px;
 }
 
-/* ── Tablet (between 900px and 1200px): slightly tighter desktop nav ── */
-@media (min-width: 901px) and (max-width: 1200px) {
-  .nav-btn { padding: 7px 12px; font-size: 13px; }
+/* ── Default (mobile-first): applies unless overridden by the ≥1100px block above ── */
+
+.app-header {
+  padding: 0 12px;
+  height: 52px;
+}
+.app-header-subtitle--desktop { display: none; }
+.app-header-title { font-size: 16px; }
+.app-header-logo  { font-size: 18px; }
+.btn--add-desktop { display: none; }
+
+.app-main {
+  padding: 12px 12px 80px;   /* 80px bottom clears the fixed bottom nav */
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
-/* ── Mobile / HA companion app (≤900px) ── */
-@media (max-width: 900px) {
-  /* Header: compact */
-  .app-header { padding: 0 12px; height: 52px; }
-  .app-header-subtitle--desktop { display: none; }
-  .app-header-title { font-size: 16px; }
-  .app-header-logo  { font-size: 18px; }
-  .btn--add-desktop { display: none; }   /* replaced by FAB */
+.device-grid { grid-template-columns: 1fr; gap: 10px; }
 
-  /* Hide desktop top nav, show bottom nav */
-  .app-nav--desktop { display: none; }
-  .app-nav--mobile {
-    display: flex;
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    z-index: 150;
-    background: var(--bg-header);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-top: 1px solid var(--border);
-    padding: 4px 0 max(4px, env(safe-area-inset-bottom));
-  }
+/* Settings tabs: single scrollable row */
+.settings-tabs { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 16px; }
+.settings-tab  { white-space: nowrap; flex-shrink: 0; }
 
-  /* Show FAB */
-  .fab { display: flex; align-items: center; justify-content: center; }
-
-  /* Push main content above bottom nav */
-  .app-main { padding: 12px 12px 80px; }
-  .device-grid { grid-template-columns: 1fr; gap: 10px; }
-
-  /* Settings tabs: horizontal scroll, no wrap */
-  .settings-tabs { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 16px; }
-  .settings-tab  { white-space: nowrap; flex-shrink: 0; }
-
-  /* Strategy timeline: smaller font */
-  .strat-hour-label { font-size: 9px; }
-}
+/* Strategy timeline: smaller font on narrow screens */
+.strat-hour-label { font-size: 9px; }
 
 /* =========================================================
    Buttons
@@ -1012,9 +996,9 @@ html, body {
    App navigation bar
    ========================================================= */
 
-/* ── Desktop top nav ── */
+/* ── Desktop top nav: only on wide screens ── */
 .app-nav--desktop {
-  display: flex;
+  display: none;   /* hidden by default; shown on wide screens below */
   gap: 4px;
   background: var(--bg-card-inner);
   border: 1px solid var(--border);
@@ -1023,12 +1007,12 @@ html, body {
 }
 
 .nav-btn {
-  padding: 7px 18px;
+  padding: 7px 14px;
   border-radius: 7px;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
@@ -1037,9 +1021,30 @@ html, body {
 .nav-btn:hover  { background: var(--bg-hover); color: var(--text); }
 .nav-btn.active { background: var(--bg-card); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
 
-/* ── Mobile bottom nav ── */
+/* On wide screens: show top nav, hide bottom nav & FAB */
+@media (min-width: 1100px) {
+  .app-nav--desktop  { display: flex; }
+  .app-nav--mobile   { display: none !important; }
+  .fab               { display: none !important; }
+  .app-main          { padding: 24px; padding-bottom: 24px; }
+  .btn--add-desktop  { display: inline-flex !important; }
+  .app-header        { height: 60px; }
+  .app-header-subtitle--desktop { display: block; }
+  .app-header-title  { font-size: 18px; }
+  .app-header-logo   { font-size: 22px; }
+}
+
+/* ── Bottom nav: shown by default (mobile / HA companion app) ── */
 .app-nav--mobile {
-  display: none;
+  display: flex;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 150;
+  background: var(--bg-header);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  padding: 4px 0 max(4px, env(safe-area-inset-bottom));
 }
 
 .mobile-nav-btn {
@@ -1060,14 +1065,16 @@ html, body {
 .mobile-nav-btn.active { color: var(--accent); }
 .mobile-nav-btn:hover  { color: var(--text); }
 
-.mobile-nav-icon  { font-size: 20px; line-height: 1; }
+.mobile-nav-icon  { font-size: 22px; line-height: 1; }
 .mobile-nav-label { font-size: 10px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
-/* ── FAB (floating action button) for mobile ── */
+/* ── FAB: shown by default ── */
 .fab {
-  display: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: fixed;
-  bottom: 76px;   /* above bottom nav */
+  bottom: 76px;
   right: 20px;
   width: 52px;
   height: 52px;
