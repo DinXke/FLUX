@@ -3,18 +3,22 @@ strategy_claude.py – Claude AI-powered battery planning engine.
 
 Alternative to the rule-based strategy.py algorithm.
 Uses the Anthropic API to generate an hourly battery plan given:
-  - Hourly prices (Frank Energie or ENTSO-E)
-  - Solar forecast
-  - Historical consumption profile (weekday-aware)
+  - Hourly prices (Frank Energie or ENTSO-E, all-in including markup)
+  - Solar forecast (Wh per hour)
+  - Historical consumption profile (weekday-aware, Wh per hour)
   - Current SoC and battery settings
 
 Returns slots in the same format as strategy.build_plan(), so it can be
 used as a drop-in replacement.  Falls back to the rule-based engine on
 any error (no API key, network failure, unexpected response, …).
+
+Debug info from the last run is stored in _last_debug and can be
+retrieved with get_last_debug().
 """
 
 import json
 import logging
+import time as _time
 from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -24,40 +28,87 @@ log = logging.getLogger("strategy_claude")
 WEEKDAY_NL = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"]
 
 # ---------------------------------------------------------------------------
-# System prompt (Dutch)
+# Last-run debug info (read by app.py after build_plan_claude returns)
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = """Je bent een expert in thuisbatterijbeheer en energieopslag.
-Je taak is een uurlijks laadplan opstellen voor een thuisbatterij om de totale energiekosten te minimaliseren.
+_last_debug: dict = {}
 
-## Beschikbare acties per uur
-- **solar_charge**: Laad de batterij op met zonne-overschot (solar_wh > consumption_wh).
-- **grid_charge**: Laad op via het net (goedkoop uur, zinvol als latere uren significant duurder zijn).
-- **save**: Houd huidige lading vast — gebruik de batterij NIET, ook niet voor verbruik. Bedoeld om te sparen voor een duurder komend uur.
-- **discharge**: Gebruik de batterij om duur netverbruik te vermijden. Batterij levert consumption_wh (max tot min_reserve).
-- **neutral**: Laat de firmware automatisch reageren (zonne-overschot → opladen, verbruik → ontladen).
 
-## Beperkingen
-- SOC mag nooit onder min_reserve_soc_pct zakken.
-- SOC mag nooit boven max_soc_pct stijgen.
-- grid_charge laadt max max_charge_kw per uur. Effectieve energietoevoer = charge_kw × rte.
-- Winstgevendheid grid_charge: buy_price / rte + depreciation_eur_kwh < toekomstige verwachte prijs.
-- Bij discharge: batterij levert min(consumption_wh/1000, bat_kwh - bat_min) kWh aan het huis.
-- SAVE = batterij volledig passief. Wordt gebruikt als huidig uur goedkoop is maar binnenkort een veel duurder uur volgt.
-- solar_charge is enkel zinvol als net_wh > 0 (zonne-overschot).
-- Uren die al voorbij zijn (is_past = true) kunnen elke actie krijgen maar hebben geen invloed meer.
+def get_last_debug() -> dict:
+    return dict(_last_debug)
+
+
+def _set_debug(**kwargs):
+    _last_debug.clear()
+    _last_debug.update(kwargs)
+
+
+# ---------------------------------------------------------------------------
+# System prompt
+# ---------------------------------------------------------------------------
+
+_SYSTEM_PROMPT = """Je bent een gespecialiseerde AI-agent voor optimaal thuisbatterijbeheer in de Belgische energiemarkt.
 
 ## Doel
-Minimaliseer totale energiekosten over de planningsperiode.
-Laad goedkoop op (grid_charge) als de spread groot genoeg is om RTE-verlies en afschrijving te rechtvaardigen.
-Ontlaad (discharge) tijdens dure uren om netafname te vermijden.
-Sla op (save) als het huidige uur relatief goedkoop is maar een duurder uur nadert binnen 16 uur.
-Gebruik solar_charge wanneer zonne-energie beschikbaar is en de batterij niet vol is.
+Stel een uurlijks laadplan op voor de komende 48 uur om de totale elektriciteitskosten te minimaliseren.
+Houd rekening met: energieprijzen per uur, zonneopbrengst, verwacht verbruik, batterijstatus en fysieke beperkingen.
+
+## Invoer die je ontvangt
+- **battery**: capaciteit (kWh), huidige SOC (%), reservedrempel, maximaal SOC, max laadvermogen (kW), RTE (rendement heen-en-terug, 0–1), afschrijfkost (€/kWh)
+- **price_stats**: p25/mediaan/p75/min/max van alle bekende uurprijzen (€/kWh, inclusief nettarief)
+- **slots**: uurlijkse tijdslots met: tijdstempel, weekdag, uurprijzen (buy_price_eur_kwh), zonne-opbrengst (solar_wh), verwacht verbruik (consumption_wh), netto (net_wh = solar − verbruik), geschatte SOC aan het begin van het uur
+
+## Beschikbare acties
+| Actie | Batterijgedrag | Wanneer gebruiken |
+|---|---|---|
+| `solar_charge` | Laadt op met zonne-overschot | net_wh > 0 én batterij niet vol |
+| `grid_charge` | Laadt op via het net | prijs goedkoop én een duurder uur volgt later vandaag/morgen |
+| `save` | Batterij volledig passief (geen laden, geen ontladen) | prijs goedkoop nu maar een veel duurder uur volgt binnen 8–12 uur |
+| `discharge` | Batterij levert verbruik thuis (vermijdt dure netafname) | prijs hoog (> p75 of > mediaan), batterij voldoende geladen |
+| `neutral` | Firmware beheert automatisch (anti-feed) | geen bijzondere actie nodig |
+
+## Aanpak — volg deze stappen in volgorde
+1. **Prijscurve analyseren**: scan alle uren, identificeer goedkope dalen (< p25) en dure pieken (> p75).
+2. **Grid_charge plannen**: laad goedkoop op als de break-even prijs lager is dan een duurder uur later:
+   - Break-even = buy_price / rte + depreciation_eur_kwh
+   - Voorbeeld: buy=0.12€, rte=0.85, depr=0.06€ → break-even = 0.12/0.85 + 0.06 = 0.201€/kWh
+   - Plan grid_charge alleen als er een uur volgt met prijs ≥ break-even (liefst > p75).
+   - Laad bij voorkeur het goedkoopste uur(slot) van de dag, niet elk goedkoop uur.
+3. **Discharge plannen**: gebruik de batterij tijdens dure uren (> p75, of de duurste uren van de dag) waar SOC boven de reserve zit. Zorg dat er genoeg lading overblijft voor de avond.
+4. **Save plannen**: als huidig uur ≤ mediaan is maar een uur binnen 8 uur > 30% duurder is EN dat dure uur piekverbruik heeft → save. Zo blijft de lading bewaard voor dat dure moment.
+5. **Solar_charge plannen**: voor uren met net_wh > 200 Wh (zonne-overschot) en SOC < max_soc.
+6. **Neutral** voor alle overige uren.
+
+## SOC bijhouden (mentale simulatie)
+Simuleer de SOC doorheen het plan:
+- grid_charge: voegt max_charge_kw × rte kWh toe per uur (max tot max_soc)
+- solar_charge: voegt min(net_wh/1000 × rte, ruimte in batterij) toe
+- discharge: trekt min(consumption_wh/1000, soc_kwh − reserve_kwh) af
+- save/neutral: geen SOC-verandering in simulatie
+- NOOIT onder min_reserve_soc_pct → blokkeer discharge als SOC te laag
+- NOOIT boven max_soc_pct → blokkeer grid_charge als batterij vol
+
+## Typisch dagpatroon (Belgische gezinswoning)
+- **00–06u**: sluipverbruik (~100–300 W), lage/negatieve prijzen → neutral of grid_charge
+- **07–09u**: ochtendpiek (koffie, douche, wasserij) → discharge als prijs hoog, save als later duurder
+- **10–15u**: zonne-overschot → solar_charge; indien geen zon: neutral
+- **16–20u**: avondpiek (koken, verwarming, laden EV) + vaak hoge prijzen → discharge
+- **21–24u**: laag verbruik, prijzen variëren → grid_charge als goedkoop en morgen duurder
+
+## Kritische foutgevallen (vermijd deze)
+- Geen discharge als SOC ≤ min_reserve_soc_pct
+- Geen grid_charge als SOC ≥ max_soc_pct
+- Geen solar_charge als net_wh ≤ 0
+- Geen save als batterij bijna leeg (< min_reserve + 10%)
+- Niet te agressief grid_charge plannen: het break-even-voordeel moet reëel zijn, niet marginaal
 
 ## Antwoord
-Geef precies één actie per slot terug via de submit_battery_plan tool.
-De "time" waarde moet exact overeenkomen met de "time" in de invoer.
-Schrijf een korte Nederlandse reden (max 80 tekens).
+Gebruik de submit_battery_plan tool. Verplichte velden per slot:
+- **time**: exact kopiëren van het invoerveld "time" (inclusief tijdzone-offset)
+- **action**: één van de vijf geldige waarden
+- **reason**: korte Nederlandse motivatie (max 80 tekens), leg uit WAAROM deze actie hier logisch is
+
+Geef voor elk slot precies één actie. Sla geen slots over.
 """
 
 
@@ -78,6 +129,7 @@ def build_plan_claude(
     Build an hourly battery plan using the Claude AI API.
     Returns slots in the same format as strategy.build_plan().
     Falls back to rule-based engine on any error.
+    Debug info is stored in _last_debug (read via get_last_debug()).
     """
     from strategy import (build_plan, load_strategy_settings,
                           SOLAR_CHARGE, GRID_CHARGE, SAVE, DISCHARGE, NEUTRAL)
@@ -87,6 +139,7 @@ def build_plan_claude(
     api_key = s.get("claude_api_key", "").strip()
     if not api_key:
         log.warning("strategy_claude: no API key configured — falling back to rule-based")
+        _set_debug(fallback=True, fallback_reason="Geen API-sleutel geconfigureerd")
         return build_plan(prices, solar_wh, consumption_by_hour, bat_soc_now, s,
                           start_dt, num_slots)
 
@@ -94,6 +147,7 @@ def build_plan_claude(
         import anthropic
     except ImportError:
         log.error("strategy_claude: 'anthropic' package not installed — falling back")
+        _set_debug(fallback=True, fallback_reason="'anthropic' package niet geïnstalleerd")
         return build_plan(prices, solar_wh, consumption_by_hour, bat_soc_now, s,
                           start_dt, num_slots)
 
@@ -162,7 +216,7 @@ def build_plan_claude(
         now_local = real_now.replace(hour=0, minute=0, second=0, microsecond=0)
     all_slots = [now_local + timedelta(hours=i) for i in range(num_slots)]
 
-    # Price statistics
+    # Price statistics (all-in prices)
     known_prices = [
         price_slots[sl.isoformat()] + markup
         for sl in all_slots
@@ -178,28 +232,31 @@ def build_plan_claude(
     else:
         p25 = median = p75 = p_min = p_max = 0.10
 
+    # Break-even price for grid charging
+    breakeven = round(p_min / rte + depr, 4) if known_prices else None
+
     # ── Build input slots for Claude ──────────────────────────────────────
     slots_input = []
-    _bat = bat_soc_now / 100.0 * cap_kwh  # running SOC for display only
+    _bat_sim = bat_soc_now / 100.0 * cap_kwh
 
     for slot_dt in all_slots:
-        key      = slot_dt.isoformat()
-        raw      = price_slots.get(key)
-        buy      = (raw + markup) if raw is not None else None
-        solar    = round(solar_by_slot.get(key, 0.0))
-        cons     = round(_cons(slot_dt.weekday(), slot_dt.hour))
-        net      = solar - cons
+        key   = slot_dt.isoformat()
+        raw   = price_slots.get(key)
+        buy   = (raw + markup) if raw is not None else None
+        solar = round(solar_by_slot.get(key, 0.0))
+        cons  = round(_cons(slot_dt.weekday(), slot_dt.hour))
+        net   = solar - cons
 
         slots_input.append({
-            "time":               key,
-            "weekday":            WEEKDAY_NL[slot_dt.weekday()],
-            "hour":               slot_dt.hour,
-            "buy_price_eur_kwh":  round(buy, 4) if buy is not None else None,
-            "solar_wh":           solar,
-            "consumption_wh":     cons,
-            "net_wh":             net,
-            "soc_start_pct":      round((_bat / cap_kwh) * 100, 1),
-            "is_past":            slot_dt < real_now,
+            "time":              key,
+            "weekday":           WEEKDAY_NL[slot_dt.weekday()],
+            "hour":              slot_dt.hour,
+            "buy_price_eur_kwh": round(buy, 4) if buy is not None else None,
+            "solar_wh":          solar,
+            "consumption_wh":    cons,
+            "net_wh":            net,
+            "soc_start_pct":     round((_bat_sim / cap_kwh) * 100, 1),
+            "is_past":           slot_dt < real_now,
         })
 
     # ── Build Claude request payload ──────────────────────────────────────
@@ -212,6 +269,8 @@ def build_plan_claude(
             "max_charge_kw":        max_charge_kw,
             "rte":                  rte,
             "depreciation_eur_kwh": depr,
+            "grid_markup_eur_kwh":  markup,
+            "breakeven_grid_charge_eur_kwh": breakeven,
         },
         "price_stats": {
             "p25_eur_kwh":    round(p25,    4),
@@ -219,35 +278,39 @@ def build_plan_claude(
             "p75_eur_kwh":    round(p75,    4),
             "min_eur_kwh":    round(p_min,  4),
             "max_eur_kwh":    round(p_max,  4),
+            "note": (
+                f"Prijzen zijn all-in (marktprijs + {markup*100:.0f}ct nettarief). "
+                f"Break-even grid_charge = {breakeven*100:.1f}ct/kWh "
+                f"(goedkoopste prijs {p_min*100:.1f}ct / RTE {rte} + afschrijving {depr*100:.0f}ct)."
+                if breakeven else "Geen prijzen beschikbaar."
+            ),
         },
         "slots": slots_input,
     }
 
     tool_def = {
         "name": "submit_battery_plan",
-        "description": "Geef het volledige uurlijks batterijplan terug.",
+        "description": "Geef het volledige uurlijks batterijplan terug voor alle slots in de invoer.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "plan": {
                     "type": "array",
+                    "description": "Eén entry per slot, in dezelfde volgorde als de invoer.",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "time":   {
+                            "time": {
                                 "type":        "string",
-                                "description": "ISO-tijdstempel, exact gelijk aan invoer 'time'",
+                                "description": "Exact dezelfde ISO-tijdstempel als in de invoer 'time'.",
                             },
                             "action": {
                                 "type": "string",
-                                "enum": [
-                                    "solar_charge", "grid_charge",
-                                    "save", "discharge", "neutral",
-                                ],
+                                "enum": ["solar_charge", "grid_charge", "save", "discharge", "neutral"],
                             },
                             "reason": {
                                 "type":        "string",
-                                "description": "Korte Nederlandse uitleg (max 80 tekens)",
+                                "description": "Korte Nederlandse motivatie (max 80 tekens).",
                             },
                         },
                         "required": ["time", "action", "reason"],
@@ -258,8 +321,10 @@ def build_plan_claude(
         },
     }
 
-    log.info("strategy_claude: calling model=%s  slots=%d", model, len(slots_input))
+    log.info("strategy_claude: calling model=%s  slots=%d  breakeven=%.3f",
+             model, len(slots_input), breakeven or 0)
 
+    t0 = _time.monotonic()
     try:
         client   = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
@@ -271,24 +336,35 @@ def build_plan_claude(
             messages=[{
                 "role":    "user",
                 "content": (
-                    "Hier zijn de batterijparameters en de geplande uren. "
-                    "Stel het optimale laadplan op:\n\n"
+                    "Hier zijn de batterijparameters en de geplande uren voor de komende 48 uur. "
+                    "Analyseer de prijscurve en stel het optimale laadplan op:\n\n"
                     f"```json\n{json.dumps(payload, ensure_ascii=False, indent=2)}\n```"
                 ),
             }],
         )
     except Exception as exc:
-        log.error("strategy_claude: API call failed: %s — falling back to rule-based", exc)
+        elapsed = round(_time.monotonic() - t0, 2)
+        log.error("strategy_claude: API call failed (%.1fs): %s — falling back", elapsed, exc)
+        _set_debug(
+            fallback=True,
+            fallback_reason=f"API-fout: {exc}",
+            model=model,
+            elapsed_s=elapsed,
+        )
         return build_plan(prices, solar_wh, consumption_by_hour, bat_soc_now, s,
                           start_dt, num_slots)
+
+    elapsed = round(_time.monotonic() - t0, 2)
 
     # ── Parse tool-use response ───────────────────────────────────────────
     VALID_ACTIONS = {SOLAR_CHARGE, GRID_CHARGE, SAVE, DISCHARGE, NEUTRAL}
     plan_actions: dict[str, tuple[str, str]] = {}
+    raw_plan_items: list = []
 
     for block in response.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "submit_battery_plan":
-            for item in block.input.get("plan", []):
+            raw_plan_items = block.input.get("plan", [])
+            for item in raw_plan_items:
                 t = str(item.get("time", "")).strip()
                 a = str(item.get("action", "neutral"))
                 r = str(item.get("reason", ""))
@@ -298,12 +374,28 @@ def build_plan_claude(
             break
 
     if not plan_actions:
-        log.warning("strategy_claude: no valid tool_use in response — falling back to rule-based")
+        log.warning("strategy_claude: no valid tool_use in response — falling back (%.1fs)", elapsed)
+        _set_debug(
+            fallback=True,
+            fallback_reason="Geen geldige tool_use in antwoord",
+            model=model,
+            elapsed_s=elapsed,
+            input_tokens=getattr(response.usage, "input_tokens", None),
+            output_tokens=getattr(response.usage, "output_tokens", None),
+            stop_reason=getattr(response, "stop_reason", None),
+        )
         return build_plan(prices, solar_wh, consumption_by_hour, bat_soc_now, s,
                           start_dt, num_slots)
 
-    log.info("strategy_claude: received %d actions from Claude (%s)",
-             len(plan_actions), model)
+    # Count actions for summary
+    action_counts: dict[str, int] = {}
+    for a, _ in plan_actions.values():
+        action_counts[a] = action_counts.get(a, 0) + 1
+
+    log.info("strategy_claude: received %d actions in %.1fs  in=%s out=%s",
+             len(plan_actions), elapsed,
+             getattr(response.usage, "input_tokens", "?"),
+             getattr(response.usage, "output_tokens", "?"))
 
     # ── Reconstruct slot list with SOC simulation ─────────────────────────
     bat_kwh      = bat_soc_now / 100.0 * cap_kwh
@@ -327,9 +419,9 @@ def build_plan_claude(
             headroom       = bat_max - bat_kwh
             charge_draw_kw = min(max_charge_kw, headroom / rte if rte > 0 else 0)
             if charge_draw_kw > 0.05:
-                energy_in   = charge_draw_kw * rte
-                bat_kwh     = min(bat_max, bat_kwh + energy_in)
-                charge_kwh  = charge_draw_kw
+                energy_in  = charge_draw_kw * rte
+                bat_kwh    = min(bat_max, bat_kwh + energy_in)
+                charge_kwh = charge_draw_kw
 
         elif action == SOLAR_CHARGE:
             if net > 0:
@@ -348,7 +440,6 @@ def build_plan_claude(
                 discharge_kwh  = use
 
         # SAVE and NEUTRAL: no bat_kwh change in simulation
-        # (SAVE = hold; NEUTRAL = firmware manages it, we can't predict)
 
         soc_end = (bat_kwh / cap_kwh) * 100.0
 
@@ -366,8 +457,34 @@ def build_plan_claude(
             "discharge_kwh":  round(discharge_kwh, 3),
             "soc_start":      round(soc_start, 1),
             "soc_end":        round(soc_end, 1),
-            "is_peak":        False,   # Claude reasons about peak implicitly
+            "is_peak":        False,
             "is_past":        slot_dt < real_now,
         })
+
+    # ── Store debug info ──────────────────────────────────────────────────
+    _set_debug(
+        fallback=False,
+        model=model,
+        elapsed_s=elapsed,
+        input_tokens=getattr(response.usage, "input_tokens", None),
+        output_tokens=getattr(response.usage, "output_tokens", None),
+        stop_reason=getattr(response, "stop_reason", None),
+        slots_sent=len(slots_input),
+        slots_received=len(plan_actions),
+        action_counts=action_counts,
+        breakeven_eur_kwh=breakeven,
+        price_stats={
+            "p25":    round(p25,    4),
+            "median": round(median, 4),
+            "p75":    round(p75,    4),
+            "min":    round(p_min,  4),
+            "max":    round(p_max,  4),
+        },
+        # Full per-slot reasoning for the debug panel (time, action, reason only)
+        slot_reasoning=[
+            {"time": item.get("time"), "action": item.get("action"), "reason": item.get("reason")}
+            for item in raw_plan_items
+        ],
+    )
 
     return result_slots

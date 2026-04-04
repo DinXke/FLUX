@@ -402,6 +402,110 @@ function ConsumptionProfile({ hours, standbyW = 0 }) {
   );
 }
 
+// ── Claude debug panel ────────────────────────────────────────────────────
+
+const ACTION_LABEL_SHORT = {
+  solar_charge: "☀️ Zonneladen",
+  grid_charge:  "⚡ Laden",
+  save:         "🔒 Sparen",
+  discharge:    "🔋 Ontladen",
+  neutral:      "· Neutraal",
+};
+
+function ClaudeDebugPanel({ debug }) {
+  const [open, setOpen] = useState(false);
+  if (!debug) return null;
+
+  const modelShort = (debug.model || "")
+    .replace("claude-", "")
+    .replace("-20251001", "")
+    .replace("-20240229", "");
+  const cost = debug.input_tokens && debug.output_tokens
+    ? ((debug.input_tokens * 0.00000025 + debug.output_tokens * 0.00000125) * 1000).toFixed(3)
+    : null;
+
+  return (
+    <div style={{
+      background: debug.fallback ? "rgba(248,113,113,0.08)" : "rgba(99,102,241,0.08)",
+      border: `1px solid ${debug.fallback ? "rgba(248,113,113,0.3)" : "rgba(99,102,241,0.3)"}`,
+      borderRadius: 10, padding: "10px 14px", marginBottom: 8, fontSize: 12,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontWeight: 700, color: debug.fallback ? "var(--red)" : "#818cf8" }}>
+          {debug.fallback ? "⚠ Claude AI (fallback naar regelgebaseerd)" : "🤖 Claude AI"}
+        </span>
+        {!debug.fallback && (
+          <>
+            <span style={{ color: "var(--text-muted)" }}>Model: <strong style={{ color: "var(--text)" }}>{modelShort}</strong></span>
+            <span style={{ color: "var(--text-muted)" }}>
+              Tokens: <strong style={{ color: "var(--text)" }}>{debug.input_tokens ?? "?"} in / {debug.output_tokens ?? "?"} out</strong>
+            </span>
+            {cost && (
+              <span style={{ color: "var(--text-muted)" }}>
+                Kosten: <strong style={{ color: "var(--text)" }}>~€{cost}</strong>
+              </span>
+            )}
+            <span style={{ color: "var(--text-muted)" }}>
+              Tijd: <strong style={{ color: "var(--text)" }}>{debug.elapsed_s}s</strong>
+            </span>
+            {debug.action_counts && (
+              <span style={{ color: "var(--text-muted)" }}>
+                {Object.entries(debug.action_counts)
+                  .filter(([, n]) => n > 0)
+                  .map(([a, n]) => `${ACTION_LABEL_SHORT[a] || a}: ${n}u`)
+                  .join(" · ")}
+              </span>
+            )}
+          </>
+        )}
+        {debug.fallback && (
+          <span style={{ color: "var(--red)" }}>{debug.fallback_reason}</span>
+        )}
+        {!debug.fallback && debug.slot_reasoning?.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            style={{
+              marginLeft: "auto", fontSize: 11, padding: "2px 10px", borderRadius: 5,
+              border: "1px solid rgba(99,102,241,0.4)", background: "transparent",
+              color: "#818cf8", cursor: "pointer",
+            }}>
+            {open ? "Verberg redenering ▲" : "Toon redenering ▼"}
+          </button>
+        )}
+      </div>
+
+      {open && debug.slot_reasoning?.length > 0 && (
+        <div style={{
+          marginTop: 10, maxHeight: 320, overflowY: "auto",
+          borderTop: "1px solid rgba(99,102,241,0.2)", paddingTop: 8,
+          display: "flex", flexDirection: "column", gap: 2,
+        }}>
+          {debug.slot_reasoning.map((item, i) => {
+            const ac = ACTION_COLOR[item.action] || ACTION_COLOR.neutral;
+            return (
+              <div key={i} style={{
+                display: "flex", gap: 8, alignItems: "baseline",
+                padding: "2px 0", borderBottom: "1px solid rgba(255,255,255,0.04)",
+              }}>
+                <span style={{ color: "var(--text-muted)", minWidth: 38, fontSize: 11 }}>
+                  {item.time ? item.time.slice(11, 16) : ""}
+                </span>
+                <span style={{
+                  minWidth: 90, fontSize: 11, fontWeight: 600, color: ac.border,
+                }}>
+                  {ac.icon} {ac.label}
+                </span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{item.reason}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Day navigation bar ────────────────────────────────────────────────────
 
 function DayNav({ viewDate, onChange }) {
@@ -645,6 +749,11 @@ export default function StrategyPage() {
                     </span>
                   </>
                 )}
+                {" · "}
+                {plan.strategy_engine === "claude"
+                  ? <span style={{ color: "#818cf8", fontWeight: 600 }}>🤖 Claude AI{plan.claude_debug?.model ? ` (${plan.claude_debug.model.replace("claude-","").replace("-20251001","")})` : ""}</span>
+                  : <span style={{ color: "var(--text-muted)" }}>⚙️ Regelgebaseerd</span>
+                }
               </>
             )}
           </div>
@@ -678,6 +787,9 @@ export default function StrategyPage() {
 
       {/* Automation toggle – only shown in forward (today) view */}
       {!viewDate && <AutomationToggle planLoadedAt={planLoadedAt} />}
+
+      {/* Claude debug panel – shown when Claude engine was used */}
+      {plan?.claude_debug && <ClaudeDebugPanel debug={plan.claude_debug} />}
 
       {loading && !plan && (
         <div className="loading-overlay" style={{ position: "relative", height: 100 }}>
