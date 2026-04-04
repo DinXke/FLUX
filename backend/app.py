@@ -1798,25 +1798,32 @@ def get_strategy_plan():
     is_historical = bool(date_param) and date_param < today_str
     target_date   = date_param if date_param else today_str
 
-    # ── Prices ────────────────────────────────────────────────────────────
-    prices = []
-    es = _entsoe_settings()
-    if es.get("apiKey"):
-        try:
-            target_d   = date.fromisoformat(target_date)
-            prices    += _fetch_entsoe_day(es["apiKey"], target_d, es.get("country","BE"), es.get("timezone"))
-            if not date_param:
-                # Forward mode: also fetch tomorrow
-                prices += _fetch_entsoe_day(es["apiKey"], target_d + timedelta(days=1),
-                                            es.get("country","BE"), es.get("timezone"))
-        except Exception as exc:
-            log.warning("Strategy: ENTSO-E fetch error: %s", exc)
-
     if not is_historical:
+        # For forward mode: use cached plan if < 5 minutes old (avoids redundant
+        # network + DB fetches on every page load).
+        # Pass ?refresh=1 (from the Vernieuwen button) to bypass the cache.
+        force_refresh = request.args.get("refresh") == "1"
+        if not force_refresh:
+            cached_at_str = _plan_cache.get("fetched_at")
+            if cached_at_str and _plan_cache.get("result"):
+                age_s = (datetime.now(timezone.utc)
+                         - datetime.fromisoformat(cached_at_str)).total_seconds()
+                if age_s < 300:
+                    return jsonify(_plan_cache["result"])
         return jsonify(_compute_forward_plan())
 
     if is_historical:
         # ── Historical mode: use InfluxDB actuals ─────────────────────────
+        prices = []
+        es = _entsoe_settings()
+        if es.get("apiKey"):
+            try:
+                target_d = date.fromisoformat(target_date)
+                prices  += _fetch_entsoe_day(es["apiKey"], target_d,
+                                             es.get("country", "BE"), es.get("timezone"))
+            except Exception as exc:
+                log.warning("Strategy historical: ENTSO-E fetch error: %s", exc)
+
         actuals = query_day_actuals(target_date, tz_name)   # {hour: {solar_w, house_w, bat_soc, ...}}
         influx_available = len(actuals) > 0
 
@@ -2535,167 +2542,189 @@ def _compute_forward_plan() -> dict:
     tz_name   = es.get("timezone", "Europe/Brussels")
     today_str = date.today().isoformat()
 
-    # ── Prices (today + tomorrow) ─────────────────────────────────────────
-    prices = []
-    price_source = s.get("price_source", "entsoe")
+    # ── Parallel fetch: prices, solar, consumption, SoC ──────────────────
+    # All four are independent I/O operations — run them concurrently.
 
-    if price_source == "frank":
-        frank_sess = _frank_session()
-        frank_token   = frank_sess.get("authToken")
-        frank_country = frank_sess.get("country", "BE")
-        if frank_token or frank_country == "BE":
-            try:
-                target_d = date.fromisoformat(today_str)
-                for d_off in [0, 1]:
-                    day = target_d + timedelta(days=d_off)
-                    frank_rows = _fetch_prices(frank_token, day, day + timedelta(days=1), frank_country)
-                    for row in frank_rows:
-                        all_in = (
-                            (row.get("marketPrice")         or 0.0) +
-                            (row.get("marketPriceTax")      or 0.0) +
-                            (row.get("sourcingMarkupPrice") or 0.0) +
-                            (row.get("energyTaxPrice")      or 0.0)
-                        )
-                        prices.append({"from": row["from"], "till": row["till"], "marketPrice": all_in})
-            except Exception as exc:
-                log.warning("_compute_forward_plan: Frank fetch error: %s", exc)
-        if not prices:
-            log.warning("_compute_forward_plan: Frank prices empty – falling back to ENTSO-E")
-            price_source = "entsoe"
-
-    if price_source == "entsoe" and es.get("apiKey"):
-        try:
-            target_d = date.fromisoformat(today_str)
-            prices  += _fetch_entsoe_day(es["apiKey"], target_d,
-                                         es.get("country", "BE"), tz_name)
-            prices  += _fetch_entsoe_day(es["apiKey"], target_d + timedelta(days=1),
-                                         es.get("country", "BE"), tz_name)
-        except Exception as exc:
-            log.warning("_compute_forward_plan: ENTSO-E fetch error: %s", exc)
-
-    # ── Solar forecast ────────────────────────────────────────────────────
-    solar_wh: dict = {}
-    if fs.get("lat") and fs.get("lon"):
-        try:
-            solar_wh = _fetch_forecast(fs).get("watt_hours_period", {})
-        except Exception as exc:
-            log.warning("_compute_forward_plan: forecast fetch error: %s", exc)
-
-    # ── Consumption profile ───────────────────────────────────────────────
+    price_source     = s.get("price_source", "entsoe")
     history_days     = s.get("history_days", 21)
     cons_source_pref = s.get("consumption_source", "auto")
     ext_src          = _load_influx_source()
     ext_configured   = bool(ext_src.get("mappings") and ext_src.get("database"))
-    consumption_by_hour: list = []
-    consumption_source  = "none"
 
-    def _try_external():
-        if ext_configured:
-            data = _query_external_influx_consumption(days=history_days)
-            if len(data) >= 18:
-                return data, "external_influx"
-        return [], ""
-
-    def _try_local():
-        data = query_avg_hourly_consumption(days=history_days, tz_name=tz_name)
-        if len(data) >= 18:
-            return data, "local_influx"
-        return [], ""
-
-    def _try_ha():
-        data = _query_ha_hourly_consumption(days=history_days)
-        if data:
-            return data, "ha_history"
-        return [], ""
-
-    if cons_source_pref == "external_influx":
-        consumption_by_hour, consumption_source = _try_external()
-    elif cons_source_pref == "local_influx":
-        consumption_by_hour, consumption_source = _try_local()
-    elif cons_source_pref == "ha_history":
-        consumption_by_hour, consumption_source = _try_ha()
-    else:
-        # "auto": cascade external → local → HA
-        for _fn in (_try_external, _try_local, _try_ha):
-            consumption_by_hour, consumption_source = _fn()
-            if consumption_by_hour:
-                break
-
-    log.info("_compute_forward_plan: consumption=%s (%d slots), prices=%d, solar=%d",
-             consumption_source, len(consumption_by_hour), len(prices), len(solar_wh))
-
-    # ── Current SoC ───────────────────────────────────────────────────────
-    soc_now = None
-
-    if ext_configured:
-        try:
-            ext_socs = _query_external_influx_slot_latest("bat_soc")
-            if ext_socs:
-                soc_now = sum(ext_socs) / len(ext_socs)
-        except Exception:
-            pass
-
-    if soc_now is None:
-        try:
-            recent  = query_recent_points(hours=1)
-            soc_now = next((p["bat_soc"] for p in reversed(recent) if "bat_soc" in p), None)
-        except Exception:
-            pass
-
-    if soc_now is None:
-        try:
-            from influx_writer import _poll_esphome, _resolve_slot
-            devices_dict = load_devices()
-            live_cfg: dict = {}
+    def _do_prices():
+        src = price_source
+        rows: list = []
+        if src == "frank":
+            frank_sess    = _frank_session()
+            frank_token   = frank_sess.get("authToken")
+            frank_country = frank_sess.get("country", "BE")
+            if frank_token or frank_country == "BE":
+                try:
+                    target_d = date.fromisoformat(today_str)
+                    for d_off in [0, 1]:
+                        day = target_d + timedelta(days=d_off)
+                        frank_rows = _fetch_prices(frank_token, day,
+                                                   day + timedelta(days=1), frank_country)
+                        for row in frank_rows:
+                            all_in = (
+                                (row.get("marketPrice")         or 0.0) +
+                                (row.get("marketPriceTax")      or 0.0) +
+                                (row.get("sourcingMarkupPrice") or 0.0) +
+                                (row.get("energyTaxPrice")      or 0.0)
+                            )
+                            rows.append({"from": row["from"], "till": row["till"],
+                                         "marketPrice": all_in})
+                except Exception as exc:
+                    log.warning("_compute_forward_plan: Frank fetch error: %s", exc)
+            if not rows:
+                log.warning("_compute_forward_plan: Frank prices empty – falling back to ENTSO-E")
+                src = "entsoe"
+        if src == "entsoe" and es.get("apiKey"):
             try:
-                with open(FLOW_CFG_SERVER_FILE, "r", encoding="utf-8") as f:
-                    raw = json.load(f)
-                for k, v in raw.items():
-                    live_cfg[k] = v if isinstance(v, list) else [v]
+                target_d = date.fromisoformat(today_str)
+                rows += _fetch_entsoe_day(es["apiKey"], target_d,
+                                          es.get("country", "BE"), tz_name)
+                rows += _fetch_entsoe_day(es["apiKey"], target_d + timedelta(days=1),
+                                          es.get("country", "BE"), tz_name)
+            except Exception as exc:
+                log.warning("_compute_forward_plan: ENTSO-E fetch error: %s", exc)
+        return rows, src
+
+    def _do_solar():
+        if fs.get("lat") and fs.get("lon"):
+            try:
+                return _fetch_forecast(fs).get("watt_hours_period", {})
+            except Exception as exc:
+                log.warning("_compute_forward_plan: forecast fetch error: %s", exc)
+        return {}
+
+    def _do_consumption():
+        # Cache key: settings that affect the profile
+        cache_key = f"{cons_source_pref}:{history_days}:{tz_name}"
+        ca = _consumption_cache.get("fetched_at")
+        if (ca and _consumption_cache.get("key") == cache_key
+                and _consumption_cache.get("data")):
+            age_s = (datetime.now(timezone.utc)
+                     - datetime.fromisoformat(ca)).total_seconds()
+            if age_s < _CONSUMPTION_CACHE_TTL:
+                log.debug("_compute_forward_plan: consumption from cache (%ds old)", int(age_s))
+                return _consumption_cache["data"], _consumption_cache["source"]
+
+        def _try_external():
+            if ext_configured:
+                data = _query_external_influx_consumption(days=history_days)
+                if len(data) >= 18:
+                    return data, "external_influx"
+            return [], ""
+
+        def _try_local():
+            data = query_avg_hourly_consumption(days=history_days, tz_name=tz_name)
+            if len(data) >= 18:
+                return data, "local_influx"
+            return [], ""
+
+        def _try_ha():
+            data = _query_ha_hourly_consumption(days=history_days)
+            if data:
+                return data, "ha_history"
+            return [], ""
+
+        if cons_source_pref == "external_influx":
+            d, src = _try_external()
+        elif cons_source_pref == "local_influx":
+            d, src = _try_local()
+        elif cons_source_pref == "ha_history":
+            d, src = _try_ha()
+        else:
+            d, src = [], ""
+            for _fn in (_try_external, _try_local, _try_ha):
+                d, src = _fn()
+                if d:
+                    break
+
+        if d:
+            _consumption_cache["data"]       = d
+            _consumption_cache["source"]     = src
+            _consumption_cache["fetched_at"] = datetime.now(timezone.utc).isoformat()
+            _consumption_cache["key"]        = cache_key
+        return d, src
+
+    def _do_soc():
+        soc = None
+        if ext_configured:
+            try:
+                ext_socs = _query_external_influx_slot_latest("bat_soc")
+                if ext_socs:
+                    soc = sum(ext_socs) / len(ext_socs)
             except Exception:
                 pass
-            soc_entries = live_cfg.get("bat_soc", [])
-            if soc_entries:
-                esphome_map = _poll_esphome(devices_dict)
-                ha_soc_data: dict = {}
-                ha_s = _ha_effective_settings()
-                if ha_s.get("token") and ha_s.get("url"):
-                    ha_eids = [e["sensor"] for e in soc_entries
-                               if e.get("source") == "homeassistant" and e.get("sensor")]
-                    for eid in ha_eids:
-                        try:
-                            r = _req.get(f"{ha_s['url']}/api/states/{eid}",
-                                         headers=_ha_headers(ha_s["token"]), timeout=4, verify=False)
-                            if r.ok:
-                                try:
-                                    ha_soc_data[eid] = {"value": float(r.json().get("state", ""))}
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
-                soc_val = _resolve_slot("bat_soc", live_cfg, esphome_map, None, ha_soc_data)
-                if soc_val is not None:
-                    soc_now = float(soc_val)
-        except Exception as exc:
-            log.warning("_compute_forward_plan: SoC live-poll failed: %s", exc)
+        if soc is None:
+            try:
+                recent = query_recent_points(hours=1)
+                soc = next((p["bat_soc"] for p in reversed(recent) if "bat_soc" in p), None)
+            except Exception:
+                pass
+        if soc is None:
+            try:
+                from influx_writer import _poll_esphome, _resolve_slot
+                devices_dict = load_devices()
+                live_cfg: dict = {}
+                try:
+                    with open(FLOW_CFG_SERVER_FILE, "r", encoding="utf-8") as f:
+                        raw = json.load(f)
+                    for k, v in raw.items():
+                        live_cfg[k] = v if isinstance(v, list) else [v]
+                except Exception:
+                    pass
+                soc_entries = live_cfg.get("bat_soc", [])
+                if soc_entries:
+                    esphome_map = _poll_esphome(devices_dict)
+                    ha_soc_data: dict = {}
+                    ha_s = _ha_effective_settings()
+                    if ha_s.get("token") and ha_s.get("url"):
+                        ha_eids = [e["sensor"] for e in soc_entries
+                                   if e.get("source") == "homeassistant" and e.get("sensor")]
+                        for eid in ha_eids:
+                            try:
+                                r = _req.get(f"{ha_s['url']}/api/states/{eid}",
+                                             headers=_ha_headers(ha_s["token"]),
+                                             timeout=4, verify=False)
+                                if r.ok:
+                                    try:
+                                        ha_soc_data[eid] = {"value": float(r.json().get("state", ""))}
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                    soc_val = _resolve_slot("bat_soc", live_cfg, esphome_map, None, ha_soc_data)
+                    if soc_val is not None:
+                        soc = float(soc_val)
+            except Exception as exc:
+                log.warning("_compute_forward_plan: SoC live-poll failed: %s", exc)
+        if soc is None:
+            try:
+                _soc_file = os.path.join(DATA_DIR, "last_soc.json")
+                with open(_soc_file, encoding="utf-8") as _f:
+                    _sc = json.load(_f)
+                if time.time() - _sc.get("ts", 0) < 3600:
+                    soc = float(_sc["soc"])
+                    log.info("_compute_forward_plan: SoC from cache file: %.1f%%", soc)
+            except Exception:
+                pass
+        return soc if soc is not None else 50.0
 
-    if soc_now is None:
-        # Final fallback: read last known SoC from the live-data cache file
-        try:
-            import time as _time
-            _soc_file = os.path.join(DATA_DIR, "last_soc.json")
-            with open(_soc_file, encoding="utf-8") as _f:
-                _sc = json.load(_f)
-            if _time.time() - _sc.get("ts", 0) < 3600:   # max 1 hour old
-                soc_now = float(_sc["soc"])
-                log.info("_compute_forward_plan: SoC from cache file: %.1f%%", soc_now)
-        except Exception:
-            pass
+    with ThreadPoolExecutor(max_workers=4) as _ex:
+        _f_prices = _ex.submit(_do_prices)
+        _f_solar  = _ex.submit(_do_solar)
+        _f_cons   = _ex.submit(_do_consumption)
+        _f_soc    = _ex.submit(_do_soc)
+        prices,              price_source      = _f_prices.result()
+        solar_wh                               = _f_solar.result()
+        consumption_by_hour, consumption_source = _f_cons.result()
+        soc_now                                = _f_soc.result()
 
-    if soc_now is None:
-        soc_now = 50.0
-
-    log.info("_compute_forward_plan: SoC=%.1f%%", soc_now)
+    log.info("_compute_forward_plan: consumption=%s (%d slots), prices=%d, solar=%d, SoC=%.1f%%",
+             consumption_source, len(consumption_by_hour), len(prices), len(solar_wh), soc_now)
 
     # ── Build plan & update cache ─────────────────────────────────────────
     plan   = build_plan(prices, solar_wh, consumption_by_hour, soc_now, s)
@@ -2710,11 +2739,16 @@ def _compute_forward_plan() -> dict:
 
     _plan_cache["slots"]      = result.get("all", [])
     _plan_cache["fetched_at"] = datetime.now(timezone.utc).isoformat()
+    _plan_cache["result"]     = result
     return result
 
 
 # Cache the last computed strategy plan (set by _compute_forward_plan)
-_plan_cache: dict = {"slots": [], "fetched_at": None}
+_plan_cache: dict = {"slots": [], "fetched_at": None, "result": None}
+
+# Consumption profile cache — valid for 30 minutes (profile changes slowly)
+_consumption_cache: dict = {"data": [], "source": "", "fetched_at": None, "key": ""}
+_CONSUMPTION_CACHE_TTL = 1800
 
 # action → list of (domain, entity_name, value) commands
 # U+2044 FRACTION SLASH is used in ESPHome entity name "Forcible Charge⁄Discharge"

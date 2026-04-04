@@ -566,11 +566,12 @@ export default function StrategyPage() {
   const [viewDate,      setViewDate]      = useState(null); // null = today+tomorrow, string = specific date
   const [planLoadedAt,  setPlanLoadedAt]  = useState(null);
 
-  const load = useCallback(async (date) => {
+  const load = useCallback(async (date, force = false) => {
     setLoading(true); setError(null);
     syncFlowCfgToBackend();
     try {
-      const url = date ? `api/strategy/plan?date=${date}` : "api/strategy/plan";
+      let url = date ? `api/strategy/plan?date=${date}` : "api/strategy/plan";
+      if (force) url += (url.includes("?") ? "&" : "?") + "refresh=1";
       const r   = await fetch(url);
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
@@ -641,7 +642,7 @@ export default function StrategyPage() {
             )}
           </div>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={() => load(viewDate)} disabled={loading}>
+        <button className="btn btn-ghost btn-sm" onClick={() => load(viewDate, true)} disabled={loading}>
           {loading ? "Laden…" : "↺ Vernieuwen"}
         </button>
       </div>
