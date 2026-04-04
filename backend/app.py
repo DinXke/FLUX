@@ -1686,8 +1686,8 @@ def _query_ha_hourly_consumption(days: int = 21) -> list[dict]:
 
     headers  = _ha_headers(ha_s["token"])
     base_url = ha_s["url"].rstrip("/")
-    # Cap at 7 days to avoid huge responses that time out (4000+ records/day/sensor)
-    ha_days  = min(days, 7)
+    # Fetch up to requested days; chunked fetching prevents timeout
+    ha_days  = min(days, 21)
     start_dt = datetime.now(timezone.utc) - timedelta(days=ha_days)
     tz_name  = _entsoe_settings().get("timezone", "Europe/Brussels")
     tz_local = ZoneInfo(tz_name)
@@ -1696,26 +1696,35 @@ def _query_ha_hourly_consumption(days: int = 21) -> list[dict]:
               len(all_eids), ha_days, start_dt.strftime("%Y-%m-%d"))
 
     # Integrate each entity's power (W) history → Wh per (date, hour) bucket
+    # Fetch in weekly chunks to avoid HTTP timeout on long periods.
     entity_hourly: dict[str, dict] = {}
 
     for eid in all_eids:
         try:
-            r = _req.get(
-                f"{base_url}/api/history/period/{start_dt.isoformat()}",
-                headers=headers,
-                params={"filter_entity_id": eid,
-                        "minimal_response": "true",
-                        "no_attributes": "true"},
-                timeout=60,
-                verify=False,
-            )
-            if not r.ok:
-                log.warning("HA history %s → HTTP %s", eid, r.status_code)
-                continue
-            history = r.json()
-            if not history or not history[0]:
-                continue
-            states = history[0]
+            states = []
+            chunk_start = start_dt
+            while chunk_start < datetime.now(timezone.utc):
+                chunk_end = min(chunk_start + timedelta(days=7), datetime.now(timezone.utc))
+                r = _req.get(
+                    f"{base_url}/api/history/period/{chunk_start.isoformat()}",
+                    headers=headers,
+                    params={"filter_entity_id": eid,
+                            "end_time": chunk_end.isoformat(),
+                            "minimal_response": "true",
+                            "no_attributes": "true",
+                            "significant_changes_only": "false"},
+                    timeout=60,
+                    verify=False,
+                )
+                if not r.ok:
+                    log.warning("HA history %s chunk %s → HTTP %s", eid,
+                                chunk_start.strftime("%Y-%m-%d"), r.status_code)
+                    chunk_start = chunk_end
+                    continue
+                chunk_hist = r.json()
+                if chunk_hist and chunk_hist[0]:
+                    states.extend(chunk_hist[0])
+                chunk_start = chunk_end
 
             # Find scale for this entity (default 1.0 — kW sensors have scale=1000)
             eid_scale = 1.0
@@ -1783,8 +1792,95 @@ def _query_ha_hourly_consumption(days: int = 21) -> list[dict]:
     for (wd, hour), vals in sorted(by_wd_hour.items()):
         result.append({"weekday": wd, "hour": hour, "avg_wh": round(sum(vals) / len(vals), 1)})
 
-    log.info("HA consumption history: %d (weekday, hour) buckets from %d days", len(result), days)
+    log.info("HA consumption history: %d (weekday, hour) buckets from %d days  entities=%s",
+             len(result), ha_days, all_eids)
     return result
+
+
+@app.route("/api/ha/consumption-debug")
+def ha_consumption_debug():
+    """
+    Diagnostic endpoint: shows exactly which HA entities are queried for
+    the consumption profile and how many data points / hour-buckets come back.
+    Useful for troubleshooting sparse HA history.
+    """
+    ha_s = _ha_effective_settings()
+    if not ha_s.get("token") or not ha_s.get("url"):
+        return jsonify({"error": "Geen HA token/URL geconfigureerd"}), 400
+
+    flow_cfg: dict = {}
+    try:
+        with open(FLOW_CFG_SERVER_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        for k, v in raw.items():
+            flow_cfg[k] = v if isinstance(v, list) else [v]
+    except Exception:
+        pass
+
+    def ha_entries(slot_key):
+        return [(e["sensor"], e.get("invert", False))
+                for e in flow_cfg.get(slot_key, [])
+                if e.get("source") == "homeassistant" and e.get("sensor")]
+
+    net_ha  = ha_entries("net_power")
+    sol_ha  = ha_entries("solar_power")
+    src     = _load_influx_source()
+    mappings = src.get("mappings", {})
+
+    def src_entries(key):
+        m = mappings.get(key)
+        if not m:
+            return []
+        entries = m if isinstance(m, list) else [m]
+        return [(f"sensor.{e['tag_value']}", bool(e.get("invert")))
+                for e in entries if e.get("tag_value")]
+
+    net_fallback = src_entries("net_w") if not net_ha else []
+    sol_fallback = src_entries("solar_w") if not sol_ha else []
+
+    all_eids = list({eid for eid, _ in net_ha + sol_ha + net_fallback + sol_fallback})
+
+    headers  = _ha_headers(ha_s["token"])
+    base_url = ha_s["url"].rstrip("/")
+    probe_start = datetime.now(timezone.utc) - timedelta(days=3)
+
+    entity_info = []
+    for eid in all_eids:
+        try:
+            r = _req.get(
+                f"{base_url}/api/history/period/{probe_start.isoformat()}",
+                headers=headers,
+                params={"filter_entity_id": eid, "minimal_response": "true",
+                        "no_attributes": "true"},
+                timeout=30,
+                verify=False,
+            )
+            if not r.ok:
+                entity_info.append({"entity_id": eid, "error": f"HTTP {r.status_code}",
+                                    "records": 0})
+                continue
+            hist = r.json()
+            records = len(hist[0]) if hist and hist[0] else 0
+            sample  = hist[0][-1]["state"] if records else None
+            entity_info.append({"entity_id": eid, "records_3d": records,
+                                 "last_value": sample, "ok": records > 0})
+        except Exception as exc:
+            entity_info.append({"entity_id": eid, "error": str(exc), "records": 0})
+
+    return jsonify({
+        "ha_url":        ha_s.get("url"),
+        "flow_cfg_net":  [e[0] for e in net_ha],
+        "flow_cfg_solar": [e[0] for e in sol_ha],
+        "fallback_net":  [e[0] for e in net_fallback],
+        "fallback_solar": [e[0] for e in sol_fallback],
+        "entities_queried": all_eids,
+        "entity_probe":  entity_info,
+        "note": (
+            "entities_queried toont welke sensoren gebruikt worden. "
+            "records_3d = aantal datapunten in de laatste 3 dagen. "
+            "0 records = sensor niet gevonden of geen data."
+        ),
+    })
 
 
 @app.route("/api/strategy/plan")
