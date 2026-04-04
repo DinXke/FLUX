@@ -218,15 +218,13 @@ html, body {
   gap: 24px;
 }
 
-/* ── Tablet ── */
-@media (max-width: 900px) {
+/* ── Tablet (between 900px and 1200px): slightly tighter desktop nav ── */
+@media (min-width: 901px) and (max-width: 1200px) {
   .nav-btn { padding: 7px 12px; font-size: 13px; }
-  .app-main { padding: 16px; }
-  .device-grid { grid-template-columns: 1fr; }
 }
 
-/* ── Mobile ── */
-@media (max-width: 640px) {
+/* ── Mobile / HA companion app (≤900px) ── */
+@media (max-width: 900px) {
   /* Header: compact */
   .app-header { padding: 0 12px; height: 52px; }
   .app-header-subtitle--desktop { display: none; }
@@ -234,7 +232,7 @@ html, body {
   .app-header-logo  { font-size: 18px; }
   .btn--add-desktop { display: none; }   /* replaced by FAB */
 
-  /* Hide desktop nav, show bottom nav */
+  /* Hide desktop top nav, show bottom nav */
   .app-nav--desktop { display: none; }
   .app-nav--mobile {
     display: flex;
@@ -243,6 +241,7 @@ html, body {
     z-index: 150;
     background: var(--bg-header);
     backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-top: 1px solid var(--border);
     padding: 4px 0 max(4px, env(safe-area-inset-bottom));
   }
@@ -250,12 +249,12 @@ html, body {
   /* Show FAB */
   .fab { display: flex; align-items: center; justify-content: center; }
 
-  /* Push main content up so bottom nav doesn't cover it */
+  /* Push main content above bottom nav */
   .app-main { padding: 12px 12px 80px; }
   .device-grid { grid-template-columns: 1fr; gap: 10px; }
 
-  /* Settings tabs scrollable on mobile */
-  .settings-tabs { overflow-x: auto; flex-wrap: nowrap; }
+  /* Settings tabs: horizontal scroll, no wrap */
+  .settings-tabs { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 16px; }
   .settings-tab  { white-space: nowrap; flex-shrink: 0; }
 
   /* Strategy timeline: smaller font */
