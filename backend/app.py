@@ -2918,9 +2918,9 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
                         live_cfg[k] = v if isinstance(v, list) else [v]
                 except Exception:
                     pass
+                esphome_map = _poll_esphome(devices_dict)
                 soc_entries = live_cfg.get("bat_soc", [])
                 if soc_entries:
-                    esphome_map = _poll_esphome(devices_dict)
                     ha_soc_data: dict = {}
                     ha_s = _ha_effective_settings()
                     if ha_s.get("token") and ha_s.get("url"):
@@ -2941,6 +2941,13 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
                     soc_val = _resolve_slot("bat_soc", live_cfg, esphome_map, None, ha_soc_data)
                     if soc_val is not None:
                         soc = float(soc_val)
+                # Fallback: average soc directly from all polled ESPHome devices
+                # (works even when bat_soc is not configured in flow sources)
+                if soc is None and esphome_map:
+                    raw_socs = [v["soc"] for v in esphome_map.values() if "soc" in v]
+                    if raw_socs:
+                        soc = sum(raw_socs) / len(raw_socs)
+                        log.info("_compute_forward_plan: SoC from ESPHome direct poll: %.1f%%", soc)
             except Exception as exc:
                 log.warning("_compute_forward_plan: SoC live-poll failed: %s", exc)
         if soc is None:
