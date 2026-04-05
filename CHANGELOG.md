@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.19.42] - 2026-04-05
+
+### Added
+- Winst dashboard: geëxtrapoleerde besparingsrij toont +X€/dag · +Y€/week ·
+  +Z€/maand · +W€/jaar op basis van het gemiddelde van de geselecteerde periode
+- Winst dashboard: weekoverzicht-tabel (≥ 2 weken data) met besparing per week
+- Winst dashboard: maandoverzicht-tabel (≥ 20 dagen data) met besparing per maand
+- Beide tabellen tonen: zonder auto / met auto / besparing + visuele balkbreedte
+
 ## [1.19.41] - 2026-04-05
 
 ### Added

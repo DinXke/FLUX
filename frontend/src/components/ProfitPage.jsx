@@ -234,6 +234,133 @@ function CumulativeChart({ days }) {
   );
 }
 
+// ── Rates row: €/dag · €/week · €/maand ──────────────────────────────────
+
+function RatesRow({ summary }) {
+  if (!summary) return null;
+  const perDay   = summary.avg_daily_savings_eur;
+  const perWeek  = perDay * 7;
+  const perMonth = perDay * 30.44;
+  const perYear  = perDay * 365.25;
+
+  const items = [
+    { label: "per dag",   value: perDay   },
+    { label: "per week",  value: perWeek  },
+    { label: "per maand", value: perMonth },
+    { label: "per jaar",  value: perYear  },
+  ];
+
+  return (
+    <div style={{
+      background: "var(--card-bg)",
+      border: "1px solid var(--border-color)",
+      borderRadius: 10,
+      padding: "12px 16px",
+      marginBottom: 14,
+    }}>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10, fontWeight: 600 }}>
+        Gemiddelde besparing (geëxtrapoleerd)
+      </div>
+      <div style={{ display: "flex", gap: 0, flexWrap: "wrap" }}>
+        {items.map((item, i) => (
+          <div key={item.label} style={{
+            flex: "1 1 100px",
+            padding: "8px 12px",
+            borderRight: i < items.length - 1 ? "1px solid var(--border-color)" : "none",
+            textAlign: "center",
+          }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: item.value >= 0 ? "#4caf80" : "#e05c5c" }}>
+              {item.value >= 0 ? "+" : ""}{item.value.toFixed(2)} €
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{item.label}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 8 }}>
+        Berekend op {summary.days_with_data} dagen met data · {summary.pct_saved.toFixed(1)}% bespaard t.o.v. anti-feed baseline
+      </div>
+    </div>
+  );
+}
+
+// ── Weekly / monthly aggregation table ────────────────────────────────────
+
+function groupBy(days, keyFn) {
+  const map = new Map();
+  for (const d of days) {
+    const k = keyFn(d.date);
+    if (!map.has(k)) map.set(k, { key: k, days: [] });
+    map.get(k).days.push(d);
+  }
+  return Array.from(map.values());
+}
+
+function isoWeekLabel(dateStr) {
+  const d = new Date(dateStr + "T12:00:00");
+  // ISO week: use a simple calculation
+  const jan4 = new Date(d.getFullYear(), 0, 4);
+  const startOfWeek1 = new Date(jan4);
+  startOfWeek1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
+  const weekNum = Math.floor((d - startOfWeek1) / (7 * 24 * 3600 * 1000)) + 1;
+  return `W${weekNum} ${d.getFullYear()}`;
+}
+
+function monthLabel(dateStr) {
+  const d = new Date(dateStr + "T12:00:00");
+  return d.toLocaleDateString("nl-BE", { month: "long", year: "numeric" });
+}
+
+function AggTable({ groups, unit }) {
+  if (!groups || groups.length === 0) return null;
+  const rows = groups.map(g => {
+    const no   = g.days.reduce((s, d) => s + d.cost_no_eur,  0);
+    const with_= g.days.reduce((s, d) => s + d.cost_with_eur, 0);
+    const sav  = no - with_;
+    return { key: g.key, n: g.days.length, no, with: with_, sav };
+  });
+  const maxSav = Math.max(...rows.map(r => Math.abs(r.sav)), 0.01);
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ fontSize: 12, borderCollapse: "collapse", width: "100%" }}>
+        <thead>
+          <tr style={{ color: "var(--text-muted)", fontSize: 11 }}>
+            <th style={{ padding: "4px 10px", borderBottom: "1px solid var(--border-color)", textAlign: "left" }}>{unit}</th>
+            <th style={{ padding: "4px 10px", borderBottom: "1px solid var(--border-color)", textAlign: "right" }}>Dagen</th>
+            <th style={{ padding: "4px 10px", borderBottom: "1px solid var(--border-color)", textAlign: "right", color: "#e05c5c" }}>Zonder auto</th>
+            <th style={{ padding: "4px 10px", borderBottom: "1px solid var(--border-color)", textAlign: "right", color: "#4caf80" }}>Met auto</th>
+            <th style={{ padding: "4px 10px", borderBottom: "1px solid var(--border-color)", textAlign: "right" }}>Besparing</th>
+            <th style={{ padding: "4px 10px", borderBottom: "1px solid var(--border-color)", textAlign: "left", width: 80 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.key} style={{ borderBottom: "1px solid var(--border-color)" }}>
+              <td style={{ padding: "5px 10px", fontWeight: 600 }}>{r.key}</td>
+              <td style={{ padding: "5px 10px", textAlign: "right", color: "var(--text-muted)" }}>{r.n}</td>
+              <td style={{ padding: "5px 10px", textAlign: "right", color: "#e05c5c" }}>{r.no.toFixed(2)} €</td>
+              <td style={{ padding: "5px 10px", textAlign: "right", color: "#4caf80" }}>{r.with.toFixed(2)} €</td>
+              <td style={{ padding: "5px 10px", textAlign: "right", fontWeight: 700,
+                           color: r.sav >= 0 ? "#4caf80" : "#e05c5c" }}>
+                {r.sav >= 0 ? "+" : ""}{r.sav.toFixed(2)} €
+              </td>
+              <td style={{ padding: "5px 10px" }}>
+                <div style={{ height: 8, borderRadius: 4, background: "var(--border-color)", overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", borderRadius: 4,
+                    width: `${Math.min(100, Math.abs(r.sav) / maxSav * 100)}%`,
+                    background: r.sav >= 0 ? "#4caf80" : "#e05c5c",
+                  }} />
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Day detail table ───────────────────────────────────────────────────────
 
 function DayDetail({ day }) {
@@ -316,6 +443,10 @@ export default function ProfitPage() {
 
   const selectedDayData = selDay != null ? days[selDay] : null;
 
+  // Weekly / monthly groupings
+  const weekGroups  = days.length >= 7  ? groupBy(days, d => isoWeekLabel(d)) : [];
+  const monthGroups = days.length >= 20 ? groupBy(days, d => monthLabel(d))   : [];
+
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "12px 16px" }}>
       {/* Header */}
@@ -396,6 +527,25 @@ export default function ProfitPage() {
             sub="Werkelijke gemeten netafname"
             color="#4caf80"
           />
+        </div>
+      )}
+
+      {/* Rates row: €/dag · €/week · €/maand · €/jaar */}
+      {summary && !loading && <RatesRow summary={summary} />}
+
+      {/* Weekly breakdown */}
+      {!loading && weekGroups.length >= 2 && (
+        <div style={{ background: "var(--card-bg)", border: "1px solid var(--border-color)", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Per week</div>
+          <AggTable groups={weekGroups} unit="Week" />
+        </div>
+      )}
+
+      {/* Monthly breakdown */}
+      {!loading && monthGroups.length >= 1 && (
+        <div style={{ background: "var(--card-bg)", border: "1px solid var(--border-color)", borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Per maand</div>
+          <AggTable groups={monthGroups} unit="Maand" />
         </div>
       )}
 
