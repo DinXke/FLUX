@@ -99,9 +99,20 @@ function PriceChart({ prices }) {
   const chartW = W - PAD_L - PAD_R;
   const chartH = H - PAD_T - PAD_B;
   const barW   = chartW / prices.length;
-  const yScale = chartH / (max * 1.08 || 1);
 
-  const yTicks = [0, max * 0.25, max * 0.5, max * 0.75, max];
+  // Range must accommodate both positive and negative values
+  const yMin   = Math.min(min, 0);
+  const yMax   = Math.max(max, 0);
+  const yRange = (yMax - yMin) * 1.08 || 1;
+  const yScale = chartH / yRange;
+
+  // Y pixel position for a given value
+  const yPx = (v) => PAD_T + chartH - (v - yMin) * yScale;
+  const zeroY = yPx(0);   // pixel y of the zero line
+
+  // Y-axis ticks: include 0 plus up to 4 evenly spread values
+  const tickStep = yRange / 4;
+  const yTicks = Array.from({ length: 5 }, (_, i) => yMin + tickStep * i);
 
   return (
     <svg
@@ -111,7 +122,7 @@ function PriceChart({ prices }) {
     >
       {/* Y grid lines */}
       {yTicks.map((t) => {
-        const y = PAD_T + chartH - t * yScale;
+        const y = yPx(t);
         return (
           <g key={t}>
             <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y}
@@ -124,26 +135,33 @@ function PriceChart({ prices }) {
         );
       })}
 
+      {/* Zero line (bold when there are negative prices) */}
+      {min < 0 && (
+        <line x1={PAD_L} x2={W - PAD_R} y1={zeroY} y2={zeroY}
+          stroke="#475569" strokeWidth="1.2" />
+      )}
+
       {/* Average line */}
       {(() => {
-        const y = PAD_T + chartH - avg * yScale;
+        const y = yPx(avg);
         return (
           <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y}
             stroke="#64748b" strokeWidth="1" strokeDasharray="6 3" />
         );
       })()}
 
-      {/* Bars */}
+      {/* Bars — grow up from zero for positive, down for negative */}
       {prices.map((p, i) => {
         const t     = total(p);
-        const bh    = t * yScale;
         const x     = PAD_L + i * barW;
-        const y     = PAD_T + chartH - bh;
         const color = priceColor(t, min, max);
 
         const from = new Date(p.from);
         const till = new Date(p.till);
         const isCurrent = now >= from && now < till;
+
+        const barTop = t >= 0 ? yPx(t) : zeroY;
+        const barH   = Math.abs(t) * yScale;
 
         // Show X-axis label every 3 hours, on the :00 slot only
         const hour = from.getHours();
@@ -157,7 +175,7 @@ function PriceChart({ prices }) {
                 fill="rgba(255,255,255,0.06)" rx="2" />
             )}
             <rect
-              x={x + 0.5} y={y} width={Math.max(barW - 1, 0.5)} height={bh}
+              x={x + 0.5} y={barTop} width={Math.max(barW - 1, 0.5)} height={Math.max(barH, 0.5)}
               fill={color}
               opacity={isCurrent ? 1 : 0.75}
               rx="1"
@@ -165,7 +183,7 @@ function PriceChart({ prices }) {
               <title>{hhmm(p.from)} – {hhmm(p.till)}: {fmtCt(t)}</title>
             </rect>
             {isCurrent && (
-              <rect x={x + 0.5} y={y - 2} width={Math.max(barW - 1, 0.5)} height={2}
+              <rect x={x + 0.5} y={barTop - 2} width={Math.max(barW - 1, 0.5)} height={2}
                 fill="#fff" rx="1" />
             )}
             {showLabel && (
