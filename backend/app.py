@@ -3427,6 +3427,193 @@ def set_automation():
     return jsonify(data)
 
 
+# ---------------------------------------------------------------------------
+# Profit analysis: automation savings vs. anti-feed baseline
+# ---------------------------------------------------------------------------
+
+@app.route("/api/profit")
+def get_profit_analysis():
+    """
+    Compare estimated energy cost WITH automation vs WITHOUT automation
+    (anti-feed only baseline) using historical InfluxDB measurements and
+    historical electricity prices.
+
+    Query params:
+      days=30  – how many past days to analyse (max 90)
+    """
+    import pytz as _pytz
+    from influx_writer import query_day_actuals
+
+    days_param = min(max(int(request.args.get("days", 30)), 1), 90)
+    s          = load_strategy_settings()
+    tz_name    = s.get("timezone", "Europe/Brussels")
+    tz         = ZoneInfo(tz_name)
+    cap_kwh    = float(s.get("bat_capacity_kwh",  5.0))
+    rte        = float(s.get("rte",               0.85))
+    min_res    = float(s.get("min_reserve_soc",   10))  / 100.0
+    max_soc_f  = float(s.get("max_soc",           95))  / 100.0
+    sell_price = float(s.get("feed_in_price_eur_kwh", 0.0))
+    price_src  = s.get("price_source", "entsoe")
+
+    bat_min_kwh = min_res  * cap_kwh
+    bat_max_kwh = max_soc_f * cap_kwh
+
+    # Determine price fetch params
+    if price_src == "frank":
+        markup       = 0.0
+        frank_sess   = _frank_session()
+        frank_token  = frank_sess.get("authToken")
+        frank_country = frank_sess.get("country", "BE")
+    else:
+        markup  = float(s.get("grid_markup_eur_kwh", 0.12))
+        es      = _entsoe_settings()
+        api_key = es.get("apiKey", "")
+        country = es.get("country", "BE")
+
+    today     = datetime.now(tz).date()
+    days_data = []
+
+    for d_offset in range(days_param, 0, -1):
+        day      = today - timedelta(days=d_offset)
+        date_str = day.isoformat()
+
+        # ── 1. Fetch historical prices ────────────────────────────────────
+        price_by_hour: dict[int, float] = {}
+        try:
+            if price_src == "frank" and (frank_token or frank_country == "BE"):
+                rows = _fetch_prices(frank_token, day, day + timedelta(days=1), frank_country)
+                for row in rows:
+                    try:
+                        dt_raw = datetime.fromisoformat(row["from"])
+                        dt_loc = (dt_raw.replace(tzinfo=tz) if dt_raw.tzinfo is None
+                                  else dt_raw.astimezone(tz))
+                        if dt_loc.date() == day:
+                            all_in = (
+                                (row.get("marketPrice")         or 0.0) +
+                                (row.get("marketPriceTax")      or 0.0) +
+                                (row.get("sourcingMarkupPrice") or 0.0) +
+                                (row.get("energyTaxPrice")      or 0.0)
+                            )
+                            price_by_hour[dt_loc.hour] = all_in
+                    except Exception:
+                        pass
+            elif price_src == "entsoe" and api_key:
+                rows = _fetch_entsoe_day(api_key, day, country, tz_name)
+                for row in rows:
+                    try:
+                        dt_raw = datetime.fromisoformat(row["from"])
+                        dt_loc = (dt_raw.replace(tzinfo=tz) if dt_raw.tzinfo is None
+                                  else dt_raw.astimezone(tz))
+                        if dt_loc.date() == day:
+                            price_by_hour[dt_loc.hour] = float(row["marketPrice"]) + markup
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.debug("profit: price fetch %s: %s", date_str, e)
+
+        if len(price_by_hour) < 12:
+            continue   # not enough price data for this day
+
+        # ── 2. Fetch actual measurements from InfluxDB ────────────────────
+        actuals = query_day_actuals(date_str, tz_name)
+        if not actuals or len(actuals) < 4:
+            continue   # no sensor data for this day
+
+        # ── 3. Compute costs ──────────────────────────────────────────────
+        cost_with = 0.0
+        cost_no   = 0.0
+
+        # Starting SOC for "no automation" simulation: use first available hour
+        first_h    = min(actuals.keys())
+        bat_kwh    = ((actuals[first_h].get("bat_soc") or 50.0) / 100.0) * cap_kwh
+        bat_kwh    = max(bat_min_kwh, min(bat_max_kwh, bat_kwh))
+
+        hours_detail = []
+
+        for h in range(24):
+            # Price: use exact hour or nearest available
+            price = price_by_hour.get(h)
+            if price is None:
+                candidates = sorted(price_by_hour.items(), key=lambda x: abs(x[0] - h))
+                price = candidates[0][1] if candidates else 0.15
+
+            hd = actuals.get(h, {})
+            solar_wh = float(hd.get("solar_w") or 0.0)
+            house_wh = float(hd.get("house_w") or 0.0)
+            net_wh   = float(hd.get("net_w")   or 0.0)   # + = import, − = export
+
+            # WITH automation: actual measured grid flow
+            import_with = max(0.0, net_wh) / 1000.0
+            export_with = max(0.0, -net_wh) / 1000.0
+            cost_with_h = import_with * price - export_with * sell_price
+            cost_with  += cost_with_h
+
+            # WITHOUT automation: anti-feed simulation
+            net = solar_wh - house_wh
+            if net >= 0.0:
+                headroom   = bat_max_kwh - bat_kwh
+                charge     = min((net / 1000.0) * rte, headroom)
+                bat_kwh    = min(bat_max_kwh, bat_kwh + charge)
+                draw_for_charge = (charge / rte) if rte > 0 else 0.0
+                export_no  = max(0.0, (net / 1000.0) - draw_for_charge)
+                import_no  = 0.0
+            else:
+                deficit    = (-net) / 1000.0
+                avail      = max(0.0, bat_kwh - bat_min_kwh)
+                discharge  = min(deficit, avail)
+                bat_kwh    = max(bat_min_kwh, bat_kwh - discharge)
+                import_no  = max(0.0, deficit - discharge)
+                export_no  = 0.0
+
+            cost_no_h = import_no * price - export_no * sell_price
+            cost_no  += cost_no_h
+
+            hours_detail.append({
+                "h":            h,
+                "price_ct":     round(price * 100, 2),
+                "solar_wh":     round(solar_wh, 0),
+                "house_wh":     round(house_wh, 0),
+                "net_wh":       round(net_wh, 0),
+                "cost_no_ct":   round(cost_no_h * 100, 1),
+                "cost_with_ct": round(cost_with_h * 100, 1),
+            })
+
+        days_data.append({
+            "date":         date_str,
+            "cost_no_eur":  round(cost_no,             3),
+            "cost_with_eur": round(cost_with,           3),
+            "savings_eur":  round(cost_no - cost_with,  3),
+            "hours":        hours_detail,
+        })
+
+    if not days_data:
+        return jsonify({
+            "days":    [],
+            "summary": None,
+            "warning": (
+                "Geen data beschikbaar. Controleer of InfluxDB actieve sensordata bevat "
+                "en of de prijsbron (ENTSO-E / Frank) correct geconfigureerd is."
+            ),
+        })
+
+    total_sav  = sum(d["savings_eur"]  for d in days_data)
+    total_no   = sum(d["cost_no_eur"]  for d in days_data)
+    total_with = sum(d["cost_with_eur"] for d in days_data)
+    n          = len(days_data)
+
+    return jsonify({
+        "days": days_data,
+        "summary": {
+            "total_savings_eur":    round(total_sav,  2),
+            "total_cost_no_eur":    round(total_no,   2),
+            "total_cost_with_eur":  round(total_with, 2),
+            "days_with_data":       n,
+            "avg_daily_savings_eur": round(total_sav / n, 3),
+            "pct_saved":            round((1 - total_with / total_no) * 100, 1) if total_no > 0 else 0,
+        },
+    })
+
+
 if __name__ == "__main__":
     # Restore persisted caches so external APIs are not hammered after restarts
     _restore_plan_cache()

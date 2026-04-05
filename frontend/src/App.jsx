@@ -5,6 +5,7 @@ import PricesPage from "./components/PricesPage.jsx";
 import ForecastPage from "./components/ForecastPage.jsx";
 import StrategyPage from "./components/StrategyPage.jsx";
 import SettingsPage from "./components/SettingsPage.jsx";
+import ProfitPage from "./components/ProfitPage.jsx";
 import EnergyMap from "./components/EnergyMap.jsx";
 import HomeWizardPanel from "./components/HomeWizardPanel.jsx";
 
@@ -46,6 +47,7 @@ const NAV_ITEMS = [
   { id: "prices",    icon: "⚡", label: "Prijzen"           },
   { id: "forecast",  icon: "☀️", label: "Voorspelling"     },
   { id: "strategy",  icon: "🧠", label: "Strategie"        },
+  { id: "profit",    icon: "💰", label: "Winst"             },
   { id: "settings",  icon: "⚙️", label: "Instellingen"     },
 ];
 
@@ -202,6 +204,7 @@ export default function App() {
         {page === "prices"    && <PricesPage />}
         {page === "forecast"  && <ForecastPage />}
         {page === "strategy"  && <StrategyPage />}
+        {page === "profit"    && <ProfitPage />}
 
         {page === "settings" && (
           <SettingsPage

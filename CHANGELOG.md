@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.19.41] - 2026-04-05
+
+### Added
+- Nieuw dashboard "Winst" (💰): vergelijkt geschatte energiekosten zonder
+  automatisatie (altijd anti-feed, nooit netladen) vs. werkelijke kosten met
+  automatisatie (gemeten netafname uit InfluxDB), op basis van historische
+  uurprijzen (ENTSO-E of Frank Energie)
+- Periodes: 7 / 30 / 90 dagen
+- Overzichtskaarten: totale besparing, % bespaard, kosten zonder/met auto
+- Dagelijkse staafgrafiek (gegroepeerd) + cumulatieve besparingslijn
+- Klikbare dagdetail-tabel per uur (prijs, zon, verbruik, net, beide kosten)
+- Backend `/api/profit` endpoint: price fetch (ENTSO-E of Frank historisch)
+  + InfluxDB actuals + anti-feed simulatie
+
 ## [1.19.40] - 2026-04-05
 
 ### Fixed
