@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.19.39] - 2026-04-05
+
+### Fixed
+- "Sparen" modus stuurt nu anti-feed i.p.v. manual+stop: de batterij laadt
+  nog steeds van zonneoverschot maar ontlaadt niet geforceerd. Zo wordt
+  beschikbaar zonneoverschot tijdens een spaar-uur altijd benut.
+- Batterijmodus label "Sparen" gecorrigeerd naar "anti-feed"
+
 ## [1.19.38] - 2026-04-05
 
 ### Fixed

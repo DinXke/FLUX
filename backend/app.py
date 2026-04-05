@@ -3157,7 +3157,7 @@ _AUTOMATION_MODES: dict[str, list] = {
         ("select", _FORCIBLE,                "charge"),
     ],
     "save": [
-        ("select", "Marstek User Work Mode", "manual"),
+        ("select", "Marstek User Work Mode", "anti-feed"),
         ("select", _FORCIBLE,                "stop"),
     ],
     "discharge": [

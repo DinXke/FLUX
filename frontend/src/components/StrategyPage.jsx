@@ -828,7 +828,7 @@ function AutomationToggle({ planLoadedAt }) {
             <strong>
               {lastAction === "solar_charge" && "anti-feed"}
               {lastAction === "grid_charge"  && "manual + geforceerd laden"}
-              {lastAction === "save"         && "manual + laden uit"}
+              {lastAction === "save"         && "anti-feed"}
               {lastAction === "discharge"    && "anti-feed"}
               {lastAction === "neutral"      && "anti-feed"}
               {!lastAction                   && "—"}
