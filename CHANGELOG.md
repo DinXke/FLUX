@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.19.64] - 2026-04-06
+
+### Added
+- Claude AI strategie: plan vs werkelijkheid tracking.
+  - Bij elke Claude-run worden toekomstige plan-slots opgeslagen in `_plan_history.json`
+    (max 3 dagen, daarna gepruned).
+  - Bij de volgende run worden voltooide slots vergeleken met InfluxDB-actuals:
+    zonprognose-bias (%), verbruiksbias (%), SoC-afwijking — opgeslagen in `_plan_accuracy.json`
+    (rolling 30 dagen).
+  - `_get_accuracy_summary()` berekent gemiddelde bias en MAE en vertaalt dit naar
+    concrete adviezen (bijv. "Zonprognose 15% te optimistisch → plan grid_charge als backup").
+  - Claude ontvangt `historical_context.plan_accuracy` met statistieken en adviezen;
+    de prompt instrueert Claude om structurele afwijkingen actief te compenseren.
+
 ## [1.19.63] - 2026-04-06
 
 ### Added

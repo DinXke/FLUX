@@ -37,9 +37,11 @@ _PRICE_OUT_EUR_PER_TOKEN = 4.00 / 1_000_000 * 0.92   # $4.00/MTok output
 # ---------------------------------------------------------------------------
 
 _DATA_DIR           = os.environ.get("MARSTEK_DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
-_USAGE_FILE         = os.path.join(_DATA_DIR, "claude_usage.json")
-_PRICE_HISTORY_FILE = os.path.join(_DATA_DIR, "_price_history.json")
-_SOC_HISTORY_FILE   = os.path.join(_DATA_DIR, "_soc_history.json")
+_USAGE_FILE          = os.path.join(_DATA_DIR, "claude_usage.json")
+_PRICE_HISTORY_FILE  = os.path.join(_DATA_DIR, "_price_history.json")
+_SOC_HISTORY_FILE    = os.path.join(_DATA_DIR, "_soc_history.json")
+_PLAN_HISTORY_FILE   = os.path.join(_DATA_DIR, "_plan_history.json")
+_PLAN_ACCURACY_FILE  = os.path.join(_DATA_DIR, "_plan_accuracy.json")
 
 
 def _load_usage() -> list[dict]:
@@ -249,6 +251,210 @@ def _build_soc_profile(history: dict) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Plan vs actuals accuracy tracking
+# ---------------------------------------------------------------------------
+
+def _save_plan_for_accuracy(result_slots: list, generated_at: str) -> None:
+    """Persist future plan slots to _plan_history.json for later accuracy comparison.
+    Keyed by ISO hour string; only stores future (non-past) slots.
+    Old entries (> 3 days) are pruned automatically.
+    """
+    try:
+        with open(_PLAN_HISTORY_FILE, "r", encoding="utf-8") as f:
+            history = json.load(f)
+    except Exception:
+        history = {}
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+    history = {k: v for k, v in history.items() if k >= cutoff}
+
+    for slot in result_slots:
+        if slot.get("is_past"):
+            continue
+        key = slot["time"]
+        history[key] = {
+            "generated_at":   generated_at,
+            "action":         slot["action"],
+            "soc_start":      slot["soc_start"],
+            "solar_wh":       slot["solar_wh"],
+            "consumption_wh": slot["consumption_wh"],
+        }
+
+    try:
+        with open(_PLAN_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f)
+    except Exception as e:
+        log.warning("plan_history: write failed: %s", e)
+
+
+def _evaluate_past_plans(tz_name: str) -> None:
+    """Compare plan_history slots that are now in the past with InfluxDB actuals.
+    Appends comparison records to _plan_accuracy.json (rolling 30 days).
+    """
+    try:
+        with open(_PLAN_HISTORY_FILE, "r", encoding="utf-8") as f:
+            plan_history = json.load(f)
+    except Exception:
+        return
+
+    try:
+        with open(_PLAN_ACCURACY_FILE, "r", encoding="utf-8") as f:
+            accuracy_log = json.load(f)
+    except Exception:
+        accuracy_log = []
+
+    # Only evaluate slots that are in the past AND not yet evaluated
+    already_evaluated = {r["time"] for r in accuracy_log}
+    now_utc = datetime.now(timezone.utc)
+    tz = None
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        pass
+
+    # Group unevaluated past slots by date so we query InfluxDB once per day
+    from datetime import date as _date_t
+    slots_by_date: dict[str, list] = {}
+    for key, planned in plan_history.items():
+        if key in already_evaluated:
+            continue
+        try:
+            dt = datetime.fromisoformat(key)
+            if tz:
+                dt = dt.replace(tzinfo=tz) if dt.tzinfo is None else dt.astimezone(tz)
+            # Only evaluate completed hours (at least 1h ago)
+            if dt.astimezone(timezone.utc) > now_utc - timedelta(hours=1):
+                continue
+            date_str = dt.date().isoformat()
+            slots_by_date.setdefault(date_str, []).append((key, dt.hour, planned))
+        except Exception:
+            pass
+
+    if not slots_by_date:
+        return
+
+    try:
+        from influx_writer import query_day_actuals
+    except ImportError:
+        return
+
+    new_records = []
+    for date_str, slots in slots_by_date.items():
+        try:
+            actuals = query_day_actuals(date_str, tz_name)
+        except Exception:
+            continue
+        for key, hour, planned in slots:
+            actual = actuals.get(hour, {})
+            if not actual:
+                continue
+            rec: dict = {"time": key, "date": date_str, "hour": hour}
+
+            # Solar: planned Wh vs actual W (mean over hour = Wh)
+            actual_solar = actual.get("solar_w", None)
+            if actual_solar is not None and planned["solar_wh"] is not None:
+                rec["solar_planned_wh"] = planned["solar_wh"]
+                rec["solar_actual_wh"]  = round(actual_solar, 1)  # W·h = Wh for hourly avg
+                # bias = planned - actual (positive = over-predicted)
+                if actual_solar > 10:  # ignore near-zero (night)
+                    rec["solar_bias_pct"] = round(
+                        (planned["solar_wh"] - actual_solar) / actual_solar * 100, 1)
+
+            # Consumption: planned Wh vs actual W
+            actual_cons = actual.get("house_w", None)
+            if actual_cons is not None and planned["consumption_wh"] is not None:
+                rec["cons_planned_wh"] = planned["consumption_wh"]
+                rec["cons_actual_wh"]  = round(actual_cons, 1)
+                rec["cons_bias_pct"]   = round(
+                    (planned["consumption_wh"] - actual_cons) / max(actual_cons, 1) * 100, 1)
+
+            # SoC: planned start vs actual
+            actual_soc = actual.get("bat_soc", None)
+            if actual_soc is not None:
+                rec["soc_planned"] = planned["soc_start"]
+                rec["soc_actual"]  = round(actual_soc, 1)
+                rec["soc_error"]   = round(planned["soc_start"] - actual_soc, 1)
+
+            rec["planned_action"] = planned["action"]
+            new_records.append(rec)
+
+    if not new_records:
+        return
+
+    accuracy_log.extend(new_records)
+    # Prune to last 30 days
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    accuracy_log = [r for r in accuracy_log if r.get("time", "") >= cutoff]
+
+    try:
+        with open(_PLAN_ACCURACY_FILE, "w", encoding="utf-8") as f:
+            json.dump(accuracy_log, f)
+        log.debug("plan_accuracy: added %d new records (total %d)",
+                  len(new_records), len(accuracy_log))
+    except Exception as e:
+        log.warning("plan_accuracy: write failed: %s", e)
+
+
+def _get_accuracy_summary() -> dict | None:
+    """Compute summary statistics from _plan_accuracy.json for Claude context.
+    Returns None if insufficient data (< 20 records).
+    """
+    try:
+        with open(_PLAN_ACCURACY_FILE, "r", encoding="utf-8") as f:
+            records = json.load(f)
+    except Exception:
+        return None
+
+    solar_biases = [r["solar_bias_pct"] for r in records if "solar_bias_pct" in r]
+    cons_biases  = [r["cons_bias_pct"]  for r in records if "cons_bias_pct"  in r]
+    soc_errors   = [r["soc_error"]      for r in records if "soc_error"      in r]
+
+    if len(solar_biases) + len(cons_biases) + len(soc_errors) < 20:
+        return None
+
+    def _stats(values: list) -> dict:
+        if not values:
+            return {}
+        n   = len(values)
+        avg = round(sum(values) / n, 1)
+        mae = round(sum(abs(v) for v in values) / n, 1)
+        return {"avg_bias_pct": avg, "mae_pct": mae, "n": n}
+
+    solar_stats = _stats(solar_biases)
+    cons_stats  = _stats(cons_biases)
+    soc_mae     = round(sum(abs(e) for e in soc_errors) / len(soc_errors), 1) if soc_errors else None
+
+    # Build human-readable advice
+    notes = []
+    if solar_stats and abs(solar_stats["avg_bias_pct"]) > 10:
+        direction = "te optimistisch" if solar_stats["avg_bias_pct"] > 0 else "te pessimistisch"
+        notes.append(
+            f"Zonprognose gemiddeld {abs(solar_stats['avg_bias_pct']):.0f}% {direction} "
+            f"→ {'plan grid_charge als backup bij bewolkt' if solar_stats['avg_bias_pct'] > 0 else 'solar_charge eerder inzetten'}."
+        )
+    if cons_stats and abs(cons_stats["avg_bias_pct"]) > 10:
+        direction = "onderschat" if cons_stats["avg_bias_pct"] < 0 else "overschat"
+        notes.append(
+            f"Verbruiksprofiel gemiddeld {abs(cons_stats['avg_bias_pct']):.0f}% {direction} "
+            f"→ {'reserveer meer batterijcapaciteit voor verbruik' if cons_stats['avg_bias_pct'] < 0 else 'minder reserve nodig'}."
+        )
+    if soc_mae and soc_mae > 5:
+        notes.append(
+            f"SoC-prognose gemiddeld {soc_mae:.0f}% afwijking van werkelijkheid "
+            "→ houd ruimere veiligheidsmarge aan bij lage SOC-planning."
+        )
+
+    return {
+        "records_analysed": len(records),
+        "solar_forecast":  solar_stats,
+        "consumption_forecast": cons_stats,
+        "soc_plan_mae_pct": soc_mae,
+        "advice": notes,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Last-run debug info (read by app.py after build_plan_claude returns)
 # ---------------------------------------------------------------------------
 
@@ -426,6 +632,16 @@ Als de invoer een `historical_context` blok bevat, gebruik dit dan actief.
 - **Weekendpatroon**: Prijzen in het weekend zijn typisch anders dan door de week → detecteer dit in het profiel.
 - Vertrouw altijd meer op de actuele prijzen in de slots dan op het historisch profiel.
 
+### historical_context.plan_accuracy — plan vs werkelijkheid
+Als aanwezig, bevat dit een vergelijking van vorige plannen met werkelijke InfluxDB-metingen:
+- `solar_forecast.avg_bias_pct`: positief = prognose was te optimistisch (meer zon voorspeld dan werkelijk).
+  → Bij positieve bias > 10%: voeg backup grid_charge toe bij bewolkt verwacht; vertrouw solar_charge minder.
+- `consumption_forecast.avg_bias_pct`: negatief = verbruik was onderschat.
+  → Bij negatieve bias > 10%: reserveer meer batterijcapaciteit, minder agressief discharge.
+- `soc_plan_mae_pct`: gemiddelde absolute afwijking tussen geplande en werkelijke SoC.
+  → Bij > 5%: houd ruimere veiligheidsmarge aan, niet te dicht op reserve-grens plannen.
+- `advice`: lijst van concrete aanbevelingen op basis van gedetecteerde bias — volg deze actief op.
+
 ### historical_context.soc — historisch SoC-profiel (werkelijke batterijlading)
 Dit zijn de WERKELIJK GEMETEN SoC-waarden uit de database — niet gesimuleerd.
 
@@ -575,6 +791,13 @@ def build_plan_claude(
 
     _soc_profile, _soc_history_days = _get_soc_profile(tz_name)
 
+    # Evaluate past plans against actuals (best-effort, non-blocking)
+    try:
+        _evaluate_past_plans(tz_name)
+    except Exception as _eval_exc:
+        log.debug("plan_accuracy: evaluation failed (non-fatal): %s", _eval_exc)
+    _accuracy_summary = _get_accuracy_summary()
+
     # Price statistics (all-in prices)
     known_prices = [
         price_slots[sl.isoformat()] + markup
@@ -688,6 +911,14 @@ def build_plan_claude(
                 "Als de SoC historisch hoog is, is extra grid_charge waarschijnlijk niet nodig."
             ),
             "weekly_soc_profile": _soc_profile,
+        }
+    if _accuracy_summary:
+        historical_context["plan_accuracy"] = {
+            "note": (
+                "Vergelijking van vorige plannen met werkelijke InfluxDB-metingen. "
+                "Gebruik 'advice' om structurele afwijkingen te compenseren in je plan."
+            ),
+            **_accuracy_summary,
         }
     if historical_context:
         payload["historical_context"] = historical_context
@@ -912,6 +1143,12 @@ def build_plan_claude(
     _eur     = _in_tok * _PRICE_IN_EUR_PER_TOKEN + _out_tok * _PRICE_OUT_EUR_PER_TOKEN
     _ran_at  = datetime.now(timezone.utc).isoformat()
     _append_usage(_ran_at, model, _in_tok, _out_tok, _eur)
+
+    # ── Persist plan for future accuracy comparison ───────────────────────
+    try:
+        _save_plan_for_accuracy(result_slots, _ran_at)
+    except Exception as _spe:
+        log.debug("plan_history: save failed (non-fatal): %s", _spe)
 
     _set_debug(
         fallback=False,
