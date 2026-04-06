@@ -3526,27 +3526,39 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
         return
 
     if price < threshold:
-        # Curtail PV to exactly what is needed internally (house ± battery) + margin.
-        # When battery is discharging it contributes to house load → solar target is LOWER.
-        # When battery is charging from solar (grid_charge/solar_charge) → target is HIGHER.
         max_charge_kw = float(s.get("max_charge_kw", 3.0))
         max_soc_pct   = float(s.get("max_soc", 95))
 
-        # Determine battery contribution to the solar budget:
-        # - GRID_CHARGE / SOLAR_CHARGE: reserve capacity for charging  (+bat_charge_w)
-        # - DISCHARGE: battery covers part of house load → less solar needed (-bat_charge_w)
-        # - ANTI_FEED / NEUTRAL: battery neither helps nor hinders  (0)
+        # Use live SOC from last_soc.json (updated every ~30s by data collector).
+        # Fall back to plan estimate if the file is stale/missing.
+        live_soc: float | None = None
+        try:
+            _soc_file = os.path.join(DATA_DIR, "last_soc.json")
+            with open(_soc_file, encoding="utf-8") as _f:
+                _sc = json.load(_f)
+            if time.time() - _sc.get("ts", 0) < 300:   # accept if < 5 min old
+                live_soc = float(_sc["soc"])
+        except Exception:
+            pass
+        effective_soc = live_soc if live_soc is not None else soc_pct
+
+        bat_full = (effective_soc is not None and effective_soc >= max_soc_pct - 2)
+
         action_up = (slot_action or "").upper()
-        if action_up in ("GRID_CHARGE", "SOLAR_CHARGE", "FORCE_CHARGE"):
-            # Battery will charge — solar must also cover that load
-            bat_adj_w = int(max_charge_kw * 1000) if (soc_pct is None or soc_pct < max_soc_pct - 2) else 0
+        if bat_full:
+            # Battery is at max SOC — solar only needs to cover house consumption.
+            # Never limit below house consumption (would cause grid import).
+            bat_adj_w = 0
         elif action_up in ("DISCHARGE", "FORCE_DISCHARGE"):
-            # Battery discharges to house — solar only needs to cover the remainder
+            # Battery discharges to house — solar covers only the remainder.
             bat_adj_w = -int(max_charge_kw * 1000)
         else:
-            bat_adj_w = 0
+            # Battery not full (anti-feed / solar_charge / grid_charge / neutral):
+            # reserve full charging headroom so solar fills the battery.
+            bat_adj_w = int(max_charge_kw * 1000)
 
-        target_w = int(cons_w + bat_adj_w + margin_w)
+        # Floor: always allow at least house consumption worth of solar.
+        target_w = max(int(cons_w), int(cons_w + bat_adj_w + margin_w))
         target_w = max(0, min(max_w, target_w))
     else:
         target_w = max_w   # price OK → full PV output
@@ -3602,7 +3614,7 @@ def _start_automation_thread(interval: int = 60) -> None:
                 _pv_limiter_tick()
             except Exception as exc:
                 log.warning("PV limiter tick error: %s", exc)
-            _time.sleep(15)
+            _time.sleep(5)
 
     t = threading.Thread(target=loop, daemon=True, name="automation")
     t.start()
