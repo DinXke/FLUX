@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.19.49] - 2026-04-06
+
+### Fixed
+- PV-limiter werkt nu onafhankelijk van de batterijautomatisering — ook als
+  "Automatisering" uitstaat schakelt de PV-limiter in bij negatieve prijzen
+- PV-limiter heeft nu een fallback prijslookup via de prijscache: als er
+  nog geen strategie-plan is berekend (bijv. na herstart), wordt de huidige
+  uurprijs direct uit de Frank/ENTSO-E cache gelezen
+
 ## [1.19.48] - 2026-04-06
 
 ### Added
