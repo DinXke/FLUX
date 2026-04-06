@@ -3895,10 +3895,43 @@ def get_profit_analysis():
     })
 
 
+def _prefetch_prices() -> None:
+    """Populate _price_cache at startup so the PV limiter works immediately."""
+    import threading, time as _time
+    def _do():
+        _time.sleep(3)   # give Flask a moment to finish binding
+        try:
+            today    = date.today()
+            tomorrow = today + timedelta(days=1)
+            session      = _frank_session()
+            auth_token   = session.get("authToken")
+            country      = session.get("country") or _country_from_token(auth_token or "") or "NL"
+            today_prices = _fetch_prices(auth_token, today, tomorrow, country)
+            tomorrow_prices: list = []
+            try:
+                tomorrow_prices = _fetch_prices(auth_token, tomorrow, tomorrow + timedelta(days=1), country)
+            except Exception:
+                pass
+            result = {
+                "today":    today_prices,
+                "tomorrow": tomorrow_prices,
+                "loggedIn": bool(auth_token),
+                "email":    session.get("email"),
+            }
+            _price_cache[today.isoformat()] = {"data": result, "ts": _time.time()}
+            log.info("Startup price prefetch OK  today=%d slots  tomorrow=%d slots",
+                     len(today_prices), len(tomorrow_prices))
+        except Exception as exc:
+            log.warning("Startup price prefetch failed: %s", exc)
+    threading.Thread(target=_do, daemon=True, name="price_prefetch").start()
+
+
 if __name__ == "__main__":
     # Restore persisted caches so external APIs are not hammered after restarts
     _restore_plan_cache()
     _load_forecast_disk_cache()
+    # Pre-fetch prices so PV limiter works immediately after restart
+    _prefetch_prices()
     # Start InfluxDB background writer
     start_background_writer(_influx_context, interval=30)
     # Start automation background thread
