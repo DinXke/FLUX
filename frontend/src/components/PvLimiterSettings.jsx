@@ -7,29 +7,83 @@ function Toggle({ on, onChange }) {
   );
 }
 
-export default function PvLimiterSettings() {
-  const [enabled,        setEnabled]        = useState(false);
-  const [useService,     setUseService]     = useState(false);
-  // Entity mode
-  const [entity,         setEntity]         = useState("");
-  const [entitySearch,   setEntitySearch]   = useState("");
-  const [entityOpen,     setEntityOpen]     = useState(false);
-  const [haEntities,     setHaEntities]     = useState([]);
-  // Service mode
-  const [service,        setService]        = useState("");
-  const [serviceParam,   setServiceParam]   = useState("");
-  // Shared
-  const [maxW,           setMaxW]           = useState(4000);
-  const [thresholdCt,    setThresholdCt]    = useState(0);
-  const [marginW,        setMarginW]        = useState(200);
-  const [saving,         setSaving]         = useState(false);
-  const [success,        setSuccess]        = useState(false);
-  const [error,          setError]          = useState(null);
+function EntityPicker({ value, onChange, entities, placeholder }) {
+  const [search, setSearch] = useState(value);
+  const [open,   setOpen]   = useState(false);
+  const ref = useRef(null);
 
-  const entityRef = useRef(null);
+  useEffect(() => { setSearch(value); }, [value]);
 
   useEffect(() => {
-    const close = (e) => { if (entityRef.current && !entityRef.current.contains(e.target)) setEntityOpen(false); };
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  const filtered = entities.filter((e) => {
+    const q = search.toLowerCase();
+    return e.entity_id.toLowerCase().includes(q) || (e.friendly_name || "").toLowerCase().includes(q);
+  });
+
+  return (
+    <div ref={ref} style={{ position: "relative", width: "100%", maxWidth: 460 }}>
+      <input
+        className="form-input" style={{ width: "100%" }}
+        placeholder={placeholder || "Zoek entiteit…"}
+        value={search}
+        onFocus={() => setOpen(true)}
+        onChange={(e) => { setSearch(e.target.value); setOpen(true); onChange(""); }}
+      />
+      {open && filtered.length > 0 && (
+        <div style={{
+          position: "absolute", zIndex: 100, top: "100%", left: 0, right: 0,
+          background: "var(--card)", border: "1px solid var(--border)", borderRadius: 6,
+          maxHeight: 220, overflowY: "auto", boxShadow: "0 4px 16px #0008",
+        }}>
+          {filtered.slice(0, 60).map((e) => (
+            <div key={e.entity_id}
+              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13,
+                borderBottom: "1px solid var(--border)" }}
+              onMouseDown={() => { onChange(e.entity_id); setSearch(e.entity_id); setOpen(false); }}>
+              <div style={{ fontWeight: 500 }}>{e.friendly_name || e.entity_id}</div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>{e.entity_id}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {value && (
+        <div style={{ fontSize: 11, color: "var(--green)", marginTop: 4 }}>✓ {value}</div>
+      )}
+    </div>
+  );
+}
+
+export default function PvLimiterSettings() {
+  const [enabled,       setEnabled]       = useState(false);
+  const [useService,    setUseService]    = useState(false);
+  // Entity mode (number.*)
+  const [entity,        setEntity]        = useState("");
+  // Service mode
+  const [service,       setService]       = useState("");
+  const [paramKey,      setParamKey]      = useState("entity_id");
+  const [paramVal,      setParamVal]      = useState("");
+  // Service entity picker (all domains)
+  const [svcEntity,     setSvcEntity]     = useState("");
+  // Shared
+  const [maxW,          setMaxW]          = useState(4000);
+  const [thresholdCt,   setThresholdCt]   = useState(0);
+  const [marginW,       setMarginW]       = useState(200);
+  const [haEntities,    setHaEntities]    = useState([]);
+  const [saving,        setSaving]        = useState(false);
+  const [success,       setSuccess]       = useState(false);
+  const [error,         setError]         = useState(null);
+
+  const numberEntityRef = useRef(null);
+  const [numSearch,     setNumSearch]     = useState("");
+  const [numOpen,       setNumOpen]       = useState(false);
+
+  useEffect(() => {
+    const close = (e) => { if (numberEntityRef.current && !numberEntityRef.current.contains(e.target)) setNumOpen(false); };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, []);
@@ -41,9 +95,12 @@ export default function PvLimiterSettings() {
         setEnabled(d.pv_limiter_enabled ?? false);
         setUseService(d.pv_limiter_use_service ?? false);
         setEntity(d.pv_limiter_entity ?? "");
-        setEntitySearch(d.pv_limiter_entity ?? "");
+        setNumSearch(d.pv_limiter_entity ?? "");
         setService(d.pv_limiter_service ?? "");
-        setServiceParam(d.pv_limiter_service_param ?? "");
+        setParamKey(d.pv_limiter_service_param_key ?? "entity_id");
+        const pval = d.pv_limiter_service_param ?? "";
+        setParamVal(pval);
+        if ((d.pv_limiter_service_param_key ?? "entity_id") === "entity_id") setSvcEntity(pval);
         setMaxW(d.pv_limiter_max_w ?? 4000);
         setThresholdCt(d.pv_limiter_threshold_ct ?? 0);
         setMarginW(d.pv_limiter_margin_w ?? 200);
@@ -58,16 +115,25 @@ export default function PvLimiterSettings() {
   const numberEntities = haEntities.filter((e) =>
     e.entity_id.startsWith("number.") || e.entity_id.startsWith("input_number.")
   );
-  const filteredEntities = numberEntities.filter((e) => {
-    const q = entitySearch.toLowerCase();
+  const filteredNum = numberEntities.filter((e) => {
+    const q = numSearch.toLowerCase();
     return e.entity_id.toLowerCase().includes(q) || (e.friendly_name || "").toLowerCase().includes(q);
   });
 
-  const selectEntity = (e) => {
-    setEntity(e.entity_id);
-    setEntitySearch(e.friendly_name || e.entity_id);
-    setEntityOpen(false);
+  // When paramKey changes to entity_id, sync svcEntity → paramVal
+  const handleParamKeyChange = (k) => {
+    setParamKey(k);
+    if (k === "entity_id") { setParamVal(svcEntity); }
   };
+
+  const handleSvcEntityChange = (eid) => {
+    setSvcEntity(eid);
+    if (paramKey === "entity_id") setParamVal(eid);
+  };
+
+  // Preview of the service call
+  const previewData = { value: "‹W›" };
+  if (paramKey && paramVal) previewData[paramKey] = paramVal;
 
   const save = async () => {
     setSaving(true); setError(null); setSuccess(false);
@@ -76,14 +142,15 @@ export default function PvLimiterSettings() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          pv_limiter_enabled:        enabled,
-          pv_limiter_use_service:    useService,
-          pv_limiter_entity:         entity,
-          pv_limiter_service:        service,
-          pv_limiter_service_param:  serviceParam,
-          pv_limiter_max_w:          Number(maxW),
-          pv_limiter_threshold_ct:   Number(thresholdCt),
-          pv_limiter_margin_w:       Number(marginW),
+          pv_limiter_enabled:           enabled,
+          pv_limiter_use_service:       useService,
+          pv_limiter_entity:            entity,
+          pv_limiter_service:           service,
+          pv_limiter_service_param_key: paramKey,
+          pv_limiter_service_param:     paramVal,
+          pv_limiter_max_w:             Number(maxW),
+          pv_limiter_threshold_ct:      Number(thresholdCt),
+          pv_limiter_margin_w:          Number(marginW),
         }),
       });
       const d = await r.json();
@@ -97,7 +164,7 @@ export default function PvLimiterSettings() {
     <div className="settings-section">
       <div className="settings-section-title">☀️ PV-limiter (omvormer)</div>
 
-      {/* Enable toggle */}
+      {/* Enable */}
       <div className="settings-row">
         <div>
           <div className="settings-row-label">PV-limiter inschakelen</div>
@@ -114,8 +181,8 @@ export default function PvLimiterSettings() {
         <div>
           <div className="settings-row-label">Aanstuurmethode</div>
           <div className="settings-row-desc">
-            Entiteit: standaard <code>number.*</code> via <code>number.set_value</code>.<br />
-            Service: aangepaste HA service (bijv. SMA Devices Plus).
+            <strong>Entiteit</strong>: standaard <code>number.set_value</code>.<br />
+            <strong>Service</strong>: aangepaste HA-service (bijv. <code>pysmaplus.set_value</code>).
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -125,83 +192,115 @@ export default function PvLimiterSettings() {
         </div>
       </div>
 
-      {/* Entity picker (entity mode) */}
+      {/* ── Entity mode ── */}
       {!useService && (
         <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
           <div>
-            <div className="settings-row-label">HA entiteit</div>
+            <div className="settings-row-label">HA entiteit (number.*)</div>
             <div className="settings-row-desc">
-              Kies de <code>number.*</code> entiteit van je omvormer. De app roept
-              <code>number.set_value</code> aan met het berekende vermogen.
+              De app roept <code>number.set_value</code> aan met het berekende vermogen.
             </div>
           </div>
-          <div ref={entityRef} style={{ position: "relative", width: "100%", maxWidth: 420 }}>
-            <input
-              className="form-input"
-              style={{ width: "100%" }}
-              placeholder="Zoek entiteit…"
-              value={entitySearch}
-              onFocus={() => setEntityOpen(true)}
-              onChange={(e) => { setEntitySearch(e.target.value); setEntityOpen(true); setEntity(""); }}
+          <div ref={numberEntityRef} style={{ position: "relative", width: "100%", maxWidth: 460 }}>
+            <input className="form-input" style={{ width: "100%" }}
+              placeholder="Zoek number.* entiteit…"
+              value={numSearch}
+              onFocus={() => setNumOpen(true)}
+              onChange={(e) => { setNumSearch(e.target.value); setNumOpen(true); setEntity(""); }}
             />
-            {entityOpen && filteredEntities.length > 0 && (
+            {numOpen && filteredNum.length > 0 && (
               <div style={{
                 position: "absolute", zIndex: 100, top: "100%", left: 0, right: 0,
                 background: "var(--card)", border: "1px solid var(--border)", borderRadius: 6,
                 maxHeight: 220, overflowY: "auto", boxShadow: "0 4px 16px #0008",
               }}>
-                {filteredEntities.slice(0, 50).map((e) => (
+                {filteredNum.slice(0, 50).map((e) => (
                   <div key={e.entity_id}
                     style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13,
                       borderBottom: "1px solid var(--border)" }}
-                    onMouseDown={() => selectEntity(e)}>
+                    onMouseDown={() => { setEntity(e.entity_id); setNumSearch(e.entity_id); setNumOpen(false); }}>
                     <div style={{ fontWeight: 500 }}>{e.friendly_name || e.entity_id}</div>
                     <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>{e.entity_id}</div>
                   </div>
                 ))}
               </div>
             )}
-            {entity && (
-              <div style={{ fontSize: 11, color: "var(--green)", marginTop: 4 }}>✓ {entity}</div>
-            )}
+            {entity && <div style={{ fontSize: 11, color: "var(--green)", marginTop: 4 }}>✓ {entity}</div>}
           </div>
         </div>
       )}
 
-      {/* Custom service (service mode) */}
+      {/* ── Service mode ── */}
       {useService && (
         <>
+          {/* Service name */}
           <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
             <div>
               <div className="settings-row-label">HA service</div>
               <div className="settings-row-desc">
-                Service in <code>domein.service</code> formaat, bijv.{" "}
-                <code>sma_devices_plus.set_parameter</code>
+                In <code>domein.service</code> formaat, bijv. <code>pysmaplus.set_value</code>
               </div>
             </div>
-            <input className="form-input" style={{ maxWidth: 420, width: "100%" }}
-              placeholder="sma_devices_plus.set_parameter"
+            <input className="form-input" style={{ maxWidth: 460, width: "100%" }}
+              placeholder="pysmaplus.set_value"
               value={service} onChange={(e) => setService(e.target.value)} />
           </div>
-          <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+
+          {/* Extra data key */}
+          <div className="settings-row">
             <div>
-              <div className="settings-row-label">Parameter naam</div>
+              <div className="settings-row-label">Extra veld in data</div>
               <div className="settings-row-desc">
-                Wordt als <code>"parameter"</code> meegegeven naast <code>"value"</code>.
-                Bijv. <code>Active Power Limitation</code>
+                Wordt naast <code>value</code> meegestuurd.
+                Gebruik <code>entity_id</code> voor pysmaplus, <code>parameter</code> voor SMA Devices Plus.
               </div>
             </div>
-            <input className="form-input" style={{ maxWidth: 420, width: "100%" }}
-              placeholder="Active Power Limitation"
-              value={serviceParam} onChange={(e) => setServiceParam(e.target.value)} />
+            <input className="form-input" style={{ width: 140 }}
+              placeholder="entity_id"
+              value={paramKey} onChange={(e) => handleParamKeyChange(e.target.value)} />
           </div>
+
+          {/* Entity picker when key = entity_id */}
+          {paramKey === "entity_id" ? (
+            <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+              <div>
+                <div className="settings-row-label">Entiteit</div>
+                <div className="settings-row-desc">
+                  Kies de sensor/entiteit die de vermogensinstelling bijhoudt.
+                </div>
+              </div>
+              <EntityPicker
+                value={svcEntity}
+                onChange={handleSvcEntityChange}
+                entities={haEntities}
+                placeholder="Zoek sensor.* of number.* entiteit…"
+              />
+            </div>
+          ) : (
+            <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+              <div>
+                <div className="settings-row-label">Waarde voor <code>{paramKey || "sleutel"}</code></div>
+                <div className="settings-row-desc">
+                  Bijv. <code>Active Power Limitation</code> voor SMA Devices Plus.
+                </div>
+              </div>
+              <input className="form-input" style={{ maxWidth: 460, width: "100%" }}
+                placeholder="Active Power Limitation"
+                value={paramVal} onChange={(e) => setParamVal(e.target.value)} />
+            </div>
+          )}
+
+          {/* Preview */}
           <div style={{ margin: "0 20px 12px", padding: "10px 14px",
             background: "#0a0f1a", borderRadius: 6, fontSize: 11,
-            fontFamily: "monospace", color: "#94a3b8", lineHeight: 1.7 }}>
-            <div style={{ color: "#64748b", marginBottom: 4 }}>Voorbeeld aanroep bij 1500 W limiet:</div>
-            <div>{`service: ${service || "sma_devices_plus.set_parameter"}`}</div>
-            {serviceParam && <div>{`data: { parameter: "${serviceParam}", value: 1500 }`}</div>}
-            {!serviceParam && <div>{`data: { value: 1500 }`}</div>}
+            fontFamily: "monospace", color: "#94a3b8", lineHeight: 1.8 }}>
+            <div style={{ color: "#64748b", marginBottom: 2 }}>Voorbeeld aanroep:</div>
+            <div>service: <span style={{ color: "#7dd3fc" }}>{service || "…"}</span></div>
+            <div>data:</div>
+            <div>&nbsp;&nbsp;<span style={{ color: "#86efac" }}>value</span>: <span style={{ color: "#fcd34d" }}>1500</span></div>
+            {paramKey && paramVal && (
+              <div>&nbsp;&nbsp;<span style={{ color: "#86efac" }}>{paramKey}</span>: <span style={{ color: "#fcd34d" }}>"{paramVal}"</span></div>
+            )}
           </div>
         </>
       )}
@@ -210,9 +309,7 @@ export default function PvLimiterSettings() {
       <div className="settings-row">
         <div>
           <div className="settings-row-label">Maximaal PV-vermogen (W)</div>
-          <div className="settings-row-desc">
-            Normaal vermogen als de prijs boven de drempel ligt (bijv. 4000 W).
-          </div>
+          <div className="settings-row-desc">Normaal vermogen als de prijs boven de drempel ligt.</div>
         </div>
         <input className="form-input" type="number" style={{ width: 100 }}
           value={maxW} onChange={(e) => setMaxW(e.target.value)} />
@@ -234,9 +331,7 @@ export default function PvLimiterSettings() {
       <div className="settings-row">
         <div>
           <div className="settings-row-label">Extra marge (W)</div>
-          <div className="settings-row-desc">
-            Buffer bovenop verbruik + laden om schommelingen op te vangen (standaard 200 W).
-          </div>
+          <div className="settings-row-desc">Buffer bovenop verbruik + laden (standaard 200 W).</div>
         </div>
         <input className="form-input" type="number" style={{ width: 100 }}
           value={marginW} onChange={(e) => setMarginW(e.target.value)} />

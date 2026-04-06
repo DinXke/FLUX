@@ -3418,6 +3418,24 @@ def _automation_tick() -> None:
     _save_automation(auto)
 
 
+def _pv_send(s: dict, entity: str, use_service: bool, svc_str: str, target_w: int) -> bool:
+    """Send target_w to HA via entity mode or service mode."""
+    if use_service:
+        param_key = (s.get("pv_limiter_service_param_key") or "entity_id").strip()
+        svc_param = (s.get("pv_limiter_service_param") or "").strip()
+        if "." not in svc_str:
+            return False
+        domain, svc = svc_str.split(".", 1)
+        data: dict = {"value": target_w}
+        if svc_param and param_key:
+            data[param_key] = svc_param
+        return _ha_call_service(domain, svc, data)
+    else:
+        if not entity:
+            return False
+        return _ha_call_service("number", "set_value", {"entity_id": entity, "value": target_w})
+
+
 def _apply_pv_limiter(s: dict, auto: dict) -> None:
     """
     Set or restore the HA PV power limit entity based on the current price.
@@ -3435,14 +3453,27 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
     When price ≥ threshold: restore to pv_limiter_max_w (full output).
     Only sends an HA command when the target value changes.
     """
-    if not s.get("pv_limiter_enabled"):
-        return
-    entity = (s.get("pv_limiter_entity") or "").strip()
+    entity      = (s.get("pv_limiter_entity") or "").strip()
     use_service = s.get("pv_limiter_use_service")
+    svc_str     = (s.get("pv_limiter_service") or "").strip()
+
+    if not s.get("pv_limiter_enabled"):
+        # Limiter disabled: restore to max_w if we previously curtailed
+        last_w = auto.get("pv_limiter_last_w")
+        if last_w is None:
+            return  # never set anything, nothing to restore
+        max_w = int(s.get("pv_limiter_max_w", 4000))
+        if last_w == max_w:
+            auto.pop("pv_limiter_last_w", None)
+            return
+        _pv_send(s, entity, use_service, svc_str, max_w)
+        auto.pop("pv_limiter_last_w", None)
+        return
+
     # In entity mode, entity is required; in service mode, the service string is required
     if not use_service and not entity:
         return
-    if use_service and not (s.get("pv_limiter_service") or "").strip():
+    if use_service and not svc_str:
         return
 
     max_w     = int(s.get("pv_limiter_max_w",         4000))
@@ -3490,21 +3521,7 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
     if last_w is not None and abs(last_w - target_w) < 50:
         return
 
-    use_service = s.get("pv_limiter_use_service")
-    if use_service:
-        svc_str   = (s.get("pv_limiter_service") or "").strip()
-        svc_param = (s.get("pv_limiter_service_param") or "").strip()
-        if "." not in svc_str:
-            return
-        domain, svc = svc_str.split(".", 1)
-        data: dict = {"value": target_w}
-        if svc_param:
-            data["parameter"] = svc_param
-        ok = _ha_call_service(domain, svc, data)
-    else:
-        if not entity:
-            return
-        ok = _ha_call_service("number", "set_value", {"entity_id": entity, "value": target_w})
+    ok = _pv_send(s, entity, use_service, svc_str, target_w)
     if ok:
         auto["pv_limiter_last_w"] = target_w
         log.info("PV limiter → %dW (price=%.4f, cons=%.0fW, bat_chg=%dW, threshold=%.4f)",

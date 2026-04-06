@@ -78,8 +78,9 @@ DEFAULT_SETTINGS = {
     "pv_limiter_margin_w":       200,    # extra buffer above house+bat load to avoid oscillation
     # Custom HA service mode (e.g. SMA Devices Plus)
     "pv_limiter_use_service":    False,  # True = use custom service instead of number.set_value
-    "pv_limiter_service":        "",     # e.g. "sma_devices_plus.set_parameter"
-    "pv_limiter_service_param":  "",     # e.g. "Active Power Limitation" (sent as "parameter" key)
+    "pv_limiter_service":        "",     # e.g. "pysmaplus.set_value"
+    "pv_limiter_service_param_key":   "entity_id",  # data key alongside "value": "entity_id" or "parameter"
+    "pv_limiter_service_param":  "",     # value for that key, e.g. "sensor.sb4_0_active_power_limitation"
     # Strategy engine: "rule_based" (default) or "claude" (uses Anthropic API)
     "strategy_mode":        "rule_based",
     # Anthropic API key (only used when strategy_mode = "claude")
