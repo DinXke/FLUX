@@ -113,7 +113,9 @@ export default function PvLimiterSettings() {
   }, []);
 
   const numberEntities = haEntities.filter((e) =>
-    e.entity_id.startsWith("number.") || e.entity_id.startsWith("input_number.")
+    e.entity_id.startsWith("number.") ||
+    e.entity_id.startsWith("input_number.") ||
+    e.entity_id.startsWith("sensor.")
   );
   const filteredNum = numberEntities.filter((e) => {
     const q = numSearch.toLowerCase();
@@ -196,14 +198,15 @@ export default function PvLimiterSettings() {
       {!useService && (
         <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
           <div>
-            <div className="settings-row-label">HA entiteit (number.*)</div>
+            <div className="settings-row-label">HA entiteit</div>
             <div className="settings-row-desc">
-              De app roept <code>number.set_value</code> aan met het berekende vermogen.
+              Kies een <code>number.*</code>, <code>input_number.*</code> of <code>sensor.*</code> entiteit.
+              Bij sensor-entiteiten moet je ook de service instellen onder "Service" modus.
             </div>
           </div>
           <div ref={numberEntityRef} style={{ position: "relative", width: "100%", maxWidth: 460 }}>
             <input className="form-input" style={{ width: "100%" }}
-              placeholder="Zoek number.* entiteit…"
+              placeholder="Zoek entiteit…"
               value={numSearch}
               onFocus={() => setNumOpen(true)}
               onChange={(e) => { setNumSearch(e.target.value); setNumOpen(true); setEntity(""); }}

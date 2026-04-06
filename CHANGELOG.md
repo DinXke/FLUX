@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.19.55] - 2026-04-06
+
+### Fixed
+- PV-limiter entiteitskiezer toont nu ook `sensor.*` entiteiten naast `number.*`
+  en `input_number.*` — zodat bijv. `sensor.sb4_0_1av_40_247_active_power_limitation`
+  gewoon geselecteerd kan worden in entiteitsmodus
+- Backend: als de geselecteerde entiteit een `sensor.*` is én er een service
+  geconfigureerd is (bijv. `pysmaplus.set_value`), schakelt de backend automatisch
+  over naar servicemodus — geen manuele toggle meer nodig
+
 ## [1.19.54] - 2026-04-06
 
 ### Fixed

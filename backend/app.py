@@ -3433,6 +3433,13 @@ def _pv_send(s: dict, entity: str, use_service: bool, svc_str: str, target_w: in
     else:
         if not entity:
             return False
+        # sensor.* entities can't use number.set_value — auto-switch to service mode
+        # when a service string is configured (e.g. pysmaplus.set_value)
+        if entity.startswith("sensor.") and svc_str and "." in svc_str:
+            param_key = (s.get("pv_limiter_service_param_key") or "entity_id").strip()
+            domain, svc = svc_str.split(".", 1)
+            data: dict = {"value": target_w, param_key: entity}
+            return _ha_call_service(domain, svc, data)
         return _ha_call_service("number", "set_value", {"entity_id": entity, "value": target_w})
 
 
