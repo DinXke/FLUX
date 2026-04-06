@@ -671,6 +671,31 @@ def build_plan_claude(
                 plan_actions[t] = (a, r)
             break
 
+    # ── Post-processing: failsafe overrides ──────────────────────────────
+    # Rule 1: save + solar surplus + battery not full → solar_charge
+    # save freezes the hardware completely; solar energy would be lost.
+    _override_count = 0
+    for si in slots_input:
+        key = si["time"]
+        if key not in plan_actions:
+            continue
+        action, reason = plan_actions[key]
+        if action == SAVE:
+            net_wh  = si.get("net_wh", 0)
+            soc_pct = si.get("soc_start_pct", 100)
+            if net_wh > 200 and soc_pct < float(s["max_soc"]) - 1:
+                plan_actions[key] = (
+                    SOLAR_CHARGE,
+                    f"[auto] save→solar_charge: {net_wh}Wh overschot, SOC {soc_pct}% niet vol",
+                )
+                _override_count += 1
+                log.debug("post-process: %s save→solar_charge (net=%dWh soc=%.1f%%)",
+                          key, net_wh, soc_pct)
+
+    if _override_count:
+        log.info("strategy_claude: post-process overrode %d save→solar_charge (solar failsafe)",
+                 _override_count)
+
     if not plan_actions:
         log.warning("strategy_claude: no valid tool_use in response — falling back (%.1fs)", elapsed)
         _set_debug(
@@ -796,6 +821,7 @@ def build_plan_claude(
         action_counts=action_counts,
         breakeven_eur_kwh=breakeven,
         price_history_days=_history_days,
+        post_process_overrides=_override_count,
         price_stats={
             "p25":    round(p25,    4),
             "median": round(median, 4),

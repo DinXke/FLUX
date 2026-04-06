@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.19.62] - 2026-04-06
+
+### Fixed
+- Claude AI strategie: post-processing failsafe toegevoegd — als Claude `save` plant op een slot
+  met zonne-overschot (net_wh > 200 Wh) én de batterij is nog niet vol (SOC < max_soc − 1%),
+  wordt de actie automatisch omgezet naar `solar_charge`. `save` bevriest de hardware volledig
+  waardoor zonne-energie anders verloren gaat; deze override zorgt dat zonne-overschot altijd
+  wordt opgeslagen tenzij de batterij echt vol is.
+
 ## [1.19.61] - 2026-04-06
 
 ### Fixed
