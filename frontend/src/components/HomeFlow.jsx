@@ -104,7 +104,7 @@ function GlowArrow({ x1, y1, x2, y2, color, active, reverse, power }) {
   if (!active) {
     return (
       <line x1={x1} y1={y1} x2={x2} y2={y2}
-        stroke="#1e293b" strokeWidth={3} strokeLinecap="round" />
+        stroke="var(--border)" strokeWidth={3} strokeLinecap="round" />
     );
   }
 
@@ -118,7 +118,7 @@ function GlowArrow({ x1, y1, x2, y2, color, active, reverse, power }) {
   return (
     <g>
       <line x1={x1} y1={y1} x2={x2} y2={y2}
-        stroke="#1e293b" strokeWidth={3} strokeLinecap="round" />
+        stroke="var(--border)" strokeWidth={3} strokeLinecap="round" />
       <g filter="url(#flow-glow)">
         <line x1={x1} y1={y1} x2={x2} y2={y2}
           stroke={color} strokeWidth={3} strokeDasharray="8 6"
@@ -138,7 +138,7 @@ function GlowArrow({ x1, y1, x2, y2, color, active, reverse, power }) {
 function GlowNode({ cx, cy, r, icon, label, color, active, sublabel, sublabelColor }) {
   return (
     <g>
-      <circle cx={cx} cy={cy} r={r} fill="#0f172a" stroke={color}
+      <circle cx={cx} cy={cy} r={r} fill="var(--bg-card)" stroke={color}
         strokeWidth={active ? 2 : 1.5} opacity={active ? 1 : 0.55} />
       {active && (
         <circle cx={cx} cy={cy} r={r} fill={color} opacity={0.08}
@@ -147,13 +147,13 @@ function GlowNode({ cx, cy, r, icon, label, color, active, sublabel, sublabelCol
       <text x={cx} y={cy - 6} textAnchor="middle" dominantBaseline="middle"
         fontSize={r >= 28 ? 17 : 15}>{icon}</text>
       <text x={cx} y={cy + 11} textAnchor="middle" dominantBaseline="middle"
-        fill={active ? "#94a3b8" : "#475569"} fontSize={7.5}
+        fill={active ? "var(--text-muted)" : "var(--text-dim)"} fontSize={7.5}
         fontFamily="Inter, system-ui, sans-serif" letterSpacing="0.5">
         {label}
       </text>
       {sublabel && (
         <text x={cx} y={cy + r + 14} textAnchor="middle" dominantBaseline="middle"
-          fill={sublabelColor || "#64748b"} fontSize={9} fontWeight="600"
+          fill={sublabelColor || "var(--text-dim)"} fontSize={9} fontWeight="600"
           fontFamily="Inter, system-ui, sans-serif">
           {sublabel}
         </text>

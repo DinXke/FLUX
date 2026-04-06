@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.54] - 2026-04-06
+
+### Fixed
+- Live vermogensstroom display: achtergrond en tekst gebruiken nu CSS-variabelen
+  (`--bg-card`, `--border`, `--text-muted`, `--text-dim`) i.p.v. hardgecodeerde
+  donkere kleuren — display ziet er nu correct uit in zowel licht als donker thema
+
 ## [1.19.53] - 2026-04-06
 
 ### Changed
