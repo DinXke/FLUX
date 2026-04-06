@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.19.48] - 2026-04-06
+
+### Added
+- PV-limiter service mode: entity picker toont alle HA-entiteiten zodat
+  `sensor.*` entiteiten (zoals `sensor.sb4_0_1av_40_247_active_power_limitation`)
+  ook geselecteerd kunnen worden
+- "Extra veld in data" configureerbaar: gebruik `entity_id` voor
+  `pysmaplus.set_value`, of `parameter` voor SMA Devices Plus
+
+### Fixed
+- Bij uitschakelen van de PV-limiter stuurt de app nu automatisch het
+  maximaal vermogen (`pv_limiter_max_w`) terug naar de omvormer — geen
+  manuele reset meer nodig
+
 ## [1.19.47] - 2026-04-06
 
 ### Added
