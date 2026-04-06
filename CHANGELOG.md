@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.19.50] - 2026-04-06
+
+### Fixed
+- PV-limiter target berekening houdt rekening met batterijmodus:
+  bij **DISCHARGE** levert de batterij al stroom aan het huis → target is
+  `huis - batterij + marge` (lager), zodat solar niet onnodig hoog staat
+  bij **GRID_CHARGE** moet solar ook het laden dekken → target is hoger
+  bij **ANTI_FEED/NEUTRAL** geen aanpassing
+
 ## [1.19.49] - 2026-04-06
 
 ### Fixed
