@@ -481,6 +481,15 @@ function clusterCenter(positions) {
   return { cx: avgX, cy: avgY };
 }
 
+function consumerPositions(n, W) {
+  const hw = 26, cy = 430;
+  if (n === 0) return [];
+  const spacing = Math.min(110, (W - 80) / n);
+  const totalW = spacing * (n - 1);
+  const startX = W / 2 - totalW / 2;
+  return Array.from({ length: n }, (_, i) => ({ cx: startX + i * spacing, cy, hw }));
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) {
   const [hwData, setHwData] = useState(null);
@@ -551,8 +560,18 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
       + (solarPower ?? 0) - (evPower ?? 0)
     : null;
 
+  // ── Consumer appliances from HomeWizard devices ───────────────────────────
+  const consumers = (hwData?.devices ?? [])
+    .filter((dev) => dev.appliance_icon)
+    .map((dev) => {
+      const pwrEntry = Object.values(dev.sensors ?? {}).find((s) => s.power);
+      return { id: dev.id, name: dev.name, icon: dev.appliance_icon,
+               power: pwrEntry?.value ?? null };
+    });
+
   // ── Layout ────────────────────────────────────────────────────────────────
-  const W = 800, H = 500;
+  const W = 800;
+  const H = consumers.length > 0 ? 490 : 500;
 
   const numBat   = Math.min(Math.max(batteries.length, 1), 4);
   const numSolar = Math.max(
@@ -563,6 +582,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
 
   const batPos  = batPositions(numBat);
   const solPos  = solarPositions(Math.max(numSolar, 1));
+  const conPos  = consumerPositions(consumers.length, W);
   const batCC   = clusterCenter(batPos);
   const solCC   = clusterCenter(solPos);
 
@@ -731,6 +751,33 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
             valColor={evActive ? C.ev.b : "var(--text-muted)"}
           />
         )}
+
+        {/* Consumer appliances (HomeWizard energy sockets) */}
+        {consumers.map((c, i) => {
+          const p = conPos[i];
+          const active = c.power != null && c.power > 5;
+          const color = active ? "#a78bfa" : "var(--border)";
+          return (
+            <g key={c.id}>
+              <FlowLine
+                x1={hCx} y1={hCy + HOUSE.hw * 0.5}
+                x2={p.cx} y2={p.cy - p.hw * 0.5}
+                color="#a78bfa" active={active} reverse={false} power={c.power}
+                labelText={null}
+              />
+              <IsoNode {...p}
+                nc={{ t: "var(--bg-card)", b: active ? "#a78bfa" : "var(--border)" }}
+                iconEl={
+                  <text x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="middle"
+                    fontSize={p.hw * 0.72} style={{ userSelect: "none" }}>{c.icon}</text>
+                }
+                label={c.name.toUpperCase().slice(0, 12)}
+                val={active ? fmt(c.power) : null}
+                valColor="#a78bfa"
+              />
+            </g>
+          );
+        })}
 
         {/* Phase voltages label near grid–house line */}
         {(phaseVoltages || acVoltage) && (() => {

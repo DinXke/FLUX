@@ -26,6 +26,32 @@ function useTheme() {
   return [theme, setThemeState];
 }
 
+function useViewMode() {
+  const [mode, setMode] = useState(
+    () => localStorage.getItem("marstek_view") || "desktop"
+  );
+  useEffect(() => {
+    document.documentElement.setAttribute("data-view", mode);
+    localStorage.setItem("marstek_view", mode);
+  }, [mode]);
+  return [mode, setMode];
+}
+
+function ViewToggle() {
+  const [mode, setMode] = useViewMode();
+  const isMobile = mode === "mobile";
+  return (
+    <button
+      className="btn btn-ghost btn-sm"
+      onClick={() => setMode(isMobile ? "desktop" : "mobile")}
+      title={isMobile ? "Schakel naar desktopweergave" : "Schakel naar mobiele weergave"}
+      style={{ gap: 4, fontSize: 12 }}
+    >
+      {isMobile ? "🖥️" : "📱"}
+    </button>
+  );
+}
+
 function ThemeToggle() {
   const [theme, setTheme] = useTheme();
   const current = THEMES.find((t) => t.id === theme) || THEMES[0];
@@ -52,10 +78,12 @@ const NAV_ITEMS = [
 ];
 
 export default function App() {
-  // Apply saved theme immediately on mount
+  // Apply saved theme + view mode immediately on mount
   useEffect(() => {
-    const saved = localStorage.getItem("marstek_theme") || "dark";
-    document.documentElement.setAttribute("data-theme", saved);
+    const theme = localStorage.getItem("marstek_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+    const view = localStorage.getItem("marstek_view") || "desktop";
+    document.documentElement.setAttribute("data-view", view);
   }, []);
   const [page, setPage]       = useState("batteries");
   const [devices, setDevices] = useState([]);
@@ -129,6 +157,7 @@ export default function App() {
         </nav>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <ViewToggle />
           <ThemeToggle />
           {page === "batteries" && (
             <button className="btn btn-primary btn--add-desktop" onClick={() => setShowAdd(true)}>

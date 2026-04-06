@@ -541,6 +541,14 @@ def _hw_fetch(ip: str, path: str, token: str | None = None, timeout: int = 5) ->
     else:
         resp = _req.get(f"http://{ip}{path}", timeout=timeout)
     resp.raise_for_status()
+    # Detect HTML responses (device returned web UI instead of JSON API)
+    ct = resp.headers.get("Content-Type", "")
+    if "html" in ct or resp.text.lstrip().startswith("<!"):
+        raise ValueError(
+            f"Apparaat op {ip} stuurde HTML terug i.p.v. JSON. "
+            "Controleer of 'Lokale API' ingeschakeld is in de HomeWizard app "
+            "(Instellingen → Meters → … → Lokale API)."
+        )
     return resp.json()
 
 
@@ -605,7 +613,7 @@ def hw_list_devices():
 
 @app.route("/api/homewizard/devices", methods=["POST"])
 def hw_add_device():
-    body  = request.get_json(force=True)
+    body  = request.get_json(force=True) or {}
     ip    = (body.get("ip")    or "").strip()
     name  = (body.get("name")  or "").strip()
     token = (body.get("token") or "").strip() or None
@@ -649,6 +657,20 @@ def hw_add_device():
     log.info("HomeWizard device added  id=%s  ip=%s  type=%s  api_v=%s",
              device_id, ip, device["product_type"], api_v)
     return jsonify(device), 201
+
+
+@app.route("/api/homewizard/devices/<device_id>", methods=["PATCH"])
+def hw_update_device(device_id):
+    """Update editable device fields: name, appliance_icon."""
+    devices = _hw_devices()
+    if device_id not in devices:
+        return jsonify({"error": "Niet gevonden"}), 404
+    body = request.get_json(force=True) or {}
+    for key in ("name", "appliance_icon"):
+        if key in body:
+            devices[device_id][key] = body[key]
+    _save_hw_devices(devices)
+    return jsonify(devices[device_id])
 
 
 @app.route("/api/homewizard/devices/<device_id>", methods=["DELETE"])
@@ -749,13 +771,14 @@ def hw_data():
     for dev in devices.values():
         selected = dev.get("selected_sensors") or []
         entry = {
-            "id":           dev["id"],
-            "name":         dev["name"],
-            "product_type": dev.get("product_type", ""),
-            "api_version":  dev.get("api_version", 1),
-            "reachable":    False,
-            "sensors":      {},
-            "error":        None,
+            "id":              dev["id"],
+            "name":            dev["name"],
+            "product_type":    dev.get("product_type", ""),
+            "api_version":     dev.get("api_version", 1),
+            "appliance_icon":  dev.get("appliance_icon", ""),
+            "reachable":       False,
+            "sensors":         {},
+            "error":           None,
         }
         try:
             data = _hw_fetch(dev["ip"], _hw_data_path(dev), token=dev.get("token"))

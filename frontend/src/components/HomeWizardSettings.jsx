@@ -1,5 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 
+const APPLIANCE_ICONS = [
+  { icon: "",    label: "— geen verbruiker —" },
+  { icon: "🧺",  label: "Wasmachine"  },
+  { icon: "🌀",  label: "Droogkast"   },
+  { icon: "🍽️", label: "Vaatwasser"  },
+  { icon: "🍳",  label: "Oven/Kookplaat" },
+  { icon: "♨️", label: "Warmtepomp"  },
+  { icon: "⚡",  label: "Laadpaal EV" },
+  { icon: "❄️", label: "Koelkast"    },
+  { icon: "📺",  label: "TV/Media"    },
+  { icon: "💻",  label: "Computer"    },
+  { icon: "💡",  label: "Verlichting" },
+  { icon: "🔌",  label: "Stopcontact" },
+];
+
 // ---------------------------------------------------------------------------
 // Sensor selector (per device, lazy-loaded)
 // ---------------------------------------------------------------------------
@@ -373,6 +388,19 @@ export default function HomeWizardSettings() {
     setDevices((p) => [...p, dev]);
   };
 
+  const setApplianceIcon = async (id, icon) => {
+    try {
+      const res = await fetch(`api/homewizard/devices/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appliance_icon: icon }),
+      });
+      if (res.ok) {
+        setDevices((p) => p.map((d) => d.id === id ? { ...d, appliance_icon: icon } : d));
+      }
+    } catch {}
+  };
+
   const existingIps = devices.map((d) => d.ip);
 
   return (
@@ -414,6 +442,23 @@ export default function HomeWizardSettings() {
                   {d.api_version === 2 && !d.token &&
                     <span style={{ marginLeft: 8, color: "var(--amber)", fontSize: 11 }}>⚠ Niet gekoppeld</span>
                   }
+                </div>
+                {/* Appliance icon picker – shown for all devices so any HW device can
+                    appear as a consumer node in the flow display */}
+                <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Verbruiker:</span>
+                  <select
+                    className="form-input"
+                    style={{ fontSize: 11, padding: "2px 6px", height: 24, width: "auto" }}
+                    value={d.appliance_icon || ""}
+                    onChange={(e) => setApplianceIcon(d.id, e.target.value)}
+                  >
+                    {APPLIANCE_ICONS.map((a) => (
+                      <option key={a.icon} value={a.icon}>
+                        {a.icon ? `${a.icon} ${a.label}` : a.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="settings-device-actions">

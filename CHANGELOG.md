@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.19.58] - 2026-04-06
+
+### Added
+- HomeWizard energy sockets en alle andere HW-apparaten kunnen nu als
+  "verbruiker" worden ingesteld via een dropdown (wasmachine, droogkast,
+  vaatwasser, oven, warmtepomp, laadpaal, koelkast, TV, computer, verlichting,
+  stopcontact) — instelling opgeslagen via nieuw PATCH-endpoint
+- Verbruikers verschijnen als kleine diamant-nodes onderaan de live
+  vermogensstroomkaart (EnergyMap), verbonden aan het huis, met live wattage
+- Desktop/mobiel toggle (📱/🖥️) naast de thema-knop — simuleert mobiele
+  weergave op desktop
+
+### Fixed
+- `_hw_fetch`: HTML-responses van HomeWizard apparaten (bijv. lokale API niet
+  ingeschakeld) geven nu een duidelijke foutmelding i.p.v. een onduidelijke
+  JSON-parsefout in de browser
+- `hw_add_device`: null-check toegevoegd voor request body
+
 ## [1.19.57] - 2026-04-06
 
 ### Fixed

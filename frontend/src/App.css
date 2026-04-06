@@ -1714,6 +1714,44 @@ html, body {
   color: #fff;
 }
 
+/* =========================================================
+   Mobile view simulation (data-view="mobile")
+   Simulates how the app looks on a narrow mobile screen
+   ========================================================= */
+
+[data-view="mobile"] .app-shell {
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+[data-view="mobile"] .app-header {
+  padding: 0 8px;
+}
+
+[data-view="mobile"] .app-nav--desktop {
+  display: none !important;
+}
+
+[data-view="mobile"] .app-nav--mobile {
+  display: flex !important;
+}
+
+[data-view="mobile"] .fab {
+  display: flex !important;
+}
+
+[data-view="mobile"] .btn--add-desktop {
+  display: none !important;
+}
+
+[data-view="mobile"] .device-grid {
+  grid-template-columns: 1fr !important;
+}
+
+[data-view="mobile"] .app-main {
+  padding: 12px 8px 80px;
+}
+
 /* On very small screens, show settings tabs as icon-only pills */
 @media (max-width: 480px) {
   .settings-tab {
