@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.19.70] - 2026-04-07
+
+### Fixed
+- **SOC: 50% op strategie-pagina**: de header toonde de SOC die ingebakken was bij het
+  genereren van het plan (soms 50% fallback). Nu wordt bij elke API-aanroep de live SOC
+  uit `last_soc.json` (< 5 min oud) geïnjecteerd vóór het resultaat teruggegeven wordt.
+  Hierdoor toont de header altijd de actuele SOC, ook als het plan uren geleden berekend is.
+- Fallback-log: wanneer `_do_soc()` geen enkele bron kan lezen, verschijnt nu een warning
+  in de logs zodat je kunt zien waarom de fallback 50% gebruikt werd.
+
 ## [1.19.69] - 2026-04-07
 
 ### Added

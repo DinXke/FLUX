@@ -2184,7 +2184,11 @@ def get_strategy_plan():
                     age_s = (datetime.now(timezone.utc)
                              - datetime.fromisoformat(cached_at_str)).total_seconds()
                     if age_s < 300:
-                        return jsonify(_plan_cache["result"])
+                        result = dict(_plan_cache["result"])
+                        live = _live_soc()
+                        if live is not None:
+                            result["soc_now"] = live
+                        return jsonify(result)
                 # Older than 5 min but still valid: update SoC and serve
                 # without re-calling Claude (fingerprint check will guard it).
                 pass  # fall through to _compute_forward_plan (fingerprint-gated)
@@ -2195,7 +2199,11 @@ def get_strategy_plan():
                     age_s = (datetime.now(timezone.utc)
                              - datetime.fromisoformat(cached_at_str)).total_seconds()
                     if age_s < 300:
-                        return jsonify(_plan_cache["result"])
+                        result = dict(_plan_cache["result"])
+                        live = _live_soc()
+                        if live is not None:
+                            result["soc_now"] = live
+                        return jsonify(result)
         return jsonify(_compute_forward_plan(force_claude=force_refresh))
 
     if is_historical:
@@ -3107,6 +3115,8 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
                     log.info("_compute_forward_plan: SoC from cache file: %.1f%%", soc)
             except Exception:
                 pass
+        if soc is None:
+            log.warning("_compute_forward_plan: SoC onbekend uit alle bronnen – fallback 50%%")
         return soc if soc is not None else 50.0
 
     with ThreadPoolExecutor(max_workers=4) as _ex:
