@@ -39,6 +39,7 @@ _PRICE_OUT_EUR_PER_TOKEN = 4.00 / 1_000_000 * 0.92   # $4.00/MTok output
 _DATA_DIR           = os.environ.get("MARSTEK_DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
 _USAGE_FILE         = os.path.join(_DATA_DIR, "claude_usage.json")
 _PRICE_HISTORY_FILE = os.path.join(_DATA_DIR, "_price_history.json")
+_SOC_HISTORY_FILE   = os.path.join(_DATA_DIR, "_soc_history.json")
 
 
 def _load_usage() -> list[dict]:
@@ -161,6 +162,87 @@ def _compute_weekly_profile(history: dict) -> dict:
             "avg":          round(sum(sp) / n, 4),
             "p25":          round(sp[max(0, int(n * 0.25) - 1)], 4),
             "p75":          round(sp[min(n - 1, int(n * 0.75))], 4),
+            "count":        n,
+        })
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Historical SoC profile (actual battery level per weekday × hour)
+# ---------------------------------------------------------------------------
+
+def _get_soc_profile(tz_name: str) -> tuple[list, int]:
+    """
+    Return (weekly_soc_profile, days_of_history).
+
+    Loads from _soc_history.json cache when fresh (< 6 h old).
+    Otherwise fetches the last 32 days from InfluxDB in one bulk query,
+    caches the result, and returns the per-(weekday × hour) statistics.
+
+    Profile entries: {weekday, weekday_name, hour, avg, p25, p75, count}
+    """
+    # ── Try cache first ───────────────────────────────────────────────────
+    try:
+        with open(_SOC_HISTORY_FILE, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+        meta    = cached.get("_meta", {})
+        updated = meta.get("updated_at", "")
+        age_h   = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(updated)).total_seconds() / 3600
+        if age_h < 6:
+            history = {k: v for k, v in cached.items() if k != "_meta"}
+            return _build_soc_profile(history), len(history)
+    except Exception:
+        pass
+
+    # ── Fetch fresh from InfluxDB ─────────────────────────────────────────
+    history: dict = {}
+    try:
+        from influx_writer import query_soc_history
+        history = query_soc_history(days=32, tz_name=tz_name)
+    except Exception as exc:
+        log.warning("soc_profile: InfluxDB fetch failed: %s", exc)
+
+    # ── Persist cache ─────────────────────────────────────────────────────
+    if history:
+        try:
+            payload = dict(history)
+            payload["_meta"] = {"updated_at": datetime.now(timezone.utc).isoformat()}
+            with open(_SOC_HISTORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+        except Exception as e:
+            log.warning("soc_profile: cache write failed: %s", e)
+
+    return _build_soc_profile(history), len(history)
+
+
+def _build_soc_profile(history: dict) -> list:
+    """Group raw {date: {hour: soc}} history into per-(weekday × hour) statistics."""
+    from datetime import date as _date_t
+
+    buckets: dict[tuple, list] = {}
+    for date_str, hours in history.items():
+        try:
+            d  = _date_t.fromisoformat(date_str)
+            wd = d.weekday()
+            for h_key, soc in hours.items():
+                buckets.setdefault((wd, int(h_key)), []).append(float(soc))
+        except Exception:
+            pass
+
+    result = []
+    for (wd, h) in sorted(buckets):
+        sp = sorted(buckets[(wd, h)])
+        n  = len(sp)
+        if n < 2:
+            continue
+        result.append({
+            "weekday":      wd,
+            "weekday_name": WEEKDAY_NL[wd],
+            "hour":         h,
+            "avg":          round(sum(sp) / n, 1),
+            "p25":          round(sp[max(0, int(n * 0.25) - 1)], 1),
+            "p75":          round(sp[min(n - 1, int(n * 0.75))], 1),
             "count":        n,
         })
     return result
@@ -335,17 +417,24 @@ Voorbeeld: 350 Wh/u op 10 kWh → −3.5% per uur → −21% over 6 uur.
 
 ---
 
-## Historisch prijsprofiel (indien aanwezig in invoer)
+## Historische context (indien aanwezig in invoer)
 
-Als de invoer een `historical_context.weekly_price_profile` bevat, gebruik dit dan actief:
+Als de invoer een `historical_context` blok bevat, gebruik dit dan actief.
 
+### historical_context.price — historisch prijsprofiel
 - **Afwijkingsdetectie**: Als de huidige prijs voor weekdag X, uur Y meer dan 20% onder het historisch gemiddelde ligt → extra kans voor `grid_charge`.
-- **Patroonherkenning**: Zie je dat elke maandag-ochtend duur is? Plan `save` of hogere SOC zondag-avond.
-- **Seizoenseffecten**: Hogere prijzen in winter (minder zon), lagere in zomer → aanpas agressiviteit van grid_charge.
-- **Weekendpatroon**: Prijzen in het weekend (za/zo) zijn typisch lager 's ochtends, pieken 's avonds → detecteer dit in het profiel.
+- **Weekendpatroon**: Prijzen in het weekend zijn typisch anders dan door de week → detecteer dit in het profiel.
+- Vertrouw altijd meer op de actuele prijzen in de slots dan op het historisch profiel.
 
-Gebruik het historisch profiel als **contextuele prior**, maar vertrouw altijd meer op de actuele prijzen in de slots.
-Vermeld in je `reason` (max 80 tekens) als je een historisch patroon gebruikt: bijv. "hist. avg €0.12 vs huidig €0.06 → goedkoop".
+### historical_context.soc — historisch SoC-profiel (werkelijke batterijlading)
+Dit zijn de WERKELIJK GEMETEN SoC-waarden uit de database — niet gesimuleerd.
+
+- **Anticipeer op lage SoC-momenten**: Als het profiel toont dat de SoC op maandagochtend 07:00 typisch 25% is, plan dan grid_charge de nacht ervoor zodat de batterij voldoende geladen is.
+- **Vermijd overbodige grid_charge**: Als het profiel toont dat de SoC op zondag 14:00 typisch 90% is (veel zon), is grid_charge zaterdagnacht niet nodig.
+- **Patroonherkenning**: Lage p25 = het lukt soms niet om de batterij op te laden; hoge p75 = er is typisch genoeg zon/lading. Gebruik dit om de "veiligheidsmarges" in je plan aan te passen.
+- **Combineer met prijsprofiel**: Goedkope uren + historisch lage SoC = grid_charge prioriteit.
+
+Vermeld in je `reason` als je historische data gebruikt: bijv. "hist. SoC ma 07u gem. 25% → grid_charge nacht" of "hist. avg €0.12 vs huidig €0.06 → goedkoop".
 
 ---
 
@@ -478,11 +567,13 @@ def build_plan_claude(
         now_local = real_now.replace(hour=0, minute=0, second=0, microsecond=0)
     all_slots = [now_local + timedelta(hours=i) for i in range(num_slots)]
 
-    # ── Record price history + build weekly profile ───────────────────────
+    # ── Record price history + build weekly profiles ──────────────────────
     _record_price_history(price_slots, markup)
-    _price_history = _load_price_history()
-    _weekly_profile = _compute_weekly_profile(_price_history)
-    _history_days   = len(_price_history)
+    _price_history   = _load_price_history()
+    _weekly_profile  = _compute_weekly_profile(_price_history)
+    _history_days    = len(_price_history)
+
+    _soc_profile, _soc_history_days = _get_soc_profile(tz_name)
 
     # Price statistics (all-in prices)
     known_prices = [
@@ -575,8 +666,9 @@ def build_plan_claude(
     }
 
     # Attach historical context when we have at least 3 days of data
+    historical_context: dict = {}
     if _weekly_profile and _history_days >= 3:
-        payload["historical_context"] = {
+        historical_context["price"] = {
             "days_of_history": _history_days,
             "note": (
                 f"Historisch prijsprofiel op basis van {_history_days} dagen data. "
@@ -585,6 +677,20 @@ def build_plan_claude(
             ),
             "weekly_price_profile": _weekly_profile,
         }
+    if _soc_profile and _soc_history_days >= 3:
+        historical_context["soc"] = {
+            "days_of_history": _soc_history_days,
+            "note": (
+                f"Werkelijk gemeten SoC-profiel op basis van {_soc_history_days} dagen InfluxDB-data. "
+                "Elk item: weekdag, uur, avg/p25/p75 van de werkelijke batterijlading (%). "
+                "Gebruik dit om te anticiperen: als de SoC historisch laag is op een bepaald uur "
+                "(bijv. maandagochtend 07:00 typisch 25%), plan dan grid_charge de nacht ervoor. "
+                "Als de SoC historisch hoog is, is extra grid_charge waarschijnlijk niet nodig."
+            ),
+            "weekly_soc_profile": _soc_profile,
+        }
+    if historical_context:
+        payload["historical_context"] = historical_context
 
     tool_def = {
         "name": "submit_battery_plan",
@@ -821,6 +927,7 @@ def build_plan_claude(
         action_counts=action_counts,
         breakeven_eur_kwh=breakeven,
         price_history_days=_history_days,
+        soc_history_days=_soc_history_days,
         post_process_overrides=_override_count,
         price_stats={
             "p25":    round(p25,    4),

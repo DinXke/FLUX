@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.19.63] - 2026-04-06
+
+### Added
+- Claude AI strategie: historisch SoC-profiel toegevoegd aan de context die Claude ontvangt.
+  - Nieuwe `query_soc_history()` in `influx_writer.py`: één bulk-query haalt 32 dagen
+    werkelijke `bat_soc` op (uurgemiddelden uit InfluxDB) in plaats van 32 losse queries.
+  - Cache in `_soc_history.json`, wordt maximaal elke 6 uur ververst.
+  - Per (weekdag × uur): avg, P25, P75 van de werkelijke batterijlading opgebouwd.
+  - Claude ontvangt `historical_context.soc.weekly_soc_profile` naast het bestaande
+    prijsprofiel — kan hiermee anticiperen op typisch lage SoC-momenten (bijv. maandag
+    07:00 gemiddeld 25% → grid_charge zondagnacht plannen) zonder hardgecodeerde regels.
+
 ## [1.19.62] - 2026-04-06
 
 ### Fixed

@@ -412,6 +412,48 @@ from(bucket: "{INFLUX_BUCKET}")
         return {}
 
 
+def query_soc_history(days: int = 32, tz_name: str = "Europe/Brussels") -> dict:
+    """
+    Return actual hourly bat_soc readings for the last N days from InfluxDB.
+    Single bulk query — much faster than calling query_day_actuals per day.
+    Returns {date_iso: {hour_int: soc_pct}}.
+    """
+    write_api = _get_write_api()
+    if write_api is None:
+        return {}
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        tz     = ZoneInfo(tz_name)
+        utcnow = _dt.now(_tz.utc)
+        start  = (utcnow - _td(days=days)).strftime("%Y-%m-%dT00:00:00Z")
+
+        from influxdb_client import InfluxDBClient  # type: ignore
+        client    = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
+        query_api = client.query_api()
+
+        flux = f"""
+from(bucket: "{INFLUX_BUCKET}")
+  |> range(start: {start})
+  |> filter(fn: (r) => r._measurement == "energy_flow" and r._field == "bat_soc")
+  |> aggregateWindow(every: 1h, fn: mean, createEmpty: false)
+"""
+        tables = query_api.query(flux, org=INFLUX_ORG)
+        result: dict = {}
+        for table in tables:
+            for record in table.records:
+                v = record.get_value()
+                if v is None:
+                    continue
+                t        = record.get_time().astimezone(tz)
+                date_str = t.date().isoformat()
+                result.setdefault(date_str, {})[t.hour] = round(float(v), 1)
+        return result
+    except Exception as exc:
+        log.warning("InfluxDB soc_history error: %s", exc)
+        return {}
+
+
 def query_recent_points(hours: int = 24) -> list[dict]:
     """
     Return last `hours` hours of energy_flow data as list of dicts.
