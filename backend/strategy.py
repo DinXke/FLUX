@@ -72,10 +72,14 @@ DEFAULT_SETTINGS = {
     "min_charge_spread_eur_kwh": 0.05,
     # PV power limiter (e.g. SMA Sunny Boy via Home Assistant number entity)
     "pv_limiter_enabled":        False,
-    "pv_limiter_entity":         "",     # HA entity_id, e.g. "number.sma_max_active_power"
+    "pv_limiter_entity":         "",     # HA entity_id for number.set_value mode
     "pv_limiter_max_w":          4000,   # restore to this value (W) when price OK
     "pv_limiter_threshold_ct":   0.0,    # trigger below this price (ct/kWh); 0 = only negative
     "pv_limiter_margin_w":       200,    # extra buffer above house+bat load to avoid oscillation
+    # Custom HA service mode (e.g. SMA Devices Plus)
+    "pv_limiter_use_service":    False,  # True = use custom service instead of number.set_value
+    "pv_limiter_service":        "",     # e.g. "sma_devices_plus.set_parameter"
+    "pv_limiter_service_param":  "",     # e.g. "Active Power Limitation" (sent as "parameter" key)
     # Strategy engine: "rule_based" (default) or "claude" (uses Anthropic API)
     "strategy_mode":        "rule_based",
     # Anthropic API key (only used when strategy_mode = "claude")

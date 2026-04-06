@@ -3438,7 +3438,11 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
     if not s.get("pv_limiter_enabled"):
         return
     entity = (s.get("pv_limiter_entity") or "").strip()
-    if not entity:
+    use_service = s.get("pv_limiter_use_service")
+    # In entity mode, entity is required; in service mode, the service string is required
+    if not use_service and not entity:
+        return
+    if use_service and not (s.get("pv_limiter_service") or "").strip():
         return
 
     max_w     = int(s.get("pv_limiter_max_w",         4000))
@@ -3486,11 +3490,25 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
     if last_w is not None and abs(last_w - target_w) < 50:
         return
 
-    ok = _ha_call_service("number", "set_value", {"entity_id": entity, "value": target_w})
+    use_service = s.get("pv_limiter_use_service")
+    if use_service:
+        svc_str   = (s.get("pv_limiter_service") or "").strip()
+        svc_param = (s.get("pv_limiter_service_param") or "").strip()
+        if "." not in svc_str:
+            return
+        domain, svc = svc_str.split(".", 1)
+        data: dict = {"value": target_w}
+        if svc_param:
+            data["parameter"] = svc_param
+        ok = _ha_call_service(domain, svc, data)
+    else:
+        if not entity:
+            return
+        ok = _ha_call_service("number", "set_value", {"entity_id": entity, "value": target_w})
     if ok:
         auto["pv_limiter_last_w"] = target_w
-        log.info("PV limiter: %s → %dW (price=%.4f, cons=%.0fW, bat_chg=%dW, threshold=%.4f)",
-                 entity, target_w, price, cons_w,
+        log.info("PV limiter → %dW (price=%.4f, cons=%.0fW, bat_chg=%dW, threshold=%.4f)",
+                 target_w, price, cons_w,
                  int(float(s.get("max_charge_kw", 3.0)) * 1000) if price < threshold else 0,
                  threshold)
 
