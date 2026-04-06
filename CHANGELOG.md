@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.19.66] - 2026-04-06
+
+### Improved
+- Claude AI strategie: gemiddeld sluipverbruik (`standby_w`, automatisch gemeten uit
+  02:00–06:00 historiek) toegevoegd aan de payload en uitgelegd in de prompt.
+  Claude kan nu exact berekenen hoe snel de SOC 's nachts daalt bij `neutral`
+  (formule: `standby_w / capacity_kwh / 10` % per uur), en op basis hiervan
+  bepalen of `grid_charge` nodig is om de ochtendpiek te halen.
+
 ## [1.19.65] - 2026-04-06
 
 ### Fixed

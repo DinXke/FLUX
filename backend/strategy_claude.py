@@ -627,8 +627,15 @@ Dit is de meest winstgevende strategie wanneer alle drie van toepassing zijn:
 ---
 
 ## Sluipverbruik 's nachts
-Consumption_wh is altijd > 0 (koelkast, router, standby). Bij `neutral` 's nachts daalt de SOC elk uur.
-Voorbeeld: 350 Wh/u op 10 kWh → −3.5% per uur → −21% over 6 uur.
+
+`battery.standby_w` in de invoer is het gemeten gemiddeld nachtverbruik (02:00–06:00), automatisch berekend uit historische data. Dit is het meest betrouwbare cijfer voor basisverbruik.
+
+- Bij `neutral` 's nachts daalt de SOC elk uur met: `standby_w / (capacity_kwh × 1000) × 100%`
+- Voorbeeld: standby_w = 300 W, cap = 10 kWh → −3% per uur → −18% over 6 uur
+- Gebruik dit om te berekenen hoe laag de SOC zal zijn bij zonsopgang als je `neutral` kiest
+- Als standby_w = 0: gebruik consumption_wh van de nachtslots als benadering
+
+**Toepassing:** Als de verwachte SOC bij zonsopgang (06:00) na een `neutral`-nacht onder `min_reserve_soc_pct + 10%` zou komen, plan dan `grid_charge` in één of meer nachturen om voldoende SOC te garanderen voor de ochtendpiek.
 
 ---
 
@@ -893,6 +900,7 @@ def build_plan_claude(
             "grid_markup_eur_kwh":  markup,
             "grid_markup_components": grid_components,
             "breakeven_grid_charge_eur_kwh": breakeven,
+            "standby_w": float(s.get("standby_w", 0)),  # baseline night consumption (02-06h avg)
         },
         "price_stats": {
             "p25_eur_kwh":    round(p25,    4),
