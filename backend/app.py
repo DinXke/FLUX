@@ -3781,6 +3781,11 @@ def get_profit_analysis():
     today     = datetime.now(tz).date()
     days_data = []
 
+    # "Zonder auto" simulation: carry SOC across days so end-of-day SOC feeds
+    # into the next day instead of resetting to 50% every day.
+    bat_kwh = 0.5 * cap_kwh
+    bat_kwh = max(bat_min_kwh, min(bat_max_kwh, bat_kwh))
+
     for d_offset in range(days_param, -1, -1):  # include today (offset=0)
         day      = today - timedelta(days=d_offset)
         date_str = day.isoformat()
@@ -3830,11 +3835,7 @@ def get_profit_analysis():
         # ── 3. Compute costs ──────────────────────────────────────────────
         cost_with = 0.0
         cost_no   = 0.0
-
-        # Starting SOC for "no automation" simulation: assume 50% (bat_soc
-        # not available from external InfluxDB without a dedicated mapping)
-        bat_kwh = 0.5 * cap_kwh
-        bat_kwh = max(bat_min_kwh, min(bat_max_kwh, bat_kwh))
+        # bat_kwh carries over from the previous day's simulation end-state
 
         hours_detail = []
 

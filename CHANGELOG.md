@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.56] - 2026-04-06
+
+### Fixed
+- Winst dashboard "zonder auto" simulatie: batterij-SoC wordt nu doorgedragen
+  tussen opeenvolgende dagen i.p.v. elke dag te resetten naar 50% — vergelijking
+  is nu realistischer voor periodes van meerdere dagen
+
 ## [1.19.55] - 2026-04-06
 
 ### Fixed
