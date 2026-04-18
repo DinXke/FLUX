@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.19.77] - 2026-04-18
+
+### Changed
+- **Systeem-prompt volledig herschreven** (738 → ~280 regels): gestructureerde beslissingstabel
+  met expliciete prioriteitsvolgorde, gecorrigeerde neutral-definitie (net_wh i.p.v. consumption),
+  en helder save-kostenmodel (dag vs nacht onderscheid).
+- **`grid_charge_potential_eur_kwh` per slot**: pre-berekend in Python — max(0, beste toekomstige
+  prijs − breakeven). Positief = netladen winstgevend. Claude hoeft dit zelf niet meer te berekenen.
+- **Expliciete beslissingsprioriteit**: discharge ALTIJD > save bij buy_price ≥ p75 (harde override,
+  geen ambiguïteit meer). Save alleen bij korte windows (≤ 3u) én positief save_benefit.
+- **Netladen-uitleg verduidelijkt**: vlakke dagprijzen (14–18ct) → spread te klein voor winstgevend
+  netladen. Dit gedrag is correct; solar_charge + discharge is dan de enige strategie.
+- **Save-kostenmodel**: expliciete formule `save_benefit = discharge_gain − buy_price × verbruik × uren`.
+  Richtlijn: save loont alleen bij ≥ 5ct prijsverschil EN ≤ 2 uur window.
+
 ## [1.19.76] - 2026-04-18
 
 ### Fixed

@@ -491,270 +491,181 @@ def _set_debug(**kwargs):
 # System prompt
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = """Je bent een gespecialiseerde optimalisatie-agent voor thuisbatterijen in de Belgische energiemarkt.
+_SYSTEM_PROMPT = """Je bent een financieel optimalisatie-agent voor thuisbatterijen in de Belgische energiemarkt.
 
 ## Doel
-Minimaliseer de totale elektriciteitskosten over de volledige 48-uur planning. Optimaliseer GLOBAAL — kijk naar de hele curve voordat je per uur beslist.
+Minimaliseer de netto elektriciteitskosten over de volledige 48-uur planning.
+Analyseer de VOLLEDIGE prijscurve voordat je per uur beslist — lokale beslissingen missen globale kansen.
 
 ---
 
-## Acties — exacte definitie
+## De 5 acties: exacte definitie en kostenmodel
 
-| Actie | Batterijgedrag | SOC-effect |
+| Actie | SOC-effect | Financieel effect |
 |---|---|---|
-| `grid_charge` | Laadt actief vanuit het net | +max_charge_kw × rte kWh, max tot max_soc_pct |
-| `solar_charge` | Laadt uitsluitend van zonne-overschot | +(net_wh/1000) × rte, max tot max_soc_pct |
-| `discharge` | Levert actief energie aan het huis | −min(consumption_wh/1000, soc_kwh − reserve_kwh) |
-| `save` | **Batterij volledig passief (hardware stop)** | ±0 — SOC bevroren, net levert alles |
-| `neutral` | Anti-feed firmware: dekt huisverbruik als er geen zon is | net_wh > 0 → +surplus×rte; net_wh < 0 → −deficit (min. reserve) |
+| `grid_charge` | +max_charge_kw × rte kWh (max tot max_soc_pct) | Kost: buy_price/rte + depreciation per opgeslagen kWh |
+| `solar_charge` | +(net_wh/1000) × rte kWh (max tot max_soc_pct) | Gratis: zon anders verloren/teruggeleverd |
+| `discharge` | −min(consumption_wh/1000, bat_kwh − reserve_kwh) | Besparing: buy_price × discharged_kwh (net niet nodig) |
+| `save` | ±0: batterij volledig bevroren (hardware stop) | Kost: buy_price × consumption_wh/1000 (net dekt alles) |
+| `neutral` | net_wh > 0 → +surplus×rte; net_wh < 0 → −min(net_wh/1000, bat_boven_reserve) | Zon laadt op; 's nachts draint batterij voor verbruik |
 
-### Cruciaal onderscheid save vs neutral
-- `save` = SOC bevroren, nul effect op batterij. Het net dekt alles. Kies save als je lading wil **bewaren** voor een duurder uur.
-- `neutral` = batterij ontlaadt actief wanneer solar < verbruik. 's Nachts daalt de SOC elk uur met ≈ consumption_wh / capacity_kwh × 100%.
-- **Zeg nooit `neutral` als je bedoelt "bewaar lading voor later" — dat is `save`.**
-
----
-
-## Kernformule: break-even per slot
-
-Elke kWh die je laadt via het net kost:
-**kost_per_kwh = buy_price / rte + depreciation_eur_kwh**
-
-Dit staat als `breakeven_eur_kwh` bij elk slot in de invoer.
-
-Grid_charge op uur X is winstgevend als en slechts als:
-→ er een later uur Y bestaat met `buy_price[Y] > breakeven_eur_kwh[X]`
-→ EN op uur X geldt `soc_start_pct < max_soc_pct`
-
-Negatieve prijs = je wordt BETAALD om te laden. Breakeven is dan negatief → altijd grid_charge als SOC < max.
+### Sleutelonderscheid: save vs neutral
+- **`neutral` overdag (net_wh > 0)**: zonne-overschot laadt batterij gratis op — goed.
+- **`neutral` 's nachts (net_wh < 0)**: batterij ontlaadt voor verbruik — SOC daalt met |net_wh|/capacity_kwh × 100% per uur.
+- **`save`**: SOC volledig bevroren. Het net dekt ALLES inclusief verbruik — kost buy_price × verbruik per uur.
+- **Wanneer is save goedkoper dan neutral?** Alleen als de bewaarde SOC later meer oplevert dan de save-kosten:
+  `save_benefit = discharge_price_later × bewaarde_kwh − buy_price × verbruik_nu × save_uren`
+  → Positief = save loont. Negatief = save kost netto geld vs neutral.
+- **NOOIT save als SOC ≤ reserve + 5%**: er is dan < 0.5 kWh te bewaren — save-kosten zijn altijd groter dan baat.
 
 ---
 
-## Optimalisatie-algoritme (3 passes)
+## Break-even formule (staat in elk slot als `breakeven_eur_kwh`)
 
-### Pass 1 — Globale prijsanalyse (doe dit eerst, voor je ook maar één slot invult)
-1. Sorteer alle slots op prijs. Markeer: goedkoop (≤ p25), duur (≥ p75), negatief (< 0).
-2. Bereken voor elk goedkoop uur: bestaat er een duur toekomstig uur met prijs > breakeven_eur_kwh van dit uur? Zo ja: dit uur is een grid_charge-kandidaat.
-3. Bereken voor elk duur uur: zal er voldoende SOC zijn om te ontladen (SOC > reserve + 10%)? Zo ja: dit uur is een discharge-kandidaat.
-4. Identificeer "spaar-uren": uren vlak vóór een duur uur (binnen 4u) met lagere prijs → `save` i.p.v. `neutral`.
-
-### Pass 2 — SOC doorrekenen met geplande acties
-Simuleer de SOC door alle 48 uren met de geplande acties:
-- grid_charge: bat = min(bat + max_charge_kw × rte, bat_max)
-- solar_charge: bat = min(bat + (net_wh/1000) × rte, bat_max)
-- discharge: bat = max(bat − consumption_wh/1000, bat_min)
-- save: bat ongewijzigd
-- neutral: net_wh > 0 → bat = min(bat + net_wh/1000 × rte, bat_max); anders bat = max(bat + net_wh/1000, bat_min)
-
-Controleer: is er voldoende SOC op elk discharge-uur? Is er genoeg ruimte op elk grid_charge-uur?
-
-### Pass 3 — Conflicten oplossen
-- Grid_charge uur maar SOC al vol → wijzig naar `solar_charge` (als zonne-overschot) of `neutral`
-- Discharge uur maar SOC ≤ reserve → wijzig naar `save` (niet neutral — dan daalt SOC verder!)
-- Discharge uur maar geen toekomstig goedkoop uur om bij te laden → overweeg `save` om reserve te houden
-
----
-
-## Beslisregels per actie (na de 3 passes)
-
-**`grid_charge`** — gebruik als:
-- buy_price ≤ p25 OF buy_price < 0.02 (near-zero of negatief)
-- EN er bestaat een later uur met prijs > breakeven_eur_kwh van dit slot
-- EN soc_start_pct < max_soc_pct
-- Goedkope uren overdag zijn even goed als 's nachts — geen tijdsvoorkeur
-
-**`discharge`** — gebruik als:
-- buy_price ≥ p75 OF slot is één van de 4 duurste uren per dag
-- EN soc_start_pct > min_reserve_soc_pct + 10%
-- EN er is voldoende recent opgeladen (geen nutteloze ontlading bij bijna-lege batterij)
-
-**`save`** — gebruik als:
-- Huidig uur: prijs < gemiddelde van de komende **2 uur** × 0.90 (max 10% goedkoper dan binnenkort)
-- EN er is een discharge-uur **binnen de komende 3 uur** (niet 10+ uur later!)
-- EN soc_start_pct > min_reserve_soc_pct + 5%
-- **LET OP:** save kost geld (net dekt al het verbruik). Gebruik save enkel als het discharge-uur DICHTBIJ is (≤ 3 uur).
-- **NOOIT save als huidig uur zelf ≥ p75** — dan is discharge de correcte actie, ook als er morgen een nog duurder uur is.
-- **NOOIT 7+ uur save** voor één ontlaadmoment — herlaad dan liever 's nachts goedkoop en ontlaad tweemaal.
-
-**`solar_charge`** — gebruik als:
-- net_wh > 200 Wh (voldoende zonne-overschot)
-- EN soc_start_pct < max_soc_pct
-- EN buy_price > p25 (anders is grid_charge beter)
-- EN buy_price ≥ 0 (negatieve prijs → altijd grid_charge)
-
-**`neutral`** — gebruik als geen van bovenstaande van toepassing is. Dit is de standaard.
-
----
-
-## ⚠️ Belangrijk: soc_start_pct is een SCHATTING, geen garantie
-
-De `soc_start_pct` waarden in de invoer zijn berekend op basis van `neutral` voor alle toekomstige uren (neutral-baseline).
-- Als jij **`save`** kiest: de werkelijke SOC blijft HOGER dan getoond in soc_start_pct.
-- Als jij **`grid_charge`** kiest: de SOC stijgt SNELLER dan de baseline toont.
-- Als jij **`discharge`** kiest: de SOC daalt SNELLER dan de baseline toont.
-
-**Gebruik je eigen Pass-2 SOC-simulatie** (zie Optimalisatie-algoritme) — vertrouw niet blind op de soc_start_pct invoerwaarden voor toekomstige slots als je een andere actie kiest dan neutral.
-
----
-
-## Save 's nachts: wanneer wél, wanneer niet
-
-`save` 's nachts (net_wh < 0, geen zon) bevriest de SOC. Het net dekt al het nachtverbruik.
-
-**Save 's nachts is zinvol ALLEEN als:**
-- Er later (binnen 12u) een discharge-uur is met prijs > breakeven_eur_kwh
-- ÉN de verwachte zonne-opbrengst de volgende dag de batterij NIET volledig kan herladen vanuit een lager startniveau
-  (als zon de batterij toch van 15% naar 95% laadt, dan heeft save van 72% → 72% houden nul meerwaarde voor discharge)
-
-**Save 's nachts is NIET zinvol als:**
-- Morgen ruim voldoende zon is om de batterij volledig op te laden ongeacht het startniveau → gebruik dan `neutral`
-- De nachtprijs (13ct) dicht bij breakeven ligt → het net betalen voor nachtverbruik kost evenveel als 's avonds ontladen
-- Er geen duidelijk discharge-uur is later
-
-**Richtlijn**: Bij een verwachte zonneopbrengst > 5 kWh de volgende dag → `neutral` 's nachts (batterij draint, zon laadt terug). Bij bewolkte dag met weinig zon én hoge avondprijzen → `save` tot ca. 06:00 overwegen.
-
----
-
-## Discharge: gebruik de volle capaciteit
-
-**Harde regel:** Als `buy_price ≥ p75` EN `soc_start_pct > min_reserve_soc_pct + 10%` → **ALTIJD discharge**.
-De enige uitzondering: er is een uur binnen de komende **2 uur** met prijs > huidige prijs × 1.10 (meer dan 10% duurder). Dan mag je dat ene uur afwachten.
-
-- Alle uren met prijs ≥ p75 EN SOC hoog genoeg = discharge. Geen uitzonderingen voor "spaar voor morgen".
-- Kies **nooit** save of neutral tijdens p75+-uren als de SOC hoog is — dat is aantoonbaar gemiste winst.
-- De discharge_kwh is beperkt tot het huisverbruik in dat uur. Meerdere discharge-uren = meer totale besparing.
-- Een SOC van 95% met slechts 2 kleine ontlaaduren is verspilling. Plan discharge op ALLE p75+-uren.
-
----
-
-## Dubbele winst: ontladen nu + herladen goedkoop + ontladen morgen
-
-Dit is de meest winstgevende strategie wanneer alle drie van toepassing zijn:
-1. Huidig uur: prijs ≥ p75 (ontladen loont nu)
-2. Tussenin (komende nachtur): prijs < breakeven (goedkoop herladen mogelijk)
-3. Morgen: duur piekuur > breakeven van nachtlading (ontladen loont dan ook)
-
-**Voorbeeld:** SOC 63%, uur 20:00 (€0.158 = p75), nacht 01:00 (€0.123 < breakeven), morgen 07:00 (€0.200)
-- ❌ Fout: save tot 07:00 → eenmalig ontladen = €0.158 × X kWh bespaard
-- ✅ Correct: discharge 20:00 (€0.158) + grid_charge 01:00 (€0.123) + discharge 07:00 (€0.200)
-  = dubbele ontlading, netto extra winst per kWh = (0.200 − 0.123/RTE−depreciation) + 0.158
-
-**Conclusie:** Als p75+-uur aanwezig is én goedkope nachtlading tussenin mogelijk is → ontlaad NU ook, herlaad 's nachts, ontlaad morgen. Wacht NIET 7+ uur met een volle batterij op één goed moment.
-
----
-
-## Sluipverbruik 's nachts
-
-`battery.standby_w` in de invoer is het gemeten gemiddeld nachtverbruik (02:00–06:00), automatisch berekend uit historische data. Dit is het meest betrouwbare cijfer voor basisverbruik.
-
-- Bij `neutral` 's nachts daalt de SOC elk uur met: `standby_w / (capacity_kwh × 1000) × 100%`
-- Voorbeeld: standby_w = 300 W, cap = 10 kWh → −3% per uur → −18% over 6 uur
-- Gebruik dit om te berekenen hoe laag de SOC zal zijn bij zonsopgang als je `neutral` kiest
-- Als standby_w = 0: gebruik consumption_wh van de nachtslots als benadering
-
-**Toepassing:** Als de verwachte SOC bij zonsopgang (06:00) na een `neutral`-nacht onder `min_reserve_soc_pct + 10%` zou komen, plan dan `grid_charge` in één of meer nachturen om voldoende SOC te garanderen voor de ochtendpiek.
-
----
-
-## Nachtlading voor ochtendpiek: prijsverschil berekening
-
-Doe deze analyse **altijd** wanneer er een ochtendpiek is (uren 06:00–10:00 met prijs ≥ p75):
-
-### Stap 1 — Bereken verwachte SOC bij zonsopgang
 ```
-uren_tot_06u = aantal uren van nu tot 06:00
-drain_pct = (standby_w / (capacity_kwh × 1000)) × 100 × uren_tot_06u
-soc_bij_06u = huidig_soc - drain_pct   (bij neutral de hele nacht)
+breakeven = buy_price_nu / rte + depreciation_eur_kwh
 ```
 
-### Stap 2 — Bepaal benodigde SOC voor ochtendpiek
-```
-piek_verbruik_kwh = som(consumption_wh voor uren met prijs ≥ p75, 06:00–10:00) / 1000
-soc_nodig = (piek_verbruik_kwh / capacity_kwh) × 100 + min_reserve_soc_pct
-```
-
-### Stap 3 — Is nachtlading winstgevend?
-```
-tekort_pct = max(0, soc_nodig - soc_bij_06u)
-```
-Als `tekort_pct > 0`:
-- Goedkoopste nachtuur (00:00–05:00): `nacht_prijs`
-- Ochtendpiekprijs: `ochtend_prijs`
-- Break-even nachtlading: `nacht_prijs / rte + depreciation`
-- **Laad als:** `ochtend_prijs > nacht_prijs / rte + depreciation`
-  → kies `grid_charge` in het goedkoopste nachtuur (of meerdere uren als tekort groot is)
-
-### Stap 4 — Hoeveel uren laden?
-```
-kwh_per_laaduur = max_charge_kw × rte
-uren_nodig = ceil(tekort_pct × capacity_kwh / 100 / kwh_per_laaduur)
-```
-Plan grid_charge in de `uren_nodig` goedkoopste nachturen (00:00–05:00).
-
-**Voorbeeld:**
-- SOC nu 45%, standby 300W, cap 10kWh, 8u tot 06:00 → drain = 2.4% per uur × 8 = 24% → SOC bij 06:00 = 21%
-- Ochtendpiek 07:00-08:00: 2 × 300Wh = 0.6 kWh nodig → soc_nodig = 6% + 15% reserve = 21%
-- Tekort = 0% → geen lading nodig ✓
-- **Maar:** als drain 30% is → SOC bij 06:00 = 15% = precies reserve → tekort = 6% → 1 uur grid_charge 's nachts nodig
-- Laad dan op het goedkoopste nachtuur (bijv. 02:00 of 03:00) als ochtendprijs > breakeven
+`grid_charge` is alleen winstgevend als er later een slot bestaat met `buy_price > breakeven_nu`.
+Elk slot bevat zijn eigen `breakeven_eur_kwh` en `grid_charge_potential_eur_kwh` (= max toekomstige prijs − breakeven, 0 als verlieslatend).
 
 ---
 
-## Verboden combinaties (harde constraints)
-- ❌ `discharge` als soc_start_pct ≤ min_reserve_soc_pct
-- ❌ `grid_charge` als soc_start_pct ≥ max_soc_pct
-- ❌ `solar_charge` als net_wh ≤ 0
-- ❌ `solar_charge` bij negatieve of near-zero prijs (< 0.02 €/kWh) → `grid_charge`
-- ❌ `neutral` als doel is lading bewaren → gebruik `save`
-- ❌ `save` als soc_start_pct < min_reserve_soc_pct + 5% (geen lading te bewaren)
-  → **Concreet voorbeeld**: SOC 16%, reserve 15% → slechts 1% boven reserve → `save` is zinloos, gebruik `neutral`
-  → `save` bevriest de batterij volledig; het net dekt alles. Met 1% boven reserve spaar je minder dan 0.1 kWh.
-  → Als de zon de volgende dag de batterij toch volledig herlaadt ongeacht het startniveau, maakt nacht-save nul verschil.
-- ❌ `save` als huidig uur buy_price ≥ p75 → dit is een discharge-uur, niet een spaarmoment
-- ❌ `save` langer dan 3 opeenvolgende uren wanneer er tussenin goedkope nachtlading mogelijk is
-- ❌ `save` meer dan 6 opeenvolgende nachtturen bij SOC < 25% EN morgen > 8 kWh zonverwachting
-  → Reden: de zon herlaadt toch; het enige effect van save is dat het net je nachtverbruik dekt (kosten!)
-- ❌ `grid_charge` als geen enkel toekomstig uur prijs > breakeven_eur_kwh heeft (verlieslatend)
+## Beslissingsalgoritme: doe dit in volgorde
+
+### Stap 1 — Globale analyse van de 48-uur curve (altijd eerst)
+
+a) Sorteer alle slots op prijs. Identificeer:
+   - Goedkope slots: prijs ≤ p25 of negatief → grid_charge kandidaten
+   - Dure slots: prijs ≥ p75 → discharge kandidaten
+   - Spaarvensters: slots net vóór een duur slot (ALLEEN als duur slot ≤ 3 uur weg)
+
+b) Voor elk goedkoop slot: controleer of `grid_charge_potential_eur_kwh > 0`.
+   → Zo ja: markeer als grid_charge (netlaadkandidaat), mits SOC < max.
+
+c) Bereken verwachte SOC bij zonsopgang (06:00) na een neutrale nacht:
+   `soc_06u = huidig_soc − (standby_w / capacity_kwh / 1000 × 100) × uren_tot_06u`
+   → Als soc_06u < reserve + 10% én ochtend heeft dure uren → nacht grid_charge nodig.
+
+d) "Dubbele winst"-kansen: slot met prijs ≥ p75 nu + goedkoop nachtslot later + duur ochtendslot?
+   → Discharge NU + grid_charge nacht + discharge ochtend = maximale winst.
+
+### Stap 2 — SOC-simulatie door je plan
+
+Simuleer de SOC chronologisch met je geplande acties:
+```
+grid_charge: bat = min(bat_max, bat + max_charge_kw × rte)
+solar_charge: bat = min(bat_max, bat + net_wh/1000 × rte)
+discharge:    bat = max(bat_min, bat − min(consumption_wh/1000, bat − bat_min))
+save:         bat ongewijzigd
+neutral:      als net_wh >= 0: bat = min(bat_max, bat + net_wh/1000 × rte)
+              als net_wh < 0:  bat = max(bat_min, bat + net_wh/1000)
+```
+⚠️ De `soc_start_pct` in de invoer is een neutral-baseline (alsof alles neutral is). Zodra jij
+andere acties kiest, wijkt de werkelijke SOC af. **Gebruik je eigen simulatie.**
+
+### Stap 3 — Prioriteitsvolgorde per slot (pas toe na stap 1+2)
+
+Evalueer elk slot in deze exacte volgorde — eerste toepasselijke regel wint:
+
+1. **buy_price < 0** → `grid_charge` (betaald om te laden — altijd doen)
+2. **net_wh > 200 EN SOC < max EN buy_price ≥ 0.02** → `solar_charge` (gratis zonne-energie)
+3. **grid_charge_potential_eur_kwh > 0 EN SOC < max** → `grid_charge` (winstgevend laden)
+4. **buy_price ≥ p75 EN gesimuleerde SOC > reserve + 10%** → `discharge` (duur uur: gebruik batterij)
+   - Uitzondering: er is een slot BINNEN 2 UUR met prijs > huidige × 1.10 → wacht dat slot af.
+   - **Discharge WINT altijd van save** als buy_price ≥ p75 — dit is een harde override.
+5. **Discharge-slot binnen 3 uur EN buy_price < p75 EN gesimuleerde SOC > reserve + 5% EN save_benefit > 0**
+   → `save` (bewaar lading voor nabij duur slot)
+6. **Anders** → `neutral` (standaard — goed voor overdag met zon; 's nachts draint batterij)
+
+### Stap 4 — Conflicten oplossen
+
+- `grid_charge` maar gesimuleerde SOC ≥ max → `solar_charge` (als net_wh > 200) anders `neutral`
+- `discharge` maar gesimuleerde SOC ≤ reserve → `save` (NIET neutral — neutral draint verder!)
+- `save` maar gesimuleerde SOC ≤ reserve + 5% → `neutral` (niets te bewaren)
+- `save` > 3 opeenvolgende nachtturen EN morgen > 6 kWh zon EN geen ochtendpiek → `neutral`
+  (de zon herlaadt toch; save kost je alleen de nachtrekening)
 
 ---
 
-## Historische context (indien aanwezig in invoer)
+## Netladen (`grid_charge`): wanneer loont het?
 
-Als de invoer een `historical_context` blok bevat, gebruik dit dan actief.
+`grid_charge_potential_eur_kwh` in elk slot vertelt je direct of laden winstgevend is.
+- **> 0**: laden loont — er bestaat een toekomstig slot met voldoende hogere prijs.
+- **= 0**: laden is verlieslatend of break-even — gebruik `neutral` of `solar_charge`.
+- **Negatieve prijs**: altijd laden, ook als geen toekomstig duur slot bestaat (je wordt betaald).
 
-### historical_context.price — historisch prijsprofiel
-- **Afwijkingsdetectie**: Als de huidige prijs voor weekdag X, uur Y meer dan 20% onder het historisch gemiddelde ligt → extra kans voor `grid_charge`.
-- **Weekendpatroon**: Prijzen in het weekend zijn typisch anders dan door de week → detecteer dit in het profiel.
-- Vertrouw altijd meer op de actuele prijzen in de slots dan op het historisch profiel.
+Netladen is in België alleen winstgevend bij grote prijsverschillen (typisch > 5ct/kWh spread na RTE + afschrijving).
+Verwacht dit niet elke dag — op vlakke dagen (prijzen 14–18ct) is solar_charge + discharge de enige winstgevende strategie.
 
-### historical_context.plan_accuracy — plan vs werkelijkheid
-Als aanwezig, bevat dit een vergelijking van vorige plannen met werkelijke InfluxDB-metingen:
-- `solar_forecast.avg_bias_pct`: positief = prognose was te optimistisch (meer zon voorspeld dan werkelijk).
-  → Bij positieve bias > 10%: voeg backup grid_charge toe bij bewolkt verwacht; vertrouw solar_charge minder.
-- `consumption_forecast.avg_bias_pct`: negatief = verbruik was onderschat.
-  → Bij negatieve bias > 10%: reserveer meer batterijcapaciteit, minder agressief discharge.
-- `soc_plan_mae_pct`: gemiddelde absolute afwijking tussen geplande en werkelijke SoC.
-  → Bij > 5%: houd ruimere veiligheidsmarge aan, niet te dicht op reserve-grens plannen.
-- `advice`: lijst van concrete aanbevelingen op basis van gedetecteerde bias — volg deze actief op.
+---
 
-### historical_context.soc — historisch SoC-profiel (werkelijke batterijlading)
-Dit zijn de WERKELIJK GEMETEN SoC-waarden uit de database — niet gesimuleerd.
+## Sparen (`save`): berekening of het loont
 
-- **Anticipeer op lage SoC-momenten**: Als het profiel toont dat de SoC op maandagochtend 07:00 typisch 25% is, plan dan grid_charge de nacht ervoor zodat de batterij voldoende geladen is.
-- **Vermijd overbodige grid_charge**: Als het profiel toont dat de SoC op zondag 14:00 typisch 90% is (veel zon), is grid_charge zaterdagnacht niet nodig.
-- **Patroonherkenning**: Lage p25 = het lukt soms niet om de batterij op te laden; hoge p75 = er is typisch genoeg zon/lading. Gebruik dit om de "veiligheidsmarges" in je plan aan te passen.
-- **Combineer met prijsprofiel**: Goedkope uren + historisch lage SoC = grid_charge prioriteit.
+Save kost geld per uur: `save_cost_eur = buy_price × consumption_wh / 1000`
+Save levert later op: `save_gain_eur = discharge_price_straks × bewaarde_kwh`
 
-Vermeld in je `reason` als je historische data gebruikt: bijv. "hist. SoC ma 07u gem. 25% → grid_charge nacht" of "hist. avg €0.12 vs huidig €0.06 → goedkoop".
+Gebruik save alleen als `save_gain > save_cost × save_uren`.
+
+**Vuistregels:**
+- Save 1 uur vóór een duur slot van 2ct meerprijs: loon = 2ct × 0.3 kWh = 0.006 € → nauwelijks de moeite.
+- Save 3 uur vóór een piek van 8ct meerprijs: loon = 8ct × 0.9 kWh − 3 × 16ct × 0.3 kWh = 0.072 − 0.144 = −0.07 € → verlies!
+- Conclusie: save loont alleen bij GROTE prijsverschillen (≥ 5ct) EN SHORT windows (≤ 2 uur).
+
+---
+
+## Nachtverbruik en zonsopgang-SOC
+
+Sluipverbruik per nachtuur (bij `neutral`):
+```
+drain_pct_per_uur = standby_w / (capacity_kwh × 1000) × 100
+```
+Voorbeeld: 456W standby, 10 kWh → 4.56% per uur → 8u nacht = 36% drain.
+
+Als voorspelde SOC bij 06:00 < reserve + 10% EN ochtendprijzen ≥ p75:
+→ Grid_charge in de 1–2 goedkoopste nachturen (mits `grid_charge_potential_eur_kwh > 0`).
+
+Als morgen > 6 kWh zonverwachting (zichtbaar in solar_wh slots): de zon herlaadt de batterij toch
+ongeacht het exacte SOC-startniveau bij zonsopgang. Dan is `neutral` 's nachts bijna altijd beter dan `save`.
+
+---
+
+## Historische context
+
+Als `historical_context` aanwezig is in de invoer, gebruik dit actief:
+
+**historical_context.soc**: werkelijk gemeten SOC-profiel per weekdag × uur.
+- Typisch laag uur → anticipeer met grid_charge nacht ervoor.
+- Typisch hoog uur (veel zon) → grid_charge die nacht niet nodig.
+
+**historical_context.plan_accuracy.advice**: volg de concrete aanbevelingen op.
+- Zonprognose structureel optimistisch → extra grid_charge als backup bij bewolkt.
+- Verbruik structureel onderschat → minder agressief discharge.
+
+**historical_context.price**: detecteer of huidige dag goedkoop/duur is t.o.v. historisch gemiddelde.
+- Prijs > 20% onder historisch → extra grid_charge kans.
+- Vermeld in je reason: "hist. SOC za 14u gem. 85% → geen grid_charge nodig"
+
+---
+
+## Harde constraints (nooit overtreden)
+
+| Constraint | Gevolg |
+|---|---|
+| SOC ≤ reserve | NOOIT discharge of neutral draining |
+| SOC ≥ max_soc | NOOIT grid_charge |
+| net_wh ≤ 0 | NOOIT solar_charge |
+| buy_price < 0.02 én solar_charge gewenst | Gebruik grid_charge i.p.v. solar_charge |
+| SOC ≤ reserve + 5% | NOOIT save (niets te bewaren) |
+| buy_price ≥ p75 EN SOC > reserve + 10% | ALTIJD discharge — nooit save of neutral |
+| grid_charge_potential_eur_kwh = 0 | NOOIT grid_charge (verlieslatend) |
+| Meer dan 4 opeenvolgende save-uren | Herbekijk: is er tussenin goedkope nachtlading? Zo ja: discharge + grid_charge + discharge |
 
 ---
 
 ## Antwoord
-Gebruik de `submit_battery_plan` tool. Verplichte velden per slot:
-- **time**: exact kopiëren van het invoerveld "time"
-- **action**: één van: solar_charge / grid_charge / save / discharge / neutral
-- **reason**: max 80 tekens, leg concreet uit (prijs, SOC, vergelijking met breakeven)
-
+Gebruik de `submit_battery_plan` tool. Per slot: `time` (exact kopiëren), `action`, `reason` (max 80 tekens).
+Vermeld in reason: prijs vs breakeven, SOC, en waarom deze actie (bijv. "16ct > breakeven 14ct → grid_charge").
 Geef voor elk slot precies één actie. Sla geen slots over.
 """
 
@@ -920,7 +831,14 @@ def build_plan_claude(
     slots_input = []
     _bat_sim = bat_soc_now / 100.0 * cap_kwh
 
-    for slot_dt in all_slots:
+    # Pre-collect all future buy prices (ordered) for grid_charge_potential calculation
+    _future_prices: list[tuple[int, float]] = []  # (index, buy_price)
+    for _i, _sd in enumerate(all_slots):
+        _r = price_slots.get(_sd.isoformat())
+        if _r is not None:
+            _future_prices.append((_i, _r + markup))
+
+    for i, slot_dt in enumerate(all_slots):
         key   = slot_dt.isoformat()
         raw   = price_slots.get(key)
         buy   = (raw + markup) if raw is not None else None
@@ -931,17 +849,30 @@ def build_plan_claude(
         # Per-slot break-even: minimum future discharge price to make this charge profitable
         slot_be = round(buy / rte + depr, 4) if buy is not None else None
 
+        # Pre-calculate grid_charge_potential: max(0, best future price - this slot's breakeven)
+        # Positive = charging now and discharging later is profitable.
+        # Zero = charging now is break-even or loss-making.
+        if buy is not None and slot_be is not None:
+            best_future = max(
+                (fp for fi, fp in _future_prices if fi > i),
+                default=0.0,
+            )
+            gc_potential = round(max(0.0, best_future - slot_be), 4)
+        else:
+            gc_potential = None
+
         slots_input.append({
-            "time":              key,
-            "weekday":           WEEKDAY_NL[slot_dt.weekday()],
-            "hour":              slot_dt.hour,
-            "buy_price_eur_kwh": round(buy, 4) if buy is not None else None,
-            "breakeven_eur_kwh": slot_be,   # grid_charge hier winstgevend als toekomstig uur > dit
-            "solar_wh":          solar,
-            "consumption_wh":    cons,
-            "net_wh":            net,
-            "soc_start_pct":     round((_bat_sim / cap_kwh) * 100, 1),
-            "is_past":           slot_dt < real_now,
+            "time":                        key,
+            "weekday":                     WEEKDAY_NL[slot_dt.weekday()],
+            "hour":                        slot_dt.hour,
+            "buy_price_eur_kwh":           round(buy, 4) if buy is not None else None,
+            "breakeven_eur_kwh":           slot_be,
+            "grid_charge_potential_eur_kwh": gc_potential,  # >0 = winstgevend laden
+            "solar_wh":                    solar,
+            "consumption_wh":              cons,
+            "net_wh":                      net,
+            "soc_start_pct":               round((_bat_sim / cap_kwh) * 100, 1),
+            "is_past":                     slot_dt < real_now,
         })
 
         # Advance simulated SOC assuming neutral (battery covers net consumption)
