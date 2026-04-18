@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.19.81] - 2026-04-18
+
+### Fixed
+- **Sluipverbruik-venster gecorrigeerd** ([SCH-18](/SCH/issues/SCH-18)): standby-detectie gebruikte
+  uren 02:00–06:00, nu 04:00–06:00 zoals gewenst.
+
 ## [1.19.80] - 2026-04-18
 
 ### Fixed

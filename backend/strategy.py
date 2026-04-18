@@ -236,9 +236,9 @@ def build_plan(
         p25 = p75 = price_median = 0.10
 
     # ── Standby / parasitic consumption ─────────────────────────────────────
-    # Auto-detect from 02:00–06:00 historical average (sleeping hours).
+    # Auto-detect from 04:00–06:00 historical average (sleeping hours).
     # Falls back to the manual setting value, then to 0.
-    _STANDBY_HOURS = {2, 3, 4, 5}
+    _STANDBY_HOURS = {4, 5}
     _configured_standby = float(s.get("standby_w", 0))
 
     if _configured_standby > 0:
