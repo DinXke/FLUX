@@ -307,6 +307,12 @@ def build_plan(
     slots: list[dict] = []
 
     for i, slot_dt in enumerate(all_slots):
+        # Snap to actual SOC at the current hour so that future predictions
+        # start from the real battery state, not from a simulated past that
+        # may have diverged from reality.
+        if slot_dt == real_now:
+            bat_kwh = cap_kwh * (bat_soc_now / 100.0)
+
         slot_key = slot_dt.isoformat()
         hour     = slot_dt.hour
         weekday  = slot_dt.weekday()   # 0 = Monday, 6 = Sunday

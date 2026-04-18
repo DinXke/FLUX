@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.19.80] - 2026-04-18
+
+### Fixed
+- **SOC-voorspelling klopt niet** ([SCH-18](/SCH/issues/SCH-18)): simulatie startte altijd vanaf
+  middernacht met de huidige SOC. Doordat 15+ historische uren werden nagebootst, was de
+  gesimuleerde batterij tegen het begin van de toekomst (16:00+) bijna leeg — terwijl de echte
+  batterij op 50% stond. Nu wordt de `bat_kwh` gesnapt naar de werkelijke SOC op het actuele uur
+  (`real_now`), zodat alle toekomstige slots correct worden gesimuleerd.
+
 ## [1.19.79] - 2026-04-18
 
 ### Fixed
