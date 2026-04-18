@@ -3971,10 +3971,14 @@ def _query_profit_day(date_str: str, tz_name: str) -> dict:
         except Exception as exc:
             log.debug("profit: influx query %s/%s %s: %s", field_name, meas, date_str, exc)
 
-    # If net_w not mapped but solar_w and house_w are: approximate from those two
+    # Derive any missing field from the other two (all three satisfy house = solar + net_import)
     for h, hd in result.items():
         if "net_w" not in hd and "solar_w" in hd and "house_w" in hd:
-            hd["net_w"] = hd["house_w"] - hd["solar_w"]   # positive = importing
+            hd["net_w"] = hd["house_w"] - hd["solar_w"]     # positive = importing
+        elif "house_w" not in hd and "solar_w" in hd and "net_w" in hd:
+            hd["house_w"] = hd["solar_w"] + hd["net_w"]     # house = solar + grid_import
+        elif "solar_w" not in hd and "house_w" in hd and "net_w" in hd:
+            hd["solar_w"] = hd["house_w"] - hd["net_w"]     # solar = house - grid_import
 
     return result
 
@@ -4073,6 +4077,7 @@ def get_profit_analysis():
         cost_with = 0.0
         cost_no   = 0.0
         # bat_kwh carries over from the previous day's simulation end-state
+        day_has_solar_house = False
 
         hours_detail = []
 
@@ -4087,6 +4092,8 @@ def get_profit_analysis():
             solar_wh = float(hd.get("solar_w") or 0.0)
             house_wh = float(hd.get("house_w") or 0.0)
             net_wh   = float(hd.get("net_w")   or 0.0)   # + = import, − = export
+            if solar_wh or house_wh:
+                day_has_solar_house = True
 
             # WITH automation: actual measured grid flow
             import_with = max(0.0, net_wh) / 1000.0
@@ -4125,11 +4132,12 @@ def get_profit_analysis():
             })
 
         days_data.append({
-            "date":         date_str,
-            "cost_no_eur":  round(cost_no,             3),
-            "cost_with_eur": round(cost_with,           3),
-            "savings_eur":  round(cost_no - cost_with,  3),
-            "hours":        hours_detail,
+            "date":              date_str,
+            "cost_no_eur":       round(cost_no,             3),
+            "cost_with_eur":     round(cost_with,           3),
+            "savings_eur":       round(cost_no - cost_with,  3),
+            "has_solar_house":   day_has_solar_house,
+            "hours":             hours_detail,
         })
 
     if not days_data:
@@ -4147,6 +4155,14 @@ def get_profit_analysis():
     total_no   = sum(d["cost_no_eur"]  for d in days_data)
     total_with = sum(d["cost_with_eur"] for d in days_data)
     n          = len(days_data)
+    days_zonder_solar_house = sum(1 for d in days_data if not d["has_solar_house"])
+
+    warning = None
+    if days_zonder_solar_house == n:
+        warning = (
+            "Zonder-auto simulatie vereist solar_w én house_w (of minstens 2 van de 3 meetwaarden). "
+            "Voeg de ontbrekende slotmapping toe in Instellingen → InfluxDB om de statistiek correct te berekenen."
+        )
 
     return jsonify({
         "days": days_data,
@@ -4157,7 +4173,9 @@ def get_profit_analysis():
             "days_with_data":       n,
             "avg_daily_savings_eur": round(total_sav / n, 3),
             "pct_saved":            round((1 - total_with / total_no) * 100, 1) if total_no > 0 else 0,
+            "zonder_auto_betrouwbaar": days_zonder_solar_house == 0,
         },
+        "warning": warning,
     })
 
 

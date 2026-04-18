@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.19.78] - 2026-04-18
+
+### Fixed
+- **Zonder-auto statistiek altijd 0** ([SCH-18](/SCH/issues/SCH-18)): in `_query_profit_day` miste
+  de omgekeerde afleiding: als `solar_w` + `net_w` beschikbaar zijn maar `house_w` niet, werd
+  `house_w` nooit berekend. Hierdoor was `solar_wh - house_wh = 0` in de zonder-auto simulatie.
+  Nu worden alle 2-van-3 combinaties afgeleid: `house_w = solar_w + net_w` en `solar_w = house_w - net_w`.
+- **Waarschuwing bij ontbrekende solar/house mapping**: als de InfluxDB-configuratie geen `solar_w`
+  én `house_w` bevat (ook na afleiding), toont de Winst-pagina nu een duidelijke waarschuwing
+  met instructie om de slotmapping aan te vullen.
+- **`zonder_auto_betrouwbaar`** veld toegevoegd aan de API-summary voor gebruik door de frontend.
+
 ## [1.19.77] - 2026-04-18
 
 ### Changed
