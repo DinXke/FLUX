@@ -1,45 +1,38 @@
-# SmartMarstek — Release Protocol
+# SmartMarstek — Agent protocol
 
-Every code change in this repo that ships a user-visible fix or feature **must** follow this
-protocol before the tag is cut. Home Assistant reads the add-on version from `config.yaml`, not
-from the git tag. A tag without a matching version bump is a dead release — HA will not offer an
-update button.
+Dit is een Home Assistant add-on. De add-on versie komt uit `config.yaml` (`version:`), niet uit de git tag. De HA Supervisor vergelijkt die string met de geïnstalleerde versie. Een tag zonder `config.yaml`-bump is een dode release.
 
-## Steps (mandatory, in order)
+## Release protocol (verplicht bij elke user-visible change)
 
-1. **Bump `config.yaml`** — change `version: "X.Y.Z"` to the new version string.
-
-2. **Add CHANGELOG entry** — insert a `## [X.Y.Z] - YYYY-MM-DD` section at the **top** of
-   `CHANGELOG.md` (above the previous release). Group changes under `### Added`, `### Fixed`,
-   `### Accessibility`, etc. Include Paperclip issue links like `[SCH-XX](/SCH/issues/SCH-XX)`.
-
-3. **Commit** both files together:
+1. **Implementeer** de change + test.
+2. **Bump `config.yaml`** → nieuwe `version:` (semver patch/minor/major naar de change).
+3. **Voeg CHANGELOG.md entry toe** bovenaan (onder `# Changelog`):
    ```
-   git add config.yaml CHANGELOG.md
-   git commit -m "Release vX.Y.Z: <short summary> (<issue-ids>)"
-   ```
-   Append `Co-Authored-By: Paperclip <noreply@paperclip.ing>` to the commit message.
+   ## [X.Y.Z] - YYYY-MM-DD
 
-4. **Tag and push**:
+   ### Added / Fixed / Changed
+   - Korte Nederlandse beschrijving ([SCH-NN](/SCH/issues/SCH-NN))
+   ```
+4. **Commit** met message `Release vX.Y.Z: <korte titel> (SCH-NN)` en eindig met
+   `Co-Authored-By: Paperclip <noreply@paperclip.ing>`.
+5. **Tag + push**:
    ```
    git tag vX.Y.Z
    git push origin main vX.Y.Z
    ```
-   The `build.yml` workflow triggers on `push: tags: v*` and builds/pushes
-   `ghcr.io/dinxke/smartmarstek/{amd64,aarch64}:X.Y.Z` and `:latest` to GHCR.
-
-5. **Verify CI** — check that the GitHub Actions run finished green:
+6. **Verifieer CI**: de workflow `.github/workflows/build.yml` triggert op `push: tags: v*` en bouwt/pusht `ghcr.io/dinxke/smartmarstek/{amd64,aarch64}:X.Y.Z` en `:latest`. Check dat de run `success` is:
    ```
    GET /repos/DinXke/SmartMarstek/actions/runs?per_page=1
    ```
-   Do not close the Paperclip task until the run conclusion is `success`.
+7. **Rapporteer** in de task comment: nieuwe versie, tag, run id + conclusion.
 
-6. **Close the Paperclip task** — comment with: new tag, Actions run ID + conclusion, and
-   confirmation that HA will now detect the update.
+## Wat niet mag
 
-## Why this matters
+- Tag zonder `config.yaml` bump. Dat is wat er bij v1.19.87/88 mis ging.
+- `config.yaml` bump zonder tag. Dan bouwt CI niet.
+- Vergeten CHANGELOG te updaten.
+- Force-push van bestaande tags.
 
-- HA add-on store reads `version` from `config.yaml`, **not** from the git tag.
-- A git tag without a `config.yaml` bump leaves HA believing the installed version is already
-  current — no update button appears for the user.
-- The CHANGELOG keeps human-readable history and is used in Paperclip task comments.
+## Kleine changes zonder release
+
+Interne refactors, CI tweaks, documentatie-only changes hoeven geen versie-bump. Push naar `main` zonder tag. Alleen tag als de gebruiker de change ook echt merkt.
