@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.19.82] - 2026-04-18
+
+### Fixed
+- **Netladen terwijl zon de batterij toch vult** ([SCH-18](/SCH/issues/SCH-18)): `solar_fills_battery`
+  werd berekend maar nooit gebruikt in de grid-charge conditie. De strategie laadde van het net
+  zelfs als zonnestroom de batterij gratis zou vullen. Nu geblokkeerd: `not solar_fills_battery`.
+- **AttributeError bij `settings.get`**: regel 440 gebruikte `settings` (kan `None` zijn) i.p.v. `s`.
+
 ## [1.19.81] - 2026-04-18
 
 ### Fixed

@@ -408,7 +408,7 @@ def build_plan(
                         action = NEUTRAL
                         reason = "Batterij te leeg voor ontladen"
 
-            elif grid_charge_ok and bat_kwh < bat_max - 0.2:
+            elif grid_charge_ok and bat_kwh < bat_max - 0.2 and not solar_fills_battery:
                 # Spread large enough → charge from grid now to discharge later
                 can_add_kwh  = bat_max - bat_kwh
                 charge_kwh   = min(can_add_kwh / rte, max_charge_kw)
@@ -437,7 +437,7 @@ def build_plan(
                     for j in range(i + 1, min(i + 6, num_slots))
                 )
                 # A much more expensive hour is coming soon (30% above current AND above p75)
-                better_soon = best_future_16 > buy_price * (1.0 + settings.get("save_price_factor", 0.30)) and best_future_16 > p75
+                better_soon = best_future_16 > buy_price * (1.0 + s.get("save_price_factor", 0.30)) and best_future_16 > p75
 
                 if buy_price > price_median and upcoming_peak:
                     action = SAVE
