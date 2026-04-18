@@ -150,6 +150,7 @@ export default function App() {
             <button key={n.id}
               className={`nav-btn ${page === n.id ? "active" : ""}`}
               onClick={() => setPage(n.id)}
+              aria-current={page === n.id ? "page" : undefined}
             >
               {n.icon} {n.label}
             </button>
@@ -173,6 +174,7 @@ export default function App() {
           <button key={n.id}
             className={`mobile-nav-btn ${page === n.id ? "active" : ""}`}
             onClick={() => setPage(n.id)}
+            aria-current={page === n.id ? "page" : undefined}
           >
             <span className="mobile-nav-icon">{n.icon}</span>
             <span className="mobile-nav-label">{n.label}</span>
