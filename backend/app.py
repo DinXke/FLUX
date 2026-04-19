@@ -299,9 +299,12 @@ def _country_from_token(token: str) -> str | None:
 
 
 def _frank_session() -> dict:
-    if os.path.exists(FRANK_SESSION_FILE):
-        with open(FRANK_SESSION_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+    try:
+        if os.path.exists(FRANK_SESSION_FILE):
+            with open(FRANK_SESSION_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as exc:
+        log.warning("_frank_session: failed to load session: %s", exc)
     return {}
 
 
@@ -1037,9 +1040,12 @@ _entsoe_cache: dict = {}
 
 
 def _entsoe_settings() -> dict:
-    if os.path.exists(ENTSOE_SETTINGS_FILE):
-        with open(ENTSOE_SETTINGS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+    try:
+        if os.path.exists(ENTSOE_SETTINGS_FILE):
+            with open(ENTSOE_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as exc:
+        log.warning("_entsoe_settings: failed to load settings: %s", exc)
     return {}
 
 
@@ -1460,9 +1466,12 @@ def _save_forecast_disk_cache() -> None:
         log.debug("forecast: disk cache write failed: %s", exc)
 
 def _forecast_settings() -> dict:
-    if os.path.exists(FORECAST_SETTINGS_FILE):
-        with open(FORECAST_SETTINGS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+    try:
+        if os.path.exists(FORECAST_SETTINGS_FILE):
+            with open(FORECAST_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as exc:
+        log.warning("_forecast_settings: failed to load settings: %s", exc)
     return {}
 
 @app.route("/api/forecast/settings", methods=["GET"])
@@ -2292,8 +2301,12 @@ def ha_consumption_debug():
 @app.route("/api/strategy/plan")
 def get_strategy_plan():
     """Return the charging plan. ?date=YYYY-MM-DD for historical single-day view."""
-    s = load_strategy_settings()
-    tz_name    = _entsoe_settings().get("timezone", "Europe/Brussels")
+    try:
+        s = load_strategy_settings()
+        tz_name = _entsoe_settings().get("timezone", "Europe/Brussels")
+    except Exception as exc:
+        log.error("get_strategy_plan: settings load failed: %s", exc, exc_info=True)
+        return jsonify({"error": f"Instellingen konden niet geladen worden: {exc}"}), 500
     today_str  = date.today().isoformat()
 
     date_param = request.args.get("date", "").strip()
