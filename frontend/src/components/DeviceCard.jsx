@@ -364,6 +364,7 @@ function ControlsTab({ entities, deviceId }) {
     { label: "Forcible Charge Power",   entity: getEntity(entities, "Forcible Charge Power"),   unit: "W" },
     { label: "Forcible Discharge Power",entity: getEntity(entities, "Forcible Discharge Power"), unit: "W" },
     { label: "Charge To SOC",           entity: getEntity(entities, "Charge To SOC"),            unit: "%" },
+    { label: "Reserve (min SOC)",       entity: getEntity(entities, "Reserve"),                  unit: "%" },
     { label: "Max. Charge Power",       entity: getEntity(entities, "Max", "Charge Power"),      unit: "W" },
     { label: "Max. Discharge Power",    entity: getEntity(entities, "Max", "Discharge Power"),   unit: "W" },
   ].filter((n) => n.entity);

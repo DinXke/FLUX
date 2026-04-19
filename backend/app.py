@@ -2001,7 +2001,31 @@ def get_strategy_settings():
 @app.route("/api/strategy/settings", methods=["POST", "PATCH"])
 def post_strategy_settings():
     body = request.get_json(force=True) or {}
-    return jsonify(save_strategy_settings(body))
+    result = save_strategy_settings(body)
+    if "min_reserve_soc" in body:
+        _push_reserve_to_all_devices(result)
+    return jsonify(result)
+
+
+def _push_reserve_to_all_devices(settings: dict) -> None:
+    """Push min_reserve_soc to all battery devices as their physical reserve floor."""
+    global_reserve = int(settings.get("min_reserve_soc", 10))
+    try:
+        devices = load_devices()
+    except Exception:
+        return
+    for device_id, device in devices.items():
+        ip   = device.get("ip")
+        port = device.get("port", 80)
+        if not ip:
+            continue
+        dev_reserve = int(device["min_soc"]) if device.get("min_soc") is not None else global_reserve
+        result = send_esphome_command(ip, port, "number", "Marstek Reserve", str(dev_reserve))
+        if result.get("ok"):
+            log.info("Settings: reserve=%d%% pushed to device %s", dev_reserve, device_id)
+        else:
+            log.debug("Settings: reserve push to device %s skipped/failed: %s",
+                      device_id, result.get("error"))
 
 
 # ---------------------------------------------------------------------------
@@ -3383,12 +3407,17 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
     except Exception:
         pass
 
-    # ── Price fingerprint (for Claude cache invalidation) ─────────────────
-    # Hash the sorted "from" timestamps of all price slots. Changes only when
-    # new prices are published (once per day, ~14:00 for next day).
+    # ── Price+settings fingerprint (for Claude cache invalidation) ───────
+    # Hash prices + key strategy settings so that changing min_reserve_soc
+    # or max_soc triggers a fresh Claude call even when prices are unchanged.
     import hashlib as _hashlib
+    _settings_fp = json.dumps({
+        "min_reserve_soc": s.get("min_reserve_soc", 10),
+        "max_soc":         s.get("max_soc", 95),
+    }, sort_keys=True)
     _price_fp = _hashlib.md5(
         json.dumps(sorted(p.get("from", "") for p in prices)).encode()
+        + _settings_fp.encode()
     ).hexdigest()[:12]
 
     # ── Build plan & update cache ─────────────────────────────────────────
@@ -4021,6 +4050,7 @@ def _automation_tick() -> None:
     log.info("Automation: action changed %s → %s%s  (devices=%d)",
              prev_action or "none", effective_action,
              f" [override from {action}]" if override_reason else "", len(devices))
+    global_reserve_soc = int(s_now.get("min_reserve_soc", 10))
     for device_id, device in devices.items():
         commands = list(base_commands)
         if global_grid_charge_settings:
@@ -4034,6 +4064,13 @@ def _automation_tick() -> None:
             if dev_charge_soc != global_charge_soc:
                 log.info("Automation: device %s  charge_to_soc=%d%% (per-device override)",
                          device_id, dev_charge_soc)
+        # Push reserve to battery hardware so it enforces the floor itself.
+        # Per-device min_soc overrides global min_reserve_soc.
+        dev_reserve = int(device["min_soc"]) if device.get("min_soc") is not None else global_reserve_soc
+        commands += [("number", "Marstek Reserve", str(dev_reserve))]
+        if dev_reserve != global_reserve_soc:
+            log.info("Automation: device %s  reserve=%d%% (per-device override)",
+                     device_id, dev_reserve)
         esphome_failed_sent = False
         for domain, name, value in commands:
             result = send_esphome_command(device["ip"], device["port"], domain, name, value)
