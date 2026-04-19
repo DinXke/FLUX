@@ -3021,7 +3021,41 @@ def _influx_context():
 # Automation – automatically apply strategy actions to batteries
 # ---------------------------------------------------------------------------
 
-AUTOMATION_FILE = os.path.join(BASE_DIR, "automation.json")
+AUTOMATION_FILE  = os.path.join(BASE_DIR, "automation.json")
+CAP_PEAK_FILE    = os.path.join(BASE_DIR, "cap_peak.json")
+
+
+# ---------------------------------------------------------------------------
+# Capaciteitstarief helpers
+# ---------------------------------------------------------------------------
+
+def _load_cap_peak() -> dict:
+    try:
+        with open(CAP_PEAK_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_cap_peak(data: dict) -> None:
+    with open(CAP_PEAK_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def _cap_tariff_track_peak(net_w: float) -> None:
+    """Record the highest observed net import (W) for the current month."""
+    if net_w <= 0:
+        return
+    from datetime import date as _date
+    month_key = _date.today().strftime("%Y-%m")
+    peak_data = _load_cap_peak()
+    if net_w > float(peak_data.get(month_key, 0)):
+        peak_data[month_key] = round(net_w, 1)
+        keys = sorted(peak_data.keys())
+        for old in keys[:-3]:          # keep last 3 months
+            del peak_data[old]
+        _save_cap_peak(peak_data)
+
 
 def _compute_forward_plan(force_claude: bool = False) -> dict:
     """
@@ -3728,6 +3762,23 @@ def _automation_tick() -> None:
             override_reason = deficit_reason
             log.info("Automation: solar-deficit failsafe → save (%s)", deficit_reason)
 
+    # ── Capaciteitstarief-bescherming (BE: maandelijkse piekkwartier) ─────────
+    # Lees live net_power eenmalig — voor piektracking + blokkeer-check.
+    _cap_live_net_w: float | None = None
+    if s_now.get("cap_tariff_enabled", False):
+        _cap_live_net_w = _read_live_flow_slots("net_power").get("net_power")
+        if _cap_live_net_w is not None:
+            _cap_tariff_track_peak(_cap_live_net_w)
+        if effective_action == "grid_charge" and _cap_live_net_w is not None:
+            _cap_max_w = float(s_now.get("cap_tariff_max_grid_w", 8000))
+            if _cap_live_net_w >= _cap_max_w:
+                effective_action = "save"
+                override_reason  = (
+                    f"⚡ Cap.tarief: net {_cap_live_net_w:.0f} W ≥ max {_cap_max_w:.0f} W – grid charge geblokkeerd"
+                )
+                log.info("Automation: cap tariff block net=%.0fW >= max=%.0fW → save",
+                         _cap_live_net_w, _cap_max_w)
+
     prev_action = auto.get("last_action")
     if effective_action == prev_action:
         log.debug("Automation: action unchanged (%s) – no commands sent", effective_action)
@@ -3749,12 +3800,24 @@ def _automation_tick() -> None:
     # Divide evenly across devices; Marstek expects watts as an integer.
     # Per-device max_soc overrides global setting for Charge to SoC.
     global_grid_charge_settings: dict = {}
-    if action == "grid_charge":
+    if action == "grid_charge" and effective_action == "grid_charge":
         s_now      = load_strategy_settings()
         num_dev    = len(devices)
         total_w    = float(s_now.get("max_charge_kw", 3.0)) * 1000.0
         per_bat_w  = int(round(total_w / num_dev))
         global_charge_soc = int(s_now.get("max_soc", 95))
+        # ── Proportionele afknijping: headroom < totale laadinvermogen ────────
+        if s_now.get("cap_tariff_enabled", False) and _cap_live_net_w is not None:
+            _cap_max_w  = float(s_now.get("cap_tariff_max_grid_w", 8000))
+            _headroom_w = _cap_max_w - _cap_live_net_w
+            if 0 < _headroom_w < total_w:
+                per_bat_w = max(50, int(round(_headroom_w / num_dev)))
+                log.info("Automation: cap tariff throttle net=%.0fW headroom=%.0fW → per_bat=%dW",
+                         _cap_live_net_w, _headroom_w, per_bat_w)
+                if override_reason is None:
+                    override_reason = (
+                        f"⚡ Cap.tarief: laden geknepen – net {_cap_live_net_w:.0f} W, {per_bat_w} W/bat"
+                    )
         global_grid_charge_settings = {"per_bat_w": per_bat_w, "global_charge_soc": global_charge_soc}
         log.info("Automation: grid_charge  total=%.1fkW  per_battery=%dW  global_charge_soc=%d%%  devices=%d",
                  total_w / 1000, per_bat_w, global_charge_soc, num_dev)
@@ -4009,6 +4072,24 @@ def _start_automation_thread(interval: int = 60) -> None:
     pv = threading.Thread(target=pv_loop, daemon=True, name="pv_limiter")
     pv.start()
     log.info("PV limiter background thread started (interval=15s)")
+
+
+@app.route("/api/cap-tariff/status")
+def cap_tariff_status():
+    from datetime import date as _date
+    s          = load_strategy_settings()
+    peak_data  = _load_cap_peak()
+    this_month = _date.today().strftime("%Y-%m")
+    live_net_w: float | None = None
+    if s.get("cap_tariff_enabled", False):
+        live_net_w = _read_live_flow_slots("net_power").get("net_power")
+    return jsonify({
+        "enabled":       s.get("cap_tariff_enabled", False),
+        "max_grid_w":    s.get("cap_tariff_max_grid_w", 8000),
+        "live_net_w":    live_net_w,
+        "month_peak_w":  peak_data.get(this_month),
+        "peak_history":  peak_data,
+    })
 
 
 @app.route("/api/automation", methods=["GET"])

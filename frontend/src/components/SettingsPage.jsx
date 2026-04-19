@@ -7,6 +7,7 @@ import StrategySettings from "./StrategySettings.jsx";
 import InfluxSettings from "./InfluxSettings.jsx";
 import FlowSourcesSettings from "./FlowSourcesSettings.jsx";
 import PvLimiterSettings from "./PvLimiterSettings.jsx";
+import CapTariffSettings from "./CapTariffSettings.jsx";
 
 // ---------------------------------------------------------------------------
 // Persisted settings helpers (localStorage)
@@ -425,6 +426,7 @@ export default function SettingsPage({ devices, powerMap, onDeviceAdded, onDevic
         <>
           <FlowSourcesSettings devices={devices} powerMap={powerMap ?? {}} />
           <PvLimiterSettings />
+          <CapTariffSettings />
         </>
       )}
 

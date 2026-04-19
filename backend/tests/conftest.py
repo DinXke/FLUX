@@ -37,6 +37,8 @@ BASE_SETTINGS = {
     "strategy_mode": "rule_based",
     "claude_api_key": "",
     "claude_model": "claude-sonnet-4-6",
+    "cap_tariff_enabled":    False,
+    "cap_tariff_max_grid_w": 8000,
 }
 
 

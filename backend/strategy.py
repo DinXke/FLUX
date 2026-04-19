@@ -87,6 +87,10 @@ DEFAULT_SETTINGS = {
     "claude_api_key":       "",
     # Claude model to use for planning (Sonnet = recommended; Haiku = cheapest/fastest)
     "claude_model":         "claude-sonnet-4-6",
+    # Capaciteitstarief-bescherming (België: maandelijkse piekkwartier)
+    # Als actief_net + geplande_charge > cap_tariff_max_grid_w: proportioneel afknijpen/blokkeren.
+    "cap_tariff_enabled":    False,
+    "cap_tariff_max_grid_w": 8000,   # W — max toegestaan netsaldo (import) incl. huis + EV + laden
 }
 
 
