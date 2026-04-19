@@ -11,7 +11,8 @@ Sensors collected
 
 The measurement written is ``energy_flow`` with fields:
   solar_w, net_w, bat_w, bat_soc, house_w, ev_w,
-  voltage_l1, voltage_l2, voltage_l3
+  voltage_l1, voltage_l2, voltage_l3,
+  net_import_kwh_total, net_export_kwh_total (cumulative P1 kWh counters)
 and a tag  source=resolved|fallback.
 """
 
@@ -238,16 +239,19 @@ def _collect_and_write(app_context_fn):
     esphome_map = _poll_esphome(devices)
 
     SLOT_ORDER = ["solar_power", "net_power", "bat_power", "bat_soc",
-                  "ev_power", "voltage_l1", "voltage_l2", "voltage_l3"]
+                  "ev_power", "voltage_l1", "voltage_l2", "voltage_l3",
+                  "net_import_kwh_total", "net_export_kwh_total"]
     SLOT_FIELDS = {
-        "solar_power": "solar_w",
-        "net_power":   "net_w",
-        "bat_power":   "bat_w",
-        "bat_soc":     "bat_soc",
-        "ev_power":    "ev_w",
-        "voltage_l1":  "voltage_l1",
-        "voltage_l2":  "voltage_l2",
-        "voltage_l3":  "voltage_l3",
+        "solar_power":          "solar_w",
+        "net_power":            "net_w",
+        "bat_power":            "bat_w",
+        "bat_soc":              "bat_soc",
+        "ev_power":             "ev_w",
+        "voltage_l1":           "voltage_l1",
+        "voltage_l2":           "voltage_l2",
+        "voltage_l3":           "voltage_l3",
+        "net_import_kwh_total": "net_import_kwh_total",
+        "net_export_kwh_total": "net_export_kwh_total",
     }
 
     fields = {}
@@ -255,6 +259,24 @@ def _collect_and_write(app_context_fn):
         val = _resolve_slot(slot_key, flow_cfg, esphome_map, hw_data, ha_data)
         if val is not None:
             fields[SLOT_FIELDS[slot_key]] = float(val)
+
+    # Auto-detect P1 cumulative kWh counters from HomeWizard devices (when not in flow_cfg).
+    # These are always written when available, regardless of selected_sensors config.
+    if "net_import_kwh_total" not in fields or "net_export_kwh_total" not in fields:
+        _CUMUL_MAP = [
+            ("total_power_import_kwh", "net_import_kwh_total"),
+            ("total_power_export_kwh", "net_export_kwh_total"),
+            ("energy_import_kwh",      "net_import_kwh_total"),
+            ("energy_export_kwh",      "net_export_kwh_total"),
+        ]
+        for hw_sensor_key, influx_field in _CUMUL_MAP:
+            if influx_field in fields:
+                continue
+            for dev_entry in (hw_data or {}).get("devices", []):
+                val = dev_entry.get("sensors", {}).get(hw_sensor_key, {}).get("value")
+                if val is not None:
+                    fields[influx_field] = float(val)
+                    break
 
     # house_w derived
     solar = fields.get("solar_w", 0.0)
@@ -498,3 +520,62 @@ from(bucket: "{INFLUX_BUCKET}")
     except Exception as exc:
         log.warning("InfluxDB recent query error: %s", exc)
         return []
+
+
+def query_hourly_import_export_kwh(date_str: str,
+                                   tz_name: str = "Europe/Brussels") -> dict:
+    """
+    Return hourly Δkwh from local P1 cumulative counter data in InfluxDB.
+
+    Uses spread() (max − min within each 1h window) on net_import_kwh_total
+    and net_export_kwh_total, which for monotonically increasing counters equals
+    the energy actually imported / exported during that hour.
+
+    Returns {hour_int: {"import_kwh": float, "export_kwh": float}}.
+    Empty dict when no data is available.
+    """
+    write_api = _get_write_api()
+    if write_api is None:
+        return {}
+    try:
+        from influxdb_client import InfluxDBClient  # type: ignore
+        from zoneinfo import ZoneInfo
+        from datetime import date as _date, datetime as _dt, timedelta as _td
+        tz = ZoneInfo(tz_name)
+        d = _date.fromisoformat(date_str)
+        day_start = _dt(d.year, d.month, d.day, 0, 0, 0, tzinfo=tz)
+        day_end   = _dt(d.year, d.month, d.day, 0, 0, 0, tzinfo=tz) + _td(days=1)
+        start_utc = day_start.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_utc   = day_end.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        client    = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
+        query_api = client.query_api()
+
+        result: dict[int, dict] = {}
+        for influx_field, out_key in [("net_import_kwh_total", "import_kwh"),
+                                       ("net_export_kwh_total", "export_kwh")]:
+            # spread() = max - min within each 1h window.
+            # For cumulative counters this equals the energy delta for that hour.
+            # timeSrc: "_start" so the timestamp is the START of the window (hour N → bucket N).
+            flux = f"""
+from(bucket: "{INFLUX_BUCKET}")
+  |> range(start: {start_utc}, stop: {end_utc})
+  |> filter(fn: (r) => r._measurement == "energy_flow" and r._field == "{influx_field}")
+  |> aggregateWindow(every: 1h, fn: spread, createEmpty: false, timeSrc: "_start")
+"""
+            tables = query_api.query(flux, org=INFLUX_ORG)
+            for table in tables:
+                for record in table.records:
+                    v = record.get_value()
+                    if v is None or v < 0.0:
+                        continue
+                    t    = record.get_time().astimezone(tz)
+                    hour = t.hour
+                    if t.date().isoformat() != date_str:
+                        continue
+                    result.setdefault(hour, {})[out_key] = round(float(v), 4)
+
+        return result
+    except Exception as exc:
+        log.warning("InfluxDB import/export delta query error (%s): %s", date_str, exc)
+        return {}

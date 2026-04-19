@@ -11,7 +11,8 @@ from urllib.request import urlopen, Request
 from urllib.error import URLError
 
 from influx_writer import (start_background_writer, query_avg_hourly_consumption,
-                           query_recent_points, query_day_actuals)
+                           query_recent_points, query_day_actuals,
+                           query_hourly_import_export_kwh)
 from strategy import (load_strategy_settings, save_strategy_settings,
                       build_plan, split_days)
 
@@ -2984,13 +2985,26 @@ def _influx_context():
                             if os.path.exists(os.path.join(BASE_DIR, "homewizard_devices.json"))
                             else {}).items():
             selected = dev.get("selected_sensors") or []
+            # Always include cumulative kWh counters for accurate profit calculation
+            CUMULATIVE_KEYS = {
+                "total_power_import_kwh", "total_power_export_kwh",
+                "energy_import_kwh", "energy_export_kwh",
+            }
             try:
-                r = _req.get(f"http://{dev['ip']}/api", timeout=3)
+                data_path = _hw_data_path(dev)
+                token = dev.get("token")
+                if token:
+                    r = _req.get(f"https://{dev['ip']}{data_path}", timeout=3,
+                                 verify=False,
+                                 headers={"Authorization": f"Bearer {token}",
+                                          "X-Api-Version": "2"})
+                else:
+                    r = _req.get(f"http://{dev['ip']}{data_path}", timeout=3)
                 if r.ok:
                     data = r.json()
                     sensors = {}
                     for k, v in data.items():
-                        if k in selected and isinstance(v, (int, float)):
+                        if (k in selected or k in CUMULATIVE_KEYS) and isinstance(v, (int, float)):
                             meta = _hw_sensor_meta(k)
                             sensors[k] = {"label": meta["label"], "unit": meta["unit"], "value": v}
                     hw_devs[dev_id] = {"id": dev_id, "name": dev.get("name",""), "sensors": sensors}
@@ -4322,10 +4336,15 @@ def get_profit_analysis():
         if len(price_by_hour) < 12:
             continue   # not enough price data for this day
 
-        # ── 2. Fetch actual measurements from external InfluxDB ───────────
+        # ── 2. Fetch actual measurements ──────────────────────────────────
         actuals = _query_profit_day(date_str, tz_name)
-        if not actuals or len(actuals) < 4:
+        # Prefer exact P1 cumulative kWh deltas from local InfluxDB for net_w.
+        # Falls back to mean_power from external InfluxDB when unavailable.
+        local_kwh = query_hourly_import_export_kwh(date_str, tz_name)
+        if not actuals and not local_kwh:
             continue   # no sensor data for this day
+        if actuals and len(actuals) < 4 and not local_kwh:
+            continue
 
         # ── 3. Compute costs ──────────────────────────────────────────────
         cost_with = 0.0
@@ -4349,9 +4368,15 @@ def get_profit_analysis():
             if solar_wh or house_wh:
                 day_has_solar_house = True
 
-            # WITH automation: actual measured grid flow
-            import_with = max(0.0, net_wh) / 1000.0
-            export_with = max(0.0, -net_wh) / 1000.0
+            # WITH automation: prefer exact P1 cumulative kWh delta over mean_power proxy
+            p1_h = local_kwh.get(h, {})
+            if p1_h.get("import_kwh") is not None or p1_h.get("export_kwh") is not None:
+                import_with = p1_h.get("import_kwh", 0.0)
+                export_with = p1_h.get("export_kwh", 0.0)
+                net_wh = (import_with - export_with) * 1000.0  # Wh for hours_detail
+            else:
+                import_with = max(0.0, net_wh) / 1000.0
+                export_with = max(0.0, -net_wh) / 1000.0
             cost_with_h = import_with * price - export_with * sell_price
             cost_with  += cost_with_h
 
