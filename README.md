@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-Add--on-41BDF5?logo=homeassistant&logoColor=white" />
-  <img src="https://img.shields.io/badge/version-1.19.64-blue" />
+  <img src="https://img.shields.io/badge/version-1.24.0-blue" />
   <img src="https://img.shields.io/badge/python-3.13-blue?logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/react-18-61DAFB?logo=react&logoColor=white" />
   <img src="https://img.shields.io/badge/license-MIT-green" />
@@ -115,6 +115,22 @@ Gebruikt het Anthropic Claude Haiku model als intelligente planningsagent:
 - **Energiekaart** — koppel energy sockets als verbruikers aan de energiestroomkaart
 - **Lokale API** — geen cloud, directe communicatie (vereist "Lokale API" aan in HomeWizard app)
 
+### Telegram-notificaties *(optioneel)*
+Stuur batterij-updates rechtstreeks naar je Telegram-account via de CommunicationAgent:
+
+| Gebeurtenis | Beschrijving |
+|---|---|
+| `plan_ready` | Nieuw 48-uur batterijplan berekend |
+| `grid_charge_opportunity` | Negatieve/lage prijs gedetecteerd — voordelig netwerkladen |
+| `esphome_failed` | ESPHome-verbinding verbroken |
+| `daily_summary` | Dagelijks overzicht: winst, SOC, zonne-opbrengst |
+
+- Elke gebeurtenistype kan individueel aan/uit gezet worden
+- `grid_charge_opportunity` heeft eigen drempelwaarden voor prijs (€/kWh) en SOC (%)
+- Sommige meldingen ondersteunen **goedkeuring via Telegram** — reageer met "Ja/Nee" in de chat
+
+**Instellen:** Schakel Telegram in via **Instellingen → Notificaties** in de webinterface, voer je Telegram Chat-ID in en koppel de CommunicationAgent (draait op poort 3001).
+
 ---
 
 ## Installatie
@@ -201,6 +217,11 @@ Klik **Starten**. De webinterface is beschikbaar via **Ingress** (HA zijbalk) of
 | Nettarief opslag | 0.133 €/kWh | Belastingen bovenop marktprijs (ENTSO-E) |
 | Verbruiksvenster | 21 dagen | Historische data voor verbruiksprofiel |
 | Strategiemodus | Regelgebaseerd | Regelgebaseerd of Claude AI |
+| Telegram ingeschakeld | Uit | Meldingen via Telegram versturen |
+| Telegram Chat-ID | — | Jouw Telegram chat-ID |
+| Telegram: goedkeuringstijd | 30 min | Hoe lang wachten op jouw antwoord |
+| Prijs-drempel netladen | 0,10 €/kWh | Meld kans tot netladen onder deze prijs |
+| SOC-drempel netladen | 80% | Meld kans tot netladen onder dit laadniveau |
 
 ---
 
