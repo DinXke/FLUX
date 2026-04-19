@@ -363,7 +363,7 @@ export default function StrategySettings() {
       </Row>
 
       {/* Strategy engine */}
-      <div className="settings-row" style={{ background: "rgba(99,102,241,0.06)", borderRadius: 8, margin: "8px 0 4px", flexDirection: "column", gap: 12 }}>
+      <div className="settings-row" style={{ background: "rgba(193,122,58,0.06)", borderRadius: 8, margin: "8px 0 4px", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
           <div>
             <div className="settings-row-label">Planningsengine</div>

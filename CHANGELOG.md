@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.24.5] - 2026-04-19
+
+### Changed
+- **Accent kleur vervangen door Scheepers amber** ([SCH-115](/SCH/issues/SCH-115)):
+  Indigo accent (`#6366f1`) vervangen door Scheepers amber (`#C17A3A`) in alle thema's
+  (dark, light) en alle hardgecodeerde rgba-waarden in App.css, StrategyPage.jsx en
+  StrategySettings.jsx.
+
 ## [1.24.2] - 2026-04-19
 
 ### Fixed

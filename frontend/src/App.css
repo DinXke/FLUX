@@ -29,8 +29,8 @@
   --cyan: #06b6d4;
   --gray: #64748b;
   --gray-dim: #1e293b;
-  --accent: #6366f1;
-  --bg-hover: rgba(99, 102, 241, 0.1);
+  --accent: #C17A3A;
+  --bg-hover: rgba(193, 122, 58, 0.1);
 
   --radius: 12px;
   --radius-sm: 8px;
@@ -68,8 +68,8 @@
   --cyan: #0891b2;
   --gray: #64748b;
   --gray-dim: #f1f5f9;
-  --accent: #6366f1;
-  --bg-hover: rgba(99, 102, 241, 0.08);
+  --accent: #C17A3A;
+  --bg-hover: rgba(193, 122, 58, 0.08);
 
   --shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
@@ -1475,7 +1475,7 @@ html, body {
   transition: background var(--transition);
 }
 .flow-opt-row:last-child { border-bottom: none; }
-.flow-opt-row--checked   { background: rgba(99, 102, 241, 0.07); }
+.flow-opt-row--checked   { background: rgba(193, 122, 58, 0.07); }
 
 .flow-opt-check {
   display: flex;
@@ -1485,7 +1485,7 @@ html, body {
   width: 100%;
 }
 .flow-opt-check input[type="checkbox"] {
-  accent-color: var(--accent, #6366f1);
+  accent-color: var(--accent, #C17A3A);
   width: 14px;
   height: 14px;
   flex-shrink: 0;
@@ -1522,7 +1522,7 @@ html, body {
   white-space: nowrap;
 }
 .flow-opt-invert input[type="checkbox"] {
-  accent-color: var(--accent, #6366f1);
+  accent-color: var(--accent, #C17A3A);
   width: 12px;
   height: 12px;
   cursor: pointer;
@@ -2330,7 +2330,7 @@ html, body {
   transition: background 0.1s;
 }
 .influx-list-item:hover { background: var(--bg-hover); color: var(--text-primary); }
-.influx-list-item.selected { background: rgba(99,102,241,0.15); color: var(--accent); }
+.influx-list-item.selected { background: rgba(193,122,58,0.15); color: var(--accent); }
 .influx-list-icon { font-size: 13px; flex-shrink: 0; }
 .influx-list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -2388,7 +2388,7 @@ html, body {
   padding: 8px 0;
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
-.influx-slot-row.assigned { background: rgba(99,102,241,0.04); border-radius: 6px; padding: 8px; }
+.influx-slot-row.assigned { background: rgba(193,122,58,0.04); border-radius: 6px; padding: 8px; }
 .influx-slot-label {
   display: flex;
   align-items: center;
@@ -2432,8 +2432,8 @@ html, body {
 .influx-saved-summary {
   margin: 8px 20px;
   padding: 10px 14px;
-  background: rgba(99,102,241,0.07);
-  border: 1px solid rgba(99,102,241,0.2);
+  background: rgba(193,122,58,0.07);
+  border: 1px solid rgba(193,122,58,0.2);
   border-radius: 8px;
 }
 .influx-summary-row {
