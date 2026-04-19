@@ -2332,62 +2332,79 @@ def get_strategy_plan():
                         if live is not None:
                             result["soc_now"] = live
                         return jsonify(result)
-        return jsonify(_compute_forward_plan(force_claude=force_refresh))
+        try:
+            return jsonify(_compute_forward_plan(force_claude=force_refresh))
+        except Exception as exc:
+            log.error("get_strategy_plan: _compute_forward_plan failed: %s", exc, exc_info=True)
+            # Serve stale cached plan as fallback so the UI stays functional
+            if _plan_cache.get("result"):
+                result = dict(_plan_cache["result"])
+                result["stale"] = True
+                result["stale_reason"] = str(exc)
+                live = _live_soc()
+                if live is not None:
+                    result["soc_now"] = live
+                return jsonify(result)
+            return jsonify({"error": f"Strategie kon niet berekend worden: {exc}"}), 500
 
     if is_historical:
         # ── Historical mode: use InfluxDB actuals ─────────────────────────
-        prices = []
-        es = _entsoe_settings()
-        if es.get("apiKey"):
-            try:
-                target_d = date.fromisoformat(target_date)
-                prices  += _fetch_entsoe_day(es["apiKey"], target_d,
-                                             es.get("country", "BE"), es.get("timezone"))
-            except Exception as exc:
-                log.warning("Strategy historical: ENTSO-E fetch error: %s", exc)
+        try:
+            prices = []
+            es = _entsoe_settings()
+            if es.get("apiKey"):
+                try:
+                    target_d = date.fromisoformat(target_date)
+                    prices  += _fetch_entsoe_day(es["apiKey"], target_d,
+                                                 es.get("country", "BE"), es.get("timezone"))
+                except Exception as exc:
+                    log.warning("Strategy historical: ENTSO-E fetch error: %s", exc)
 
-        actuals = query_day_actuals(target_date, tz_name)   # {hour: {solar_w, house_w, bat_soc, ...}}
-        influx_available = len(actuals) > 0
+            actuals = query_day_actuals(target_date, tz_name)   # {hour: {solar_w, house_w, bat_soc, ...}}
+            influx_available = len(actuals) > 0
 
-        # Build solar_wh from actuals (W mean × 1 h = Wh)
-        tz_obj   = ZoneInfo(tz_name)
-        tgt_d    = date.fromisoformat(target_date)
-        solar_wh: dict = {}
-        consumption_by_hour = []
-        for hour, row in actuals.items():
-            slot_dt  = datetime(tgt_d.year, tgt_d.month, tgt_d.day,
-                                int(hour), 0, 0, tzinfo=tz_obj)
-            slot_key = slot_dt.isoformat()
-            if "solar_w" in row:
-                solar_wh[slot_key] = row["solar_w"]       # W mean ≈ Wh for 1-hour window
-            if "house_w" in row:
-                consumption_by_hour.append({"hour": int(hour), "avg_wh": row["house_w"]})
+            # Build solar_wh from actuals (W mean × 1 h = Wh)
+            tz_obj   = ZoneInfo(tz_name)
+            tgt_d    = date.fromisoformat(target_date)
+            solar_wh: dict = {}
+            consumption_by_hour = []
+            for hour, row in actuals.items():
+                slot_dt  = datetime(tgt_d.year, tgt_d.month, tgt_d.day,
+                                    int(hour), 0, 0, tzinfo=tz_obj)
+                slot_key = slot_dt.isoformat()
+                if "solar_w" in row:
+                    solar_wh[slot_key] = row["solar_w"]       # W mean ≈ Wh for 1-hour window
+                if "house_w" in row:
+                    consumption_by_hour.append({"hour": int(hour), "avg_wh": row["house_w"]})
 
-        # SOC at start of day (hour 0 reading, or first available)
-        soc_now = 50.0
-        for h in range(24):
-            if h in actuals and "bat_soc" in actuals[h]:
-                soc_now = actuals[h]["bat_soc"]
-                break
+            # SOC at start of day (hour 0 reading, or first available)
+            soc_now = 50.0
+            for h in range(24):
+                if h in actuals and "bat_soc" in actuals[h]:
+                    soc_now = actuals[h]["bat_soc"]
+                    break
 
-        start_dt = datetime(tgt_d.year, tgt_d.month, tgt_d.day, 0, 0, 0, tzinfo=tz_obj)
-        plan_slots = build_plan(prices, solar_wh, consumption_by_hour, soc_now, s,
-                                start_dt=start_dt, num_slots=24)
+            start_dt = datetime(tgt_d.year, tgt_d.month, tgt_d.day, 0, 0, 0, tzinfo=tz_obj)
+            plan_slots = build_plan(prices, solar_wh, consumption_by_hour, soc_now, s,
+                                    start_dt=start_dt, num_slots=24)
 
-        # Serialise actuals keyed by hour string for JSON transport
-        actuals_out = {str(h): v for h, v in actuals.items()}
+            # Serialise actuals keyed by hour string for JSON transport
+            actuals_out = {str(h): v for h, v in actuals.items()}
 
-        return jsonify({
-            "date":              target_date,
-            "is_historical":     True,
-            "slots":             plan_slots,
-            "actuals":           actuals_out,
-            "influx_available":  influx_available,
-            "prices_available":  len(prices) > 0,
-            "solar_available":   bool(solar_wh),
-            "soc_now":           soc_now,
-            "consumption_by_hour": consumption_by_hour,
-        })
+            return jsonify({
+                "date":              target_date,
+                "is_historical":     True,
+                "slots":             plan_slots,
+                "actuals":           actuals_out,
+                "influx_available":  influx_available,
+                "prices_available":  len(prices) > 0,
+                "solar_available":   bool(solar_wh),
+                "soc_now":           soc_now,
+                "consumption_by_hour": consumption_by_hour,
+            })
+        except Exception as exc:
+            log.error("get_strategy_plan historical: failed for %s: %s", target_date, exc, exc_info=True)
+            return jsonify({"error": f"Historische strategie kon niet geladen worden: {exc}"}), 500
 
     # (forward mode handled above via _compute_forward_plan())
     abort(400)
@@ -3240,22 +3257,31 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
                 return _consumption_cache["data"], _consumption_cache["source"]
 
         def _try_external():
-            if ext_configured:
-                data = _query_external_influx_consumption(days=history_days)
-                if len(data) >= 18:
-                    return data, "external_influx"
+            try:
+                if ext_configured:
+                    data = _query_external_influx_consumption(days=history_days)
+                    if len(data) >= 18:
+                        return data, "external_influx"
+            except Exception as _exc:
+                log.warning("_compute_forward_plan: external influx consumption error: %s", _exc)
             return [], ""
 
         def _try_local():
-            data = query_avg_hourly_consumption(days=history_days, tz_name=tz_name)
-            if len(data) >= 18:
-                return data, "local_influx"
+            try:
+                data = query_avg_hourly_consumption(days=history_days, tz_name=tz_name)
+                if len(data) >= 18:
+                    return data, "local_influx"
+            except Exception as _exc:
+                log.warning("_compute_forward_plan: local influx consumption error: %s", _exc)
             return [], ""
 
         def _try_ha():
-            data = _query_ha_hourly_consumption(days=history_days)
-            if data:
-                return data, "ha_history"
+            try:
+                data = _query_ha_hourly_consumption(days=history_days)
+                if data:
+                    return data, "ha_history"
+            except Exception as _exc:
+                log.warning("_compute_forward_plan: HA consumption error: %s", _exc)
             return [], ""
 
         if cons_source_pref == "external_influx":
