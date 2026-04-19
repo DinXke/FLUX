@@ -280,6 +280,29 @@ Alle configuratie en historische data worden opgeslagen in de HA `/data`-map:
 
 ---
 
+## Nieuwe versie uitbrengen
+
+Bij elke release moeten de volgende 5 bestanden het nieuwe versienummer bevatten:
+
+| Bestand | Veld |
+|---------|------|
+| `config.yaml` | `version: "X.Y.Z"` |
+| `build.yaml` | `io.hass.version: "X.Y.Z"` |
+| `README.md` | versie-badge `![version-X.Y.Z-blue]` |
+| `frontend/package.json` | `"version": "X.Y.Z"` |
+| `frontend/package-lock.json` | `"version": "X.Y.Z"` — bijgewerkt via `npm install` |
+
+**Stappen:**
+
+1. Pas `config.yaml`, `build.yaml` en `frontend/package.json` aan naar de nieuwe versie.
+2. Voer `npm install` uit in `frontend/` zodat `package-lock.json` synchroon loopt.
+3. Pas de versie-badge in `README.md` aan.
+4. Commit alle 5 bestanden samen.
+5. Voeg een entry toe aan `CHANGELOG.md`.
+6. Tag de release: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+> Home Assistant detecteert de nieuwe versie via `config.yaml`. Als badge, `package.json` of `build.yaml` achterblijft, toont HA de add-on als "al up-to-date" terwijl dat niet klopt.
+
 ## Bijdragen
 
 Pull requests en issues zijn welkom. Gebruik de [Issues-pagina](https://github.com/DinXke/SmartMarstek/issues) voor bugrapporten en functieverzoeken.
@@ -521,6 +544,29 @@ All configuration and historical data are stored in the HA `/data` folder:
 | `_plan_accuracy.json` | 30-day plan vs actuals accuracy stats |
 
 ---
+
+## Releasing a new version
+
+Each release requires the following 5 files to carry the new version number:
+
+| File | Field |
+|------|-------|
+| `config.yaml` | `version: "X.Y.Z"` |
+| `build.yaml` | `io.hass.version: "X.Y.Z"` |
+| `README.md` | version badge `![version-X.Y.Z-blue]` |
+| `frontend/package.json` | `"version": "X.Y.Z"` |
+| `frontend/package-lock.json` | `"version": "X.Y.Z"` — updated via `npm install` |
+
+**Steps:**
+
+1. Update `config.yaml`, `build.yaml` and `frontend/package.json` to the new version.
+2. Run `npm install` inside `frontend/` so `package-lock.json` stays in sync.
+3. Update the version badge in `README.md`.
+4. Commit all 5 files together.
+5. Add an entry to `CHANGELOG.md`.
+6. Tag the release: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+> Home Assistant detects new versions through `config.yaml`. If the badge, `package.json`, or `build.yaml` lags behind, HA will report the add-on as already up-to-date when it isn't.
 
 ## Contributing
 
