@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.19.92] - 2026-04-19
+
+### Added
+- **Automatische RTE-meting uit InfluxDB** ([SCH-75](/SCH/issues/SCH-75)):
+  Nieuw module `rte_calculator.py` berekent de echte Round-Trip Efficiency via Flux
+  `integral()` op het `bat_w` veld (positief = ontladen, negatief = laden).
+  - Configureerbaar terugkijkvenster (standaard 30 dagen).
+  - Gecombineerde RTE = totaal ontladen kWh / totaal geladen kWh, geclamped [0.50–1.00].
+  - Betrouwbaarheidsniveaus: `high` (≥ 50 kWh geladen), `medium` (≥ 15 kWh), `low`, `insufficient`.
+  - Resultaat wordt 1 uur gecached om InfluxDB niet te overbelasten.
+  - De strategie-engine en winstanalyse gebruiken de gemeten RTE automatisch zodra
+    betrouwbaarheid `medium` of `high` is; valt terug op de geconfigureerde waarde (0.85).
+  - Nieuw endpoint `GET /api/rte?days=30&refresh=0` — geeft gemeten én geconfigureerde RTE terug.
+
 ## [1.19.91] - 2026-04-19
 
 ### Fixed

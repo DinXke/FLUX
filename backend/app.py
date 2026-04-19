@@ -13,6 +13,7 @@ from urllib.error import URLError
 from influx_writer import (start_background_writer, query_avg_hourly_consumption,
                            query_recent_points, query_day_actuals,
                            query_hourly_import_export_kwh)
+from rte_calculator import measure_rte as _measure_rte
 from strategy import (load_strategy_settings, save_strategy_settings,
                       build_plan, split_days)
 
@@ -2415,6 +2416,37 @@ def get_influx_status():
         return jsonify({"ok": False, "error": str(exc)})
 
 
+@app.route("/api/rte")
+def get_rte():
+    """
+    Return measured Round-Trip Efficiency from InfluxDB bat_w data.
+
+    Query params:
+      days=30   – lookback window (1–90)
+      refresh=1 – invalidate cache before querying
+
+    Response:
+      {
+        "rte": float | null,
+        "charge_kwh": float,
+        "discharge_kwh": float,
+        "window_days": int,
+        "confidence": "high"|"medium"|"low"|"insufficient",
+        "source": "measured"|"insufficient_data",
+        "configured_rte": float   // fallback from strategy settings
+      }
+    """
+    days = min(max(int(request.args.get("days", 30)), 1), 90)
+    if request.args.get("refresh", "0") == "1":
+        from rte_calculator import invalidate_cache
+        invalidate_cache()
+
+    data = _measure_rte(window_days=days)
+    s    = load_strategy_settings()
+    data["configured_rte"] = float(s.get("rte", 0.85))
+    return jsonify(data)
+
+
 # ---------------------------------------------------------------------------
 # InfluxDB connection scanner  (v1 + v2)
 # ---------------------------------------------------------------------------
@@ -3101,6 +3133,14 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
     engine (used when the user explicitly clicks Vernieuwen).
     """
     s   = load_strategy_settings()
+    # Auto-replace RTE from InfluxDB measurement when confidence is sufficient.
+    _rte_data = _measure_rte(window_days=30)
+    if _rte_data.get("rte") and _rte_data.get("confidence") in ("high", "medium"):
+        s = dict(s)
+        s["rte"] = _rte_data["rte"]
+        log.info("_compute_forward_plan: measured RTE=%.4f (%.1f kWh / %.1f kWh, conf=%s)",
+                 _rte_data["rte"], _rte_data["discharge_kwh"], _rte_data["charge_kwh"],
+                 _rte_data["confidence"])
     es  = _entsoe_settings()
     fs  = _forecast_settings()
     tz_name   = es.get("timezone", "Europe/Brussels")
@@ -4266,7 +4306,10 @@ def get_profit_analysis():
     tz_name    = s.get("timezone", "Europe/Brussels")
     tz         = ZoneInfo(tz_name)
     cap_kwh    = float(s.get("bat_capacity_kwh",  5.0))
-    rte        = float(s.get("rte",               0.85))
+    _rte_meas  = _measure_rte(window_days=30)
+    rte        = (float(_rte_meas["rte"])
+                  if _rte_meas.get("rte") and _rte_meas.get("confidence") in ("high", "medium")
+                  else float(s.get("rte", 0.85)))
     min_res    = float(s.get("min_reserve_soc",   10))  / 100.0
     max_soc_f  = float(s.get("max_soc",           95))  / 100.0
     sell_price = float(s.get("feed_in_price_eur_kwh", 0.0))
