@@ -423,12 +423,19 @@ def _fetch_consumption(auth_token: str | None, start: date, end: date,
 
     try:
         if country == "BE":
-            data = _frank_request(_QUERY_BE_CONSUMPTION, {"date": str(start)},
+            # BE uses same consumptionElectricity query as NL, but with x-country: BE header
+            data = _frank_request(_QUERY_NL_CONSUMPTION,
+                                   {"startDate": str(start), "endDate": str(end)},
                                    auth_token=auth_token, country="BE")
             log.info("BE consumption raw data keys: %s", list(data.keys()))
-            consumption = data.get("consumption") or {}
-            log.info("BE consumption sub-keys: %s", list(consumption.keys()) if consumption else "empty")
-            rows = consumption.get("electricity") or []
+            rows = data.get("consumptionElectricity") or []
+            if not rows:
+                # Fallback: try legacy BE query structure
+                data2 = _frank_request(_QUERY_BE_CONSUMPTION, {"date": str(start)},
+                                       auth_token=auth_token, country="BE")
+                log.info("BE consumption legacy data keys: %s", list(data2.keys()))
+                consumption = data2.get("consumption") or {}
+                rows = consumption.get("electricity") or []
         else:  # NL
             data = _frank_request(_QUERY_NL_CONSUMPTION,
                                    {"startDate": str(start), "endDate": str(end)},
