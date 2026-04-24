@@ -594,23 +594,31 @@ def frank_consumption_test():
 
         log.info("Testing Frank consumption query  country=%s", country)
 
-        # Try multiple query variants for BE to find what works
-        variants = {}
         yesterday = today - timedelta(days=1)
 
-        test_queries = {
-            "nl_style_today": (_QUERY_NL_CONSUMPTION, {"startDate": str(today), "endDate": str(tomorrow)}, "BE"),
-            "nl_style_yesterday": (_QUERY_NL_CONSUMPTION, {"startDate": str(yesterday), "endDate": str(today)}, "BE"),
-            "be_legacy_today": (_QUERY_BE_CONSUMPTION, {"date": str(today)}, "BE"),
-            "be_legacy_yesterday": (_QUERY_BE_CONSUMPTION, {"date": str(yesterday)}, "BE"),
-        }
-
-        for name, (query, variables, ctry) in test_queries.items():
-            try:
-                raw = _frank_request(query, variables, auth_token=auth_token, country=ctry)
-                variants[name] = {"keys": list(raw.keys()), "sample": {k: (v[:1] if isinstance(v, list) else v) for k, v in raw.items()}}
-            except Exception as exc:
-                variants[name] = {"error": str(exc)}
+        # GraphQL introspection to find available query fields
+        introspection_query = """
+{ __schema { queryType { fields { name args { name type { name kind ofType { name kind } } } } } } }
+"""
+        introspection_result = {}
+        try:
+            resp_raw = _req.post(FRANK_API_URL,
+                                 json={"query": introspection_query},
+                                 headers={
+                                     "Content-Type": "application/json",
+                                     "Authorization": f"Bearer {auth_token}",
+                                     "x-country": "BE",
+                                     "x-graphql-client-name": "frank-app",
+                                     "x-graphql-client-version": "4.13.3",
+                                     "skip-graphcdn": "1",
+                                 }, timeout=15)
+            schema = resp_raw.json().get("data", {}).get("__schema", {})
+            fields = schema.get("queryType", {}).get("fields", [])
+            consumption_fields = [f["name"] for f in fields if "consum" in f["name"].lower() or "usage" in f["name"].lower() or "meter" in f["name"].lower()]
+            all_fields = [f["name"] for f in fields]
+            introspection_result = {"consumption_related": consumption_fields, "total_fields": len(all_fields), "all_fields": all_fields[:30]}
+        except Exception as exc:
+            introspection_result = {"error": str(exc)}
 
         frank_rows = _fetch_consumption(auth_token, today, tomorrow, country)
 
@@ -619,7 +627,7 @@ def frank_consumption_test():
             "country": country,
             "date_tested": str(today),
             "rows_returned": len(frank_rows),
-            "query_variants": variants
+            "introspection": introspection_result
         })
     except Exception as exc:
         log.error("Frank consumption test error: %s", exc, exc_info=True)
