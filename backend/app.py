@@ -526,33 +526,36 @@ def frank_consumption():
             # Fetch Frank consumption
             frank_rows = _fetch_consumption(auth_token, current_day, current_day + timedelta(days=1), country)
             for row in frank_rows:
-                hour_key = row.get("from", "").split("T")[1][:2] if row.get("from") else "00"
-                label = row.get("from", "").split("T")[1][:5] if row.get("from") else "00:00"
-                if hour_key not in consumption_data:
-                    consumption_data[hour_key] = {
-                        "date": row.get("from", "").split("T")[0] if row.get("from") else day_key,
-                        "label": label,
+                from_time = row.get("from", "")
+                date_part = from_time.split("T")[0] if "T" in from_time else day_key
+                time_part = from_time.split("T")[1][:5] if "T" in from_time else "00:00"
+                record_key = f"{date_part}_{time_part}"
+
+                if record_key not in consumption_data:
+                    consumption_data[record_key] = {
+                        "date": date_part,
+                        "label": time_part,
                         "frank_kwh": 0.0,
                         "p1_import_kwh": 0.0,
                         "p1_export_kwh": 0.0,
                     }
-                consumption_data[hour_key]["frank_kwh"] = float(row.get("usage", 0)) if row.get("usage") else 0.0
+                consumption_data[record_key]["frank_kwh"] = float(row.get("usage", 0)) if row.get("usage") else 0.0
 
             # Fetch P1 meter data
             p1_data = query_hourly_import_export_kwh(day_key)
             for hour_idx, p1_hour_data in p1_data.items():
-                hour_key = f"{hour_idx:02d}"
                 label_hour = f"{hour_idx:02d}:00"
-                if hour_key not in consumption_data:
-                    consumption_data[hour_key] = {
+                record_key = f"{day_key}_{label_hour}"
+                if record_key not in consumption_data:
+                    consumption_data[record_key] = {
                         "date": day_key,
                         "label": label_hour,
                         "frank_kwh": 0.0,
                         "p1_import_kwh": 0.0,
                         "p1_export_kwh": 0.0,
                     }
-                consumption_data[hour_key]["p1_import_kwh"] = p1_hour_data.get("import_kwh", 0.0)
-                consumption_data[hour_key]["p1_export_kwh"] = p1_hour_data.get("export_kwh", 0.0)
+                consumption_data[record_key]["p1_import_kwh"] = p1_hour_data.get("import_kwh", 0.0)
+                consumption_data[record_key]["p1_export_kwh"] = p1_hour_data.get("export_kwh", 0.0)
 
             current_day += timedelta(days=1)
 
