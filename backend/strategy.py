@@ -525,7 +525,7 @@ def build_plan(
             if _upcoming_neg and bat_kwh > bat_min + 0.2:
                 # Negative price expected within lookahead window: discharge now to
                 # create battery headroom for free/paid grid charging later.
-                discharge_possible = min(cons_wh_slot / 1000.0, bat_kwh - bat_min)
+                discharge_possible = min(max(0.0, -net_wh) / 1000.0, bat_kwh - bat_min)
                 if discharge_possible > 0.05:
                     bat_kwh      -= discharge_possible
                     discharge_kwh = discharge_possible
@@ -542,12 +542,12 @@ def build_plan(
                     action = SAVE
                     reason = f"Sparen voor duurder uur ({best_future_16*100:.0f}ct)"
                 else:
-                    discharge_possible = min(cons_wh_slot / 1000.0, bat_kwh - bat_min)
+                    discharge_possible = min(max(0.0, -net_wh) / 1000.0, bat_kwh - bat_min)
                     if discharge_possible > 0.05:
                         bat_kwh      -= discharge_possible
                         discharge_kwh = discharge_possible
                         action = DISCHARGE
-                        reason = f"Piekuur verbruik ~{cons_wh_slot:.0f} Wh"
+                        reason = f"Piekuur verbruik ~{-net_wh:.0f} Wh (netto)"
                     else:
                         action = NEUTRAL
                         reason = "Batterij te leeg voor ontladen"
@@ -567,7 +567,7 @@ def build_plan(
                     action = SAVE
                     reason = f"Sparen voor duurder uur ({best_future_16*100:.0f}ct)"
                 else:
-                    discharge_possible = min(cons_wh_slot / 1000.0, bat_kwh - bat_min)
+                    discharge_possible = min(max(0.0, -net_wh) / 1000.0, bat_kwh - bat_min)
                     if discharge_possible > 0.05:
                         bat_kwh      -= discharge_possible
                         discharge_kwh = discharge_possible
