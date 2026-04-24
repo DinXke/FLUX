@@ -77,6 +77,8 @@ DEFAULT_SETTINGS = {
     "pv_limiter_max_w":          4000,   # restore to this value (W) when price OK
     "pv_limiter_threshold_ct":   0.0,    # trigger below this price (ct/kWh); 0 = only negative
     "pv_limiter_margin_w":       200,    # extra buffer above house+bat load to avoid oscillation (legacy)
+    "pv_limiter_manual_override": False, # True = ignore price logic, use manual_w
+    "pv_limiter_manual_w":       2000,   # manual override target (W)
     # Custom HA service mode (e.g. SMA Devices Plus)
     "pv_limiter_use_service":    False,  # True = use custom service instead of number.set_value
     "pv_limiter_service":        "",     # e.g. "pysmaplus.set_value"
@@ -229,6 +231,14 @@ def build_plan(
     Returns list of slot dicts sorted by time.
     """
     s = settings or load_strategy_settings()
+
+    # PV limiter plan parameters (read once for all slots)
+    _pv_enabled   = bool(s.get("pv_limiter_enabled", False))
+    _pv_manual    = bool(s.get("pv_limiter_manual_override", False))
+    _pv_manual_w  = int(s.get("pv_limiter_manual_w", 2000))
+    _pv_min_w     = int(s.get("pv_limiter_min_w", 0))
+    _pv_max_w     = int(s.get("pv_limiter_max_w", 4000))
+    _pv_thresh    = float(s.get("pv_limiter_threshold_ct", 0.0)) / 100.0  # ct → €/kWh
 
     cap_kwh       = float(s["bat_capacity_kwh"])
     rte           = float(s["rte"])
@@ -586,6 +596,16 @@ def build_plan(
 
         soc_end = (bat_kwh / cap_kwh) * 100.0
 
+        # PV limit for this slot
+        if not _pv_enabled:
+            _pv_limit_w = None
+        elif _pv_manual:
+            _pv_limit_w = _pv_manual_w
+        elif buy_price is not None:
+            _pv_limit_w = _pv_min_w if buy_price < _pv_thresh else _pv_max_w
+        else:
+            _pv_limit_w = None
+
         slots.append({
             "time":           slot_key,
             "hour":           hour,
@@ -602,6 +622,7 @@ def build_plan(
             "soc_end":        round(soc_end, 1),
             "is_peak":        _is_peak(weekday, hour),
             "is_past":        slot_dt < real_now,
+            "pv_limit_w":     _pv_limit_w,
         })
 
     return slots

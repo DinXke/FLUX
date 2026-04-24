@@ -4198,6 +4198,21 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
     if use_service and not svc_str:
         return
 
+    # Manual override: bypass price logic entirely
+    if s.get("pv_limiter_manual_override"):
+        target_w = int(s.get("pv_limiter_manual_w", 2000))
+        last_w = auto.get("pv_limiter_last_w")
+        if last_w == target_w:
+            return
+        log.debug("PV limiter: manual override → %dW", target_w)
+        ok = _pv_send(s, entity, use_service, svc_str, target_w)
+        if ok:
+            auto["pv_limiter_last_w"] = target_w
+            log.info("PV limiter → %dW (manual override)", target_w)
+        else:
+            log.warning("PV limiter: HA service call failed (manual override, entity=%s service=%s)", entity, svc_str)
+        return
+
     min_w     = int(s.get("pv_limiter_min_w",          0))
     max_w     = int(s.get("pv_limiter_max_w",         4000))
     threshold = float(s.get("pv_limiter_threshold_ct", 0.0)) / 100.0  # € /kWh

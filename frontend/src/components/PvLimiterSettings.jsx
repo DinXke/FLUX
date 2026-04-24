@@ -70,10 +70,12 @@ export default function PvLimiterSettings() {
   // Service entity picker (all domains)
   const [svcEntity,     setSvcEntity]     = useState("");
   // Shared
-  const [minW,          setMinW]          = useState(0);
-  const [maxW,          setMaxW]          = useState(4000);
-  const [thresholdCt,   setThresholdCt]   = useState(0);
-  const [marginW,       setMarginW]       = useState(200);
+  const [minW,            setMinW]            = useState(0);
+  const [maxW,            setMaxW]            = useState(4000);
+  const [thresholdCt,     setThresholdCt]     = useState(0);
+  const [marginW,         setMarginW]         = useState(200);
+  const [manualOverride,  setManualOverride]  = useState(false);
+  const [manualW,         setManualW]         = useState(2000);
   const [haEntities,    setHaEntities]    = useState([]);
   const [saving,        setSaving]        = useState(false);
   const [success,       setSuccess]       = useState(false);
@@ -106,6 +108,8 @@ export default function PvLimiterSettings() {
         setMaxW(d.pv_limiter_max_w ?? 4000);
         setThresholdCt(d.pv_limiter_threshold_ct ?? 0);
         setMarginW(d.pv_limiter_margin_w ?? 200);
+        setManualOverride(d.pv_limiter_manual_override ?? false);
+        setManualW(d.pv_limiter_manual_w ?? 2000);
       })
       .catch(() => {});
     fetch("api/ha/entities")
@@ -156,6 +160,8 @@ export default function PvLimiterSettings() {
           pv_limiter_max_w:             Number(maxW),
           pv_limiter_threshold_ct:      Number(thresholdCt),
           pv_limiter_margin_w:          Number(marginW),
+          pv_limiter_manual_override:   manualOverride,
+          pv_limiter_manual_w:          Number(manualW),
         }),
       });
       const d = await r.json();
@@ -309,6 +315,42 @@ export default function PvLimiterSettings() {
             )}
           </div>
         </>
+      )}
+
+      {/* Manual override */}
+      <div className="settings-row">
+        <div>
+          <div className="settings-row-label">Manuele overschrijving</div>
+          <div className="settings-row-desc">
+            Negeer de prijs-logica en stel de limiet handmatig in op een vaste waarde.
+          </div>
+        </div>
+        <Toggle on={manualOverride} onChange={setManualOverride} />
+      </div>
+
+      {manualOverride && (
+        <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
+          <div>
+            <div className="settings-row-label">Manuele limiet (W)</div>
+            <div className="settings-row-desc">
+              Actief vermogen: <strong>{Number(manualW)} W</strong> van {maxW} W max
+            </div>
+          </div>
+          <div style={{ width: "100%", maxWidth: 460, display: "flex", alignItems: "center", gap: 12 }}>
+            <input
+              type="range"
+              min={0}
+              max={Number(maxW) || 4000}
+              step={50}
+              value={manualW}
+              onChange={(e) => setManualW(e.target.value)}
+              style={{ flex: 1, accentColor: "var(--accent, #C17A3A)" }}
+            />
+            <input className="form-input" type="number" style={{ width: 90 }}
+              min={0} max={Number(maxW) || 4000}
+              value={manualW} onChange={(e) => setManualW(e.target.value)} />
+          </div>
+        </div>
       )}
 
       {/* Min W */}
