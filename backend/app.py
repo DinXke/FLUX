@@ -594,18 +594,23 @@ def frank_consumption_test():
 
         log.info("Testing Frank consumption query  country=%s", country)
 
-        # Also get raw API response for debugging
-        raw_data = {}
-        try:
-            if country == "BE":
-                raw_data = _frank_request(_QUERY_BE_CONSUMPTION, {"date": str(today)},
-                                          auth_token=auth_token, country="BE")
-            else:
-                raw_data = _frank_request(_QUERY_NL_CONSUMPTION,
-                                          {"startDate": str(today), "endDate": str(tomorrow)},
-                                          auth_token=auth_token)
-        except Exception as raw_exc:
-            raw_data = {"error": str(raw_exc)}
+        # Try multiple query variants for BE to find what works
+        variants = {}
+        yesterday = today - timedelta(days=1)
+
+        test_queries = {
+            "nl_style_today": (_QUERY_NL_CONSUMPTION, {"startDate": str(today), "endDate": str(tomorrow)}, "BE"),
+            "nl_style_yesterday": (_QUERY_NL_CONSUMPTION, {"startDate": str(yesterday), "endDate": str(today)}, "BE"),
+            "be_legacy_today": (_QUERY_BE_CONSUMPTION, {"date": str(today)}, "BE"),
+            "be_legacy_yesterday": (_QUERY_BE_CONSUMPTION, {"date": str(yesterday)}, "BE"),
+        }
+
+        for name, (query, variables, ctry) in test_queries.items():
+            try:
+                raw = _frank_request(query, variables, auth_token=auth_token, country=ctry)
+                variants[name] = {"keys": list(raw.keys()), "sample": {k: (v[:1] if isinstance(v, list) else v) for k, v in raw.items()}}
+            except Exception as exc:
+                variants[name] = {"error": str(exc)}
 
         frank_rows = _fetch_consumption(auth_token, today, tomorrow, country)
 
@@ -614,9 +619,7 @@ def frank_consumption_test():
             "country": country,
             "date_tested": str(today),
             "rows_returned": len(frank_rows),
-            "sample_row": frank_rows[0] if frank_rows else None,
-            "raw_data_keys": list(raw_data.keys()),
-            "raw_data_sample": {k: (v[:2] if isinstance(v, list) else v) for k, v in raw_data.items()}
+            "query_variants": variants
         })
     except Exception as exc:
         log.error("Frank consumption test error: %s", exc, exc_info=True)
