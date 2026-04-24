@@ -571,25 +571,23 @@ def frank_today_consumption():
     try:
         session = _frank_session()
         auth_token = session.get("authToken")
-        if not auth_token:
-            return jsonify({"value": 0, "error": "Frank not authenticated"}), 401
-
         country = session.get("country") or "NL"
+
+        if not auth_token:
+            log.warning("Frank not authenticated for HA sensor request")
+            return jsonify({"value": 0, "unit": "kWh"}), 200
+
         today = date.today()
         tomorrow = today + timedelta(days=1)
 
         frank_rows = _fetch_consumption(auth_token, today, tomorrow, country)
         total_kwh = sum(float(row.get("usage", 0)) for row in frank_rows)
 
-        return jsonify({
-            "value": round(total_kwh, 2),
-            "unit": "kWh",
-            "device_class": "energy",
-            "friendly_name": "Frank Consumption Today"
-        })
+        log.debug("Frank today consumption: %.2f kWh", total_kwh)
+        return jsonify({"value": round(total_kwh, 2), "unit": "kWh"}), 200
     except Exception as exc:
-        log.error("Frank today consumption error: %s", exc)
-        return jsonify({"value": 0, "error": str(exc)}), 500
+        log.error("Frank today consumption error: %s", exc, exc_info=True)
+        return jsonify({"value": 0, "unit": "kWh"}), 200
 
 
 @app.route("/api/p1/today-consumption", methods=["GET"])
@@ -600,15 +598,11 @@ def p1_today_consumption():
         p1_data = query_hourly_import_export_kwh(today_str)
         total_import_kwh = sum(h.get("import_kwh", 0) for h in p1_data.values())
 
-        return jsonify({
-            "value": round(total_import_kwh, 2),
-            "unit": "kWh",
-            "device_class": "energy",
-            "friendly_name": "P1 Grid Consumption Today"
-        })
+        log.debug("P1 today consumption: %.2f kWh", total_import_kwh)
+        return jsonify({"value": round(total_import_kwh, 2), "unit": "kWh"}), 200
     except Exception as exc:
-        log.error("P1 today consumption error: %s", exc)
-        return jsonify({"value": 0, "error": str(exc)}), 500
+        log.error("P1 today consumption error: %s", exc, exc_info=True)
+        return jsonify({"value": 0, "unit": "kWh"}), 200
 
 
 @app.route("/api/prices/electricity", methods=["GET"])
