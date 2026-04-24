@@ -427,6 +427,21 @@ def build_plan(
 
         solar_wh_slot  = solar_by_slot.get(slot_key, 0.0)
         cons_wh_slot   = _cons(weekday, hour)
+
+        # Determine PV limit for this slot before any decision logic so that
+        # SOLAR_CHARGE is never selected when the PV limiter has cut output to 0.
+        if not _pv_enabled:
+            _pv_limit_w = None
+        elif _pv_manual:
+            _pv_limit_w = _pv_manual_w
+        elif buy_price is not None:
+            _pv_limit_w = _pv_min_w if buy_price < _pv_thresh else _pv_max_w
+        else:
+            _pv_limit_w = None
+
+        if _pv_limit_w is not None:
+            solar_wh_slot = solar_wh_slot * (_pv_limit_w / _pv_max_w) if _pv_max_w > 0 else 0.0
+
         net_wh         = solar_wh_slot - cons_wh_slot   # positive = solar excess
 
         soc_start = (bat_kwh / cap_kwh) * 100.0
@@ -595,16 +610,6 @@ def build_plan(
                     bat_kwh -= use
 
         soc_end = (bat_kwh / cap_kwh) * 100.0
-
-        # PV limit for this slot
-        if not _pv_enabled:
-            _pv_limit_w = None
-        elif _pv_manual:
-            _pv_limit_w = _pv_manual_w
-        elif buy_price is not None:
-            _pv_limit_w = _pv_min_w if buy_price < _pv_thresh else _pv_max_w
-        else:
-            _pv_limit_w = None
 
         slots.append({
             "time":           slot_key,
