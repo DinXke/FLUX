@@ -15,6 +15,18 @@ function HistoricalFrankPage() {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [granularity, setGranularity] = useState("day"); // "hour", "day", "week", "month"
   const [debugInfo, setDebugInfo] = useState(null);
+  const [apiTestResult, setApiTestResult] = useState(null);
+
+  const runApiTest = async () => {
+    setApiTestResult("loading...");
+    try {
+      const res = await fetch("api/frank/consumption-test");
+      const data = await res.json();
+      setApiTestResult(JSON.stringify(data, null, 2));
+    } catch (e) {
+      setApiTestResult("Error: " + e.message);
+    }
+  };
 
   const fetchConsumption = async () => {
     setLoading(true);
@@ -192,6 +204,12 @@ function HistoricalFrankPage() {
             )}
             <div className="debug-line"><strong>Time:</strong> {debugInfo.timestamp}</div>
           </div>
+          <button className="btn btn-ghost btn-sm" style={{marginTop: "0.5rem"}} onClick={runApiTest}>
+            🔬 Frank API Test
+          </button>
+          {apiTestResult && (
+            <pre className="debug-raw">{apiTestResult}</pre>
+          )}
         </div>
       )}
 
@@ -481,6 +499,19 @@ function HistoricalFrankPage() {
         .debug-line strong {
           color: #000;
           margin-right: 0.5rem;
+        }
+
+        .debug-raw {
+          background: #e8e8e8;
+          padding: 0.5rem;
+          font-size: 0.75rem;
+          overflow-x: auto;
+          white-space: pre-wrap;
+          word-break: break-all;
+          max-height: 200px;
+          overflow-y: auto;
+          margin-top: 0.5rem;
+          border-radius: 0.2rem;
         }
 
         @media (max-width: 640px) {
