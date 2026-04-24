@@ -341,6 +341,24 @@ query MarketPrices($date: String!) {
 }
 """
 
+_QUERY_NL_CONSUMPTION = """
+query ConsumptionElectricity($startDate: String!, $endDate: String!) {
+  consumptionElectricity(startDate: $startDate, endDate: $endDate) {
+    from till usage
+  }
+}
+"""
+
+_QUERY_BE_CONSUMPTION = """
+query ConsumptionElectricity($date: String!) {
+  consumption(date: $date) {
+    electricity {
+      from till usage
+    }
+  }
+}
+"""
+
 
 def _frank_request(query: str, variables: dict, auth_token: str | None = None,
                    country: str = "NL") -> dict:
@@ -397,6 +415,31 @@ def _fetch_prices(auth_token: str | None, start: date, end: date,
     return rows  # already plain dicts with the keys the frontend expects
 
 
+def _fetch_consumption(auth_token: str | None, start: date, end: date,
+                       country: str = "NL") -> list:
+    """Return a list of consumption dicts for [start, end)."""
+    if not auth_token:
+        raise ValueError("Frank authentication required for consumption data")
+
+    try:
+        if country == "BE":
+            data = _frank_request(_QUERY_BE_CONSUMPTION, {"date": str(start)},
+                                   auth_token=auth_token, country="BE")
+            consumption = data.get("consumption") or {}
+            rows = consumption.get("electricity") or []
+        else:  # NL
+            data = _frank_request(_QUERY_NL_CONSUMPTION,
+                                   {"startDate": str(start), "endDate": str(end)},
+                                   auth_token=auth_token)
+            rows = data.get("consumptionElectricity") or []
+
+        log.debug("Consumption rows: %d  country=%s", len(rows), country)
+        return rows
+    except Exception as exc:
+        log.warning("Consumption fetch error: %s", exc)
+        return []
+
+
 @app.route("/api/frank/login", methods=["POST"])
 def frank_login():
     body     = request.get_json(force=True)
@@ -450,6 +493,48 @@ def frank_status():
     if s.get("authToken"):
         return jsonify({"loggedIn": True, "email": s.get("email"), "country": s.get("country") or "NL"})
     return jsonify({"loggedIn": False})
+
+
+@app.route("/api/frank/consumption", methods=["GET"])
+def frank_consumption():
+    try:
+        start_date_str = request.args.get("startDate")
+        end_date_str = request.args.get("endDate")
+
+        if not start_date_str or not end_date_str:
+            return jsonify({"error": "startDate and endDate required"}), 400
+
+        start = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        end = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+
+        session = _frank_session()
+        auth_token = session.get("authToken")
+        country = session.get("country") or "NL"
+
+        if not auth_token:
+            return jsonify({"error": "Frank authentication required"}), 401
+
+        log.info("Fetching consumption  startDate=%s  endDate=%s  country=%s",
+                 start.isoformat(), end.isoformat(), country)
+
+        # Fetch consumption data for each day in range
+        consumption_data = []
+        current_day = start
+        while current_day <= end:
+            rows = _fetch_consumption(auth_token, current_day, current_day + timedelta(days=1), country)
+            for row in rows:
+                consumption_data.append({
+                    "date": row.get("from", "").split("T")[0] if row.get("from") else current_day.isoformat(),
+                    "label": row.get("from", "").split("T")[1][:5] if row.get("from") else "00:00",
+                    "value": float(row.get("usage", 0)) if row.get("usage") else 0.0,
+                })
+            current_day += timedelta(days=1)
+
+        log.debug("Consumption data: %d records", len(consumption_data))
+        return jsonify(consumption_data)
+    except Exception as exc:
+        log.error("Consumption fetch error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
 
 
 @app.route("/api/prices/electricity", methods=["GET"])

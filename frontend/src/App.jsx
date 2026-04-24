@@ -6,6 +6,7 @@ import ForecastPage from "./components/ForecastPage.jsx";
 import StrategyPage from "./components/StrategyPage.jsx";
 import SettingsPage from "./components/SettingsPage.jsx";
 import ProfitPage from "./components/ProfitPage.jsx";
+import HistoricalFrankPage from "./components/HistoricalFrankPage.jsx";
 import EnergyMap from "./components/EnergyMap.jsx";
 import HomeWizardPanel from "./components/HomeWizardPanel.jsx";
 
@@ -74,6 +75,7 @@ const NAV_ITEMS = [
   { id: "forecast",  icon: "☀️", label: "Voorspelling"     },
   { id: "strategy",  icon: "🧠", label: "Strategie"        },
   { id: "profit",    icon: "💰", label: "Winst"             },
+  { id: "frank",     icon: "📊", label: "Frank Historia"   },
   { id: "settings",  icon: "⚙️", label: "Instellingen"     },
 ];
 
@@ -236,6 +238,7 @@ export default function App() {
         {page === "forecast"  && <ForecastPage />}
         {page === "strategy"  && <StrategyPage />}
         {page === "profit"    && <ProfitPage />}
+        {page === "frank"     && <HistoricalFrankPage />}
 
         {page === "settings" && (
           <SettingsPage
