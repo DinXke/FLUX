@@ -565,6 +565,52 @@ def frank_consumption():
         return jsonify({"error": str(exc)}), 502
 
 
+@app.route("/api/frank/today-consumption", methods=["GET"])
+def frank_today_consumption():
+    """Home Assistant REST sensor endpoint: returns today's Frank consumption in kWh."""
+    try:
+        session = _frank_session()
+        auth_token = session.get("authToken")
+        if not auth_token:
+            return jsonify({"value": 0, "error": "Frank not authenticated"}), 401
+
+        country = session.get("country") or "NL"
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+
+        frank_rows = _fetch_consumption(auth_token, today, tomorrow, country)
+        total_kwh = sum(float(row.get("usage", 0)) for row in frank_rows)
+
+        return jsonify({
+            "value": round(total_kwh, 2),
+            "unit": "kWh",
+            "device_class": "energy",
+            "friendly_name": "Frank Consumption Today"
+        })
+    except Exception as exc:
+        log.error("Frank today consumption error: %s", exc)
+        return jsonify({"value": 0, "error": str(exc)}), 500
+
+
+@app.route("/api/p1/today-consumption", methods=["GET"])
+def p1_today_consumption():
+    """Home Assistant REST sensor endpoint: returns today's P1 grid consumption in kWh."""
+    try:
+        today_str = date.today().isoformat()
+        p1_data = query_hourly_import_export_kwh(today_str)
+        total_import_kwh = sum(h.get("import_kwh", 0) for h in p1_data.values())
+
+        return jsonify({
+            "value": round(total_import_kwh, 2),
+            "unit": "kWh",
+            "device_class": "energy",
+            "friendly_name": "P1 Grid Consumption Today"
+        })
+    except Exception as exc:
+        log.error("P1 today consumption error: %s", exc)
+        return jsonify({"value": 0, "error": str(exc)}), 500
+
+
 @app.route("/api/prices/electricity", methods=["GET"])
 def get_electricity_prices():
     today    = date.today()
@@ -4431,6 +4477,44 @@ def _maybe_send_daily_summary() -> None:
         log.debug("daily_summary telegram notify failed: %s", exc)
 
 
+def _update_frank_ha_sensors() -> None:
+    """Update Home Assistant with Frank consumption data every 30 minutes."""
+    global _frank_ha_last_update
+    session = _frank_session()
+    if not session.get("authToken"):
+        return
+    s = _ha_effective_settings()
+    if not s.get("url"):
+        return
+    now = time.time()
+    if _frank_ha_last_update and (now - _frank_ha_last_update) < 1800:
+        return
+    _frank_ha_last_update = now
+    try:
+        today_str = date.today().isoformat()
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        frank_rows = _fetch_consumption(session.get("authToken"), date.today(),
+                                       date.today() + timedelta(days=1), session.get("country", "NL"))
+        today_kwh = sum(float(row.get("usage", 0)) for row in frank_rows)
+        p1_data = query_hourly_import_export_kwh(today_str)
+        p1_import = sum(h.get("import_kwh", 0) for h in p1_data.values())
+        ha_url = s.get("url")
+        ha_token = s.get("token")
+        headers = _ha_headers(ha_token)
+        _req.post(f"{ha_url}/api/states/sensor.frank_consumption_today", headers=headers,
+                 json={"state": f"{today_kwh:.2f}", "attributes": {"unit_of_measurement": "kWh",
+                       "device_class": "energy", "friendly_name": "Frank Consumption Today"}}, timeout=5, verify=False)
+        _req.post(f"{ha_url}/api/states/sensor.p1_grid_consumption_today", headers=headers,
+                 json={"state": f"{p1_import:.2f}", "attributes": {"unit_of_measurement": "kWh",
+                       "device_class": "energy", "friendly_name": "P1 Grid Consumption Today"}}, timeout=5, verify=False)
+        log.debug("Updated HA Frank sensors: frank=%.2f kWh, p1=%.2f kWh", today_kwh, p1_import)
+    except Exception as exc:
+        log.debug("HA Frank sensor update error: %s", exc)
+
+
+_frank_ha_last_update: float | None = None
+
+
 def _start_automation_thread(interval: int = 60) -> None:
     import threading
 
@@ -4445,6 +4529,10 @@ def _start_automation_thread(interval: int = 60) -> None:
                 _maybe_send_daily_summary()
             except Exception as exc:
                 log.debug("daily summary check error: %s", exc)
+            try:
+                _update_frank_ha_sensors()
+            except Exception as exc:
+                log.debug("Frank HA sensor update error: %s", exc)
             _time.sleep(interval)
 
     def pv_loop():
