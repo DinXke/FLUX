@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.26.1] - 2026-04-24
+
+### Added
+- **Manuele PV-regelaar** ([SCH-616](/SCH/issues/SCH-616)):
+  Nieuwe toggle + slider in Instellingen → Bronnen → PV-limiter om de limiet handmatig
+  te overschrijven (onafhankelijk van de prijs-logica).
+- **PV-limiet zichtbaar in strategie-tijdlijn** ([SCH-616](/SCH/issues/SCH-616)):
+  Elk uurslot in het strategieplan bevat nu `pv_limit_w` zodat de geplande PV-limiet
+  per uur zichtbaar is in de UI.
+
 ## [1.26.0] - 2026-04-24
 
 ### Added
