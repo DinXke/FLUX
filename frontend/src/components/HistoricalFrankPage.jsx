@@ -14,19 +14,35 @@ function HistoricalFrankPage() {
   );
   const [zoomLevel, setZoomLevel] = useState(1);
   const [granularity, setGranularity] = useState("day"); // "hour", "day", "week", "month"
+  const [debugInfo, setDebugInfo] = useState(null);
 
   const fetchConsumption = async () => {
     setLoading(true);
     setError(null);
+    setDebugInfo(null);
     try {
       const res = await fetch(
         `/api/frank/consumption?startDate=${startDate}&endDate=${endDate}`
       );
       if (!res.ok) {
-        throw new Error("Failed to fetch consumption data");
+        let errorDetail = `HTTP ${res.status}`;
+        try {
+          const errorData = await res.json();
+          errorDetail = errorData.error || errorDetail;
+        } catch (e) {
+          // If response isn't JSON, just use status
+        }
+        setDebugInfo({
+          timestamp: new Date().toLocaleTimeString(),
+          status: res.status,
+          url: `/api/frank/consumption?startDate=${startDate}&endDate=${endDate}`,
+          error: errorDetail
+        });
+        throw new Error(errorDetail);
       }
       const data = await res.json();
       setConsumption(data);
+      setDebugInfo({ timestamp: new Date().toLocaleTimeString(), records: data.length, status: "OK" });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -155,6 +171,27 @@ function HistoricalFrankPage() {
       {error && (
         <div className="alert alert-error">
           <span>{error}</span>
+        </div>
+      )}
+
+      {debugInfo && (
+        <div className="debug-panel">
+          <div className="debug-header">🔍 Debug Info</div>
+          <div className="debug-content">
+            {debugInfo.error ? (
+              <>
+                <div className="debug-line"><strong>Error:</strong> {debugInfo.error}</div>
+                <div className="debug-line"><strong>Status:</strong> {debugInfo.status}</div>
+                <div className="debug-line"><strong>URL:</strong> {debugInfo.url}</div>
+              </>
+            ) : (
+              <>
+                <div className="debug-line"><strong>Status:</strong> {debugInfo.status}</div>
+                <div className="debug-line"><strong>Records:</strong> {debugInfo.records}</div>
+              </>
+            )}
+            <div className="debug-line"><strong>Time:</strong> {debugInfo.timestamp}</div>
+          </div>
         </div>
       )}
 
@@ -412,6 +449,38 @@ function HistoricalFrankPage() {
           background: #fee;
           color: #c33;
           border: 1px solid #fcc;
+        }
+
+        .debug-panel {
+          background: #f0f0f0;
+          border: 1px solid #999;
+          border-radius: 0.25rem;
+          padding: 0.5rem;
+          margin: 1rem;
+          font-family: monospace;
+          font-size: 0.85rem;
+        }
+
+        .debug-header {
+          font-weight: bold;
+          margin-bottom: 0.5rem;
+          color: #666;
+        }
+
+        .debug-content {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+
+        .debug-line {
+          color: #333;
+          word-break: break-all;
+        }
+
+        .debug-line strong {
+          color: #000;
+          margin-right: 0.5rem;
         }
 
         @media (max-width: 640px) {
