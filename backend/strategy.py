@@ -453,7 +453,18 @@ def build_plan(
 
         # ── Decision logic ───────────────────────────────────────────────────
 
-        if net_wh > 50:
+        if buy_price is not None and buy_price < neg_dis_thresh:
+            # Negative/below-threshold price: always GRID_CHARGE regardless of SOC.
+            # Consuming from grid is FREE or PAID — signal GRID_CHARGE so inverter
+            # pulls from grid even when battery is full.
+            if bat_kwh < bat_max - 0.05:
+                can_add_kwh = bat_max - bat_kwh
+                charge_kwh  = min(can_add_kwh / rte, max_charge_kw)
+                bat_kwh    += charge_kwh * rte
+            action = GRID_CHARGE
+            reason = f"Negatieve prijs ({buy_price*100:.1f}ct) – laden = gratis/betaald"
+
+        elif net_wh > 50:
             # Solar excess: charge battery from solar (free)
             absorb_kwh = min(net_wh / 1000.0, bat_max - bat_kwh, max_charge_kw)
             if absorb_kwh > 0.05:
@@ -511,16 +522,7 @@ def build_plan(
                 remaining_solar_today_wh / 1000.0 * rte >= (bat_max - bat_kwh) - 0.1
             )
 
-            if buy_price < 0 and bat_kwh < bat_max - 0.05:
-                # Negative price: consuming from grid is FREE or PAID.
-                # Charge at full rate — also prevents solar export which costs money.
-                can_add_kwh = bat_max - bat_kwh
-                charge_kwh  = min(can_add_kwh / rte, max_charge_kw)
-                bat_kwh    += charge_kwh * rte
-                action = GRID_CHARGE
-                reason = f"Negatieve prijs ({buy_price*100:.1f}ct) – laden = gratis/betaald"
-
-            elif _upcoming_neg and bat_kwh > bat_min + 0.2:
+            if _upcoming_neg and bat_kwh > bat_min + 0.2:
                 # Negative price expected within lookahead window: discharge now to
                 # create battery headroom for free/paid grid charging later.
                 discharge_possible = min(cons_wh_slot / 1000.0, bat_kwh - bat_min)
