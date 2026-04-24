@@ -425,7 +425,9 @@ def _fetch_consumption(auth_token: str | None, start: date, end: date,
         if country == "BE":
             data = _frank_request(_QUERY_BE_CONSUMPTION, {"date": str(start)},
                                    auth_token=auth_token, country="BE")
+            log.info("BE consumption raw data keys: %s", list(data.keys()))
             consumption = data.get("consumption") or {}
+            log.info("BE consumption sub-keys: %s", list(consumption.keys()) if consumption else "empty")
             rows = consumption.get("electricity") or []
         else:  # NL
             data = _frank_request(_QUERY_NL_CONSUMPTION,
@@ -433,10 +435,10 @@ def _fetch_consumption(auth_token: str | None, start: date, end: date,
                                    auth_token=auth_token)
             rows = data.get("consumptionElectricity") or []
 
-        log.debug("Consumption rows: %d  country=%s", len(rows), country)
+        log.info("Consumption rows: %d  country=%s  date=%s", len(rows), country, start)
         return rows
     except Exception as exc:
-        log.warning("Consumption fetch error: %s", exc)
+        log.warning("Consumption fetch error: %s  country=%s  date=%s", exc, country, start)
         return []
 
 
@@ -584,14 +586,30 @@ def frank_consumption_test():
         tomorrow = today + timedelta(days=1)
 
         log.info("Testing Frank consumption query  country=%s", country)
+
+        # Also get raw API response for debugging
+        raw_data = {}
+        try:
+            if country == "BE":
+                raw_data = _frank_request(_QUERY_BE_CONSUMPTION, {"date": str(today)},
+                                          auth_token=auth_token, country="BE")
+            else:
+                raw_data = _frank_request(_QUERY_NL_CONSUMPTION,
+                                          {"startDate": str(today), "endDate": str(tomorrow)},
+                                          auth_token=auth_token)
+        except Exception as raw_exc:
+            raw_data = {"error": str(raw_exc)}
+
         frank_rows = _fetch_consumption(auth_token, today, tomorrow, country)
 
         return jsonify({
             "status": "ok",
             "country": country,
-            "date_range": f"{today} to {tomorrow}",
+            "date_tested": str(today),
             "rows_returned": len(frank_rows),
-            "sample_row": frank_rows[0] if frank_rows else None
+            "sample_row": frank_rows[0] if frank_rows else None,
+            "raw_data_keys": list(raw_data.keys()),
+            "raw_data_sample": {k: (v[:2] if isinstance(v, list) else v) for k, v in raw_data.items()}
         })
     except Exception as exc:
         log.error("Frank consumption test error: %s", exc, exc_info=True)
