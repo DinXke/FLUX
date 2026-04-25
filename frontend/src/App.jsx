@@ -213,7 +213,9 @@ export default function App() {
   // Once devices load for the first time, set default based on count if no saved preference
   useEffect(() => {
     if (!loading && energyMapExpanded === null) {
-      setEnergyMapExpanded(devices.length >= 2);
+      const defaultExpanded = devices.length >= 2;
+      localStorage.setItem("marstek_energymap_expanded", String(defaultExpanded));
+      setEnergyMapExpanded(defaultExpanded);
     }
   }, [loading, devices.length, energyMapExpanded]);
 
