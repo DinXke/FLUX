@@ -8,6 +8,7 @@ import InfluxSettings from "./InfluxSettings.jsx";
 import FlowSourcesSettings from "./FlowSourcesSettings.jsx";
 import PvLimiterSettings from "./PvLimiterSettings.jsx";
 import CapTariffSettings from "./CapTariffSettings.jsx";
+import RollingCapSettings from "./RollingCapSettings.jsx";
 import TelegramSettings from "./TelegramSettings.jsx";
 
 // ---------------------------------------------------------------------------
@@ -429,6 +430,7 @@ export default function SettingsPage({ devices, powerMap, onDeviceAdded, onDevic
           <FlowSourcesSettings devices={devices} powerMap={powerMap ?? {}} />
           <PvLimiterSettings />
           <CapTariffSettings />
+          <RollingCapSettings />
         </>
       )}
 

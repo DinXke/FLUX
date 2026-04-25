@@ -5,6 +5,7 @@ import os
 import socket
 import time
 import uuid
+from collections import deque as _deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlencode, quote
 from urllib.request import urlopen, Request
@@ -4110,6 +4111,7 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
 
 # Cache the last computed strategy plan (set by _compute_forward_plan)
 _plan_cache: dict = {"slots": [], "fetched_at": None, "result": None}
+_rolling_cap_net_samples: _deque = _deque()  # (unix_ts, net_w) tuples for rolling average
 
 # Persist plan cache to disk so Claude is not re-called after addon restarts.
 _PLAN_CACHE_FILE = os.path.join(DATA_DIR, "strategy_plan_cache.json")
@@ -4640,6 +4642,18 @@ def _automation_tick() -> None:
                     override_reason = (
                         f"⚡ Cap.tarief: laden geknepen – net {_cap_live_net_w:.0f} W, {per_bat_w} W/bat"
                     )
+        # ── Rolling cap: maximaal batterijlaadvermogen ─────────────────────────
+        _rc_bat_max = auto.get("rolling_cap_bat_max_w")
+        if _rc_bat_max is not None:
+            _rc_per_bat = max(50, int(round(int(_rc_bat_max) / num_dev)))
+            if _rc_per_bat < per_bat_w:
+                per_bat_w = _rc_per_bat
+                log.info("Rolling cap: batterijladen geknepen → %dW/bat (totaal max=%dW)",
+                         per_bat_w, _rc_bat_max)
+                if override_reason is None:
+                    override_reason = (
+                        f"🔄 Rolling cap: laden geknepen – zwevend net te hoog, {per_bat_w} W/bat"
+                    )
         global_grid_charge_settings = {"per_bat_w": per_bat_w, "global_charge_soc": global_charge_soc}
         log.info("Automation: grid_charge  total=%.1fkW  per_battery=%dW  global_charge_soc=%d%%  devices=%d",
                  total_w / 1000, per_bat_w, global_charge_soc, num_dev)
@@ -4789,17 +4803,34 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
     use_service = s.get("pv_limiter_use_service")
     svc_str     = (s.get("pv_limiter_service") or "").strip()
 
+    rc_pv_override = auto.get("rolling_cap_pv_override_w")  # int or None
+
     if not s.get("pv_limiter_enabled"):
-        # Limiter disabled: restore to max_w if we previously curtailed
-        last_w = auto.get("pv_limiter_last_w")
-        if last_w is None:
-            return  # never set anything, nothing to restore
-        max_w = int(s.get("pv_limiter_max_w", 4000))
-        if last_w == max_w:
+        if rc_pv_override is None:
+            # Limiter disabled and no rolling cap override: restore to max_w if we previously curtailed
+            last_w = auto.get("pv_limiter_last_w")
+            if last_w is None:
+                return  # never set anything, nothing to restore
+            max_w = int(s.get("pv_limiter_max_w", 4000))
+            if last_w == max_w:
+                auto.pop("pv_limiter_last_w", None)
+                return
+            _pv_send(s, entity, use_service, svc_str, max_w)
             auto.pop("pv_limiter_last_w", None)
             return
-        _pv_send(s, entity, use_service, svc_str, max_w)
-        auto.pop("pv_limiter_last_w", None)
+        # Rolling cap override active even when pv_limiter price logic is disabled
+        if not use_service and not entity:
+            return
+        if use_service and not svc_str:
+            return
+        target_w = int(rc_pv_override)
+        last_w   = auto.get("pv_limiter_last_w")
+        if last_w == target_w:
+            return
+        ok = _pv_send(s, entity, use_service, svc_str, target_w)
+        if ok:
+            auto["pv_limiter_last_w"] = target_w
+            log.info("PV limiter → %dW (rolling cap, pv limiter uitgeschakeld)", target_w)
         return
 
     # In entity mode, entity is required; in service mode, the service string is required
@@ -4808,9 +4839,11 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
     if use_service and not svc_str:
         return
 
-    # Manual override: bypass price logic entirely
+    # Manual override: bypass price logic entirely (rolling cap still applies as hard cap)
     if s.get("pv_limiter_manual_override"):
         target_w = int(s.get("pv_limiter_manual_w", 2000))
+        if rc_pv_override is not None:
+            target_w = min(target_w, int(rc_pv_override))
         last_w = auto.get("pv_limiter_last_w")
         if last_w == target_w:
             return
@@ -4869,6 +4902,10 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
     # Negative/cheap price → curtail to min_w; otherwise → full output at max_w
     target_w = min_w if price < threshold else max_w
 
+    # Rolling cap constraint: never exceed the rolling cap's PV override
+    if rc_pv_override is not None:
+        target_w = min(target_w, int(rc_pv_override))
+
     last_w = auto.get("pv_limiter_last_w")
     if last_w == target_w:
         return
@@ -4884,16 +4921,110 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
 
 
 def _pv_limiter_tick() -> None:
-    """Fast tick (every 15 s) that only handles the PV power limiter.
+    """Fast tick (every 5 s) that handles the PV power limiter and rolling cap PV override.
     Runs independently of the battery automation toggle."""
-    s = load_strategy_settings()
-    if not s.get("pv_limiter_enabled"):
-        log.debug("PV limiter tick: disabled in settings")
-        return
-    log.debug("PV limiter tick: enabled, entity=%s use_service=%s service=%s",
-              s.get("pv_limiter_entity"), s.get("pv_limiter_use_service"), s.get("pv_limiter_service"))
+    s    = load_strategy_settings()
     auto = _load_automation()
+    rc_pv_override = auto.get("rolling_cap_pv_override_w")
+    if not s.get("pv_limiter_enabled") and rc_pv_override is None:
+        log.debug("PV limiter tick: disabled and no rolling cap override")
+        return
+    log.debug("PV limiter tick: enabled=%s entity=%s use_service=%s rc_pv_override=%s",
+              s.get("pv_limiter_enabled"), s.get("pv_limiter_entity"),
+              s.get("pv_limiter_use_service"), rc_pv_override)
     _apply_pv_limiter(s, auto)
+    _save_automation(auto)
+
+
+def _rolling_cap_tick() -> None:
+    """Onafhankelijke rolling netsaldo-plafond lus (PV-first prioriteit).
+    Loopt elke 30 s ongeacht strategy_mode of automation enable-status."""
+    s = load_strategy_settings()
+    if not s.get("rolling_cap_enabled", False):
+        # Clear any active overrides when disabled
+        auto = _load_automation()
+        changed = False
+        if "rolling_cap_pv_override_w" in auto:
+            del auto["rolling_cap_pv_override_w"]
+            auto.pop("pv_limiter_last_w", None)   # force PV limiter to restore on next tick
+            changed = True
+        if "rolling_cap_bat_max_w" in auto:
+            del auto["rolling_cap_bat_max_w"]
+            changed = True
+        if changed:
+            _save_automation(auto)
+        return
+
+    max_net_w    = float(s.get("rolling_cap_max_net_w",    8000))
+    net_window_s = float(s.get("rolling_cap_net_window_m", 10)) * 60
+
+    now = time.time()
+    slots_data = _read_live_flow_slots("net_power", "solar_power")
+    net_w   = slots_data.get("net_power")
+    solar_w = slots_data.get("solar_power")
+
+    if net_w is not None:
+        _rolling_cap_net_samples.append((now, float(net_w)))
+    # Evict samples outside the rolling window
+    cutoff = now - net_window_s
+    while _rolling_cap_net_samples and _rolling_cap_net_samples[0][0] < cutoff:
+        _rolling_cap_net_samples.popleft()
+
+    if not _rolling_cap_net_samples:
+        return
+
+    avg_net_w = sum(w for _, w in _rolling_cap_net_samples) / len(_rolling_cap_net_samples)
+    log.debug("Rolling cap: avg_net=%.0fW max=%.0fW samples=%d",
+              avg_net_w, max_net_w, len(_rolling_cap_net_samples))
+
+    auto = _load_automation()
+
+    if avg_net_w <= max_net_w:
+        # Under cap: lift any active overrides
+        changed = False
+        if "rolling_cap_pv_override_w" in auto:
+            del auto["rolling_cap_pv_override_w"]
+            auto.pop("pv_limiter_last_w", None)
+            changed = True
+        if "rolling_cap_bat_max_w" in auto:
+            del auto["rolling_cap_bat_max_w"]
+            changed = True
+        if changed:
+            _save_automation(auto)
+            log.info("Rolling cap: avg=%.0fW <= max=%.0fW – beperkingen opgeheven", avg_net_w, max_net_w)
+        return
+
+    overshoot_w = avg_net_w - max_net_w
+    log.info("Rolling cap: avg_net=%.0fW > max=%.0fW overshoot=%.0fW",
+             avg_net_w, max_net_w, overshoot_w)
+
+    # Step 1: PV curtailment (PV-first)
+    pv_entity    = (s.get("pv_limiter_entity") or "").strip()
+    pv_use_svc   = s.get("pv_limiter_use_service", False)
+    pv_svc_str   = (s.get("pv_limiter_service") or "").strip()
+    pv_configured = bool(pv_entity) or (pv_use_svc and bool(pv_svc_str))
+
+    remaining_overshoot = overshoot_w
+    if pv_configured and solar_w is not None and solar_w > 0:
+        new_pv_w = max(0, int(solar_w - overshoot_w))
+        auto["rolling_cap_pv_override_w"] = new_pv_w
+        auto.pop("pv_limiter_last_w", None)  # force re-send on next PV limiter tick
+        pv_reduction = solar_w - new_pv_w
+        remaining_overshoot = max(0.0, overshoot_w - pv_reduction)
+        log.info("Rolling cap stap 1: PV %.0fW → %dW (reductie=%.0fW, rest overshoot=%.0fW)",
+                 solar_w, new_pv_w, pv_reduction, remaining_overshoot)
+        _apply_pv_limiter(s, auto)
+
+    # Step 2: Battery charge throttling if PV curtailment was insufficient
+    if remaining_overshoot > 0:
+        total_max_w = float(s.get("max_charge_kw", 3.0)) * 1000.0
+        allowed_w   = max(0.0, total_max_w - remaining_overshoot)
+        auto["rolling_cap_bat_max_w"] = int(allowed_w)
+        log.info("Rolling cap stap 2: batterijladen beperkt tot %dW (was %.0fW)",
+                 int(allowed_w), total_max_w)
+    else:
+        auto.pop("rolling_cap_bat_max_w", None)
+
     _save_automation(auto)
 
 
@@ -5003,6 +5134,19 @@ def _start_automation_thread(interval: int = 60) -> None:
     pv.start()
     log.info("PV limiter background thread started (interval=15s)")
 
+    def rolling_cap_loop():
+        import time as _time
+        while True:
+            try:
+                _rolling_cap_tick()
+            except Exception as exc:
+                log.warning("Rolling cap tick fout: %s", exc)
+            _time.sleep(30)
+
+    rc = threading.Thread(target=rolling_cap_loop, daemon=True, name="rolling_cap")
+    rc.start()
+    log.info("Rolling cap background thread gestart (interval=30s)")
+
 
 @app.route("/api/cap-tariff/status")
 def cap_tariff_status():
@@ -5019,6 +5163,25 @@ def cap_tariff_status():
         "live_net_w":    live_net_w,
         "month_peak_w":  peak_data.get(this_month),
         "peak_history":  peak_data,
+    })
+
+
+@app.route("/api/rolling-cap/status")
+def rolling_cap_status():
+    s    = load_strategy_settings()
+    auto = _load_automation()
+    avg_net_w: float | None = None
+    if _rolling_cap_net_samples:
+        avg_net_w = sum(w for _, w in _rolling_cap_net_samples) / len(_rolling_cap_net_samples)
+    return jsonify({
+        "enabled":         s.get("rolling_cap_enabled",         False),
+        "max_net_w":       s.get("rolling_cap_max_net_w",       8000),
+        "net_window_m":    s.get("rolling_cap_net_window_m",    10),
+        "device_window_m": s.get("rolling_cap_device_window_m", 5),
+        "avg_net_w":       round(avg_net_w, 1) if avg_net_w is not None else None,
+        "sample_count":    len(_rolling_cap_net_samples),
+        "pv_override_w":   auto.get("rolling_cap_pv_override_w"),
+        "bat_max_w":       auto.get("rolling_cap_bat_max_w"),
     })
 
 

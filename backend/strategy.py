@@ -103,6 +103,12 @@ DEFAULT_SETTINGS = {
     # Als actief_net + geplande_charge > cap_tariff_max_grid_w: proportioneel afknijpen/blokkeren.
     "cap_tariff_enabled":    False,
     "cap_tariff_max_grid_w": 8000,   # W — max toegestaan netsaldo (import) incl. huis + EV + laden
+    # Rolling netsaldo-plafond (PV-first prioriteit, onafhankelijke lus)
+    # Bijsturings-volgorde: 1) PV-limiter verlagen, 2) batterijlaadvermogen verlagen
+    "rolling_cap_enabled":         False,
+    "rolling_cap_max_net_w":       8000,  # W — max zwevend gemiddeld netsaldo (import)
+    "rolling_cap_net_window_m":    10,    # min — venster voor netsaldo zwevend gemiddelde
+    "rolling_cap_device_window_m": 5,     # min — venster voor PV/batterij zwevend gemiddelde
     # Preventieve ontlading vóór negatieve prijsvensters
     # Ontlaad de batterij in de aanloop naar negatieve prijzen zodat er meer
     # ruimte is voor gratis/betaald laden tijdens het negatieve prijsvenster.
