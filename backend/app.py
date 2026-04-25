@@ -707,8 +707,22 @@ def frank_consumption():
                 consumption_data[record_key]["frank_kwh"] = float(row.get("usage") or 0)
                 consumption_data[record_key]["frank_cost_eur"] = float(row.get("costs") or 0)
 
-            # Fetch P1 meter data
-            p1_data = query_hourly_import_export_kwh(day_key)
+            # Fetch P1 meter data — prefer local InfluxDB cumulative counters,
+            # fall back to external InfluxDB net_w when local data is unavailable.
+            p1_data = query_hourly_import_export_kwh(day_key, tz_name)
+            log.debug("P1 local data for %s: %d hours", day_key, len(p1_data))
+            if not p1_data:
+                ext = _query_profit_day(day_key, tz_name)
+                if ext:
+                    log.debug("P1 fallback to external InfluxDB for %s: %d hours", day_key, len(ext))
+                    p1_data = {
+                        h: {
+                            "import_kwh": max(0.0, float(hd.get("net_w") or 0.0)) / 1000.0,
+                            "export_kwh": max(0.0, -float(hd.get("net_w") or 0.0)) / 1000.0,
+                        }
+                        for h, hd in ext.items()
+                        if "net_w" in hd
+                    }
             for hour_idx, p1_hour_data in p1_data.items():
                 label_hour = f"{hour_idx:02d}:00"
                 record_key = f"{day_key}_{label_hour}"
