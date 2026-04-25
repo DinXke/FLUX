@@ -2734,7 +2734,7 @@ def telegram_test():
     if not (s.get("telegram_chat_id") or "").strip():
         return jsonify({"error": "Geen chat_id geconfigureerd"}), 400
     try:
-        _tg_notify("test", {"message": "✓ SmartMarstek Telegram werkt correct."}, settings=s)
+        _tg_notify("test", {"message": "✓ SmartMarstek Telegram werkt correct."}, settings=s, raise_on_error=True)
         return jsonify({"ok": True})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

@@ -41,6 +41,7 @@ def notify_event(
     on_approve: Optional[Callable] = None,
     on_reject: Optional[Callable] = None,
     settings: Optional[dict] = None,
+    raise_on_error: bool = False,
 ) -> Optional[str]:
     """
     Send an event notification to the communication service.
@@ -95,8 +96,12 @@ def notify_event(
                      event_type, resp.status, approval_id)
     except URLError as exc:
         log.warning("telegram.notify_event: %s failed: %s", event_type, exc)
+        if raise_on_error:
+            raise RuntimeError(f"Communicatieservice niet bereikbaar: {exc}") from exc
     except Exception as exc:
         log.warning("telegram.notify_event: %s unexpected error: %s", event_type, exc)
+        if raise_on_error:
+            raise
 
     return approval_id
 

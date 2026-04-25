@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.27.12] - 2026-04-25
+
+### Fixed
+- **Telegram test geeft geen fout bij mislukte verzending** ([SCH-737](/SCH/issues/SCH-737)): `notify_event` slokte verbindingsfouten stil op — de testknop toonde altijd "✓ Test verzonden" ook als de communicatieservice niet bereikbaar was. Fix: `raise_on_error=True` parameter toegevoegd aan `notify_event`, testendpoint geeft nu een echte foutmelding terug.
+
 ## [1.27.11] - 2026-04-25
 
 ### Fixed
