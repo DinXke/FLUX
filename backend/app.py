@@ -313,6 +313,66 @@ def _save_frank_session(data: dict) -> None:
         json.dump(data, f, indent=2)
 
 
+def _token_expired(auth_token: str, buffer_sec: int = 60) -> bool:
+    """Return True if the JWT authToken is expired (or unparseable)."""
+    try:
+        import base64 as _b64
+        seg = auth_token.split(".")[1]
+        seg += "=" * (-len(seg) % 4)
+        payload = json.loads(_b64.b64decode(seg))
+        return payload.get("exp", 0) < int(time.time()) + buffer_sec
+    except Exception:
+        return True
+
+
+def _ensure_fresh_token(session: dict) -> str:
+    """Return a valid authToken, auto-renewing via refreshToken if expired."""
+    auth_token = session.get("authToken", "")
+    if not _token_expired(auth_token):
+        return auth_token
+
+    refresh_token = session.get("refreshToken", "")
+    if not refresh_token:
+        raise ValueError("Frank token verlopen — log opnieuw in via Instellingen > Frank Energie")
+
+    log.info("Frank authToken verlopen — vernieuwen via refreshToken")
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "x-graphql-client-name": "frank-app",
+        "x-graphql-client-version": "4.13.3",
+        "skip-graphcdn": "1",
+    }
+    resp = _req.post(
+        FRANK_API_URL,
+        json={"query": _MUTATION_RENEW_TOKEN,
+              "variables": {"authToken": auth_token, "refreshToken": refresh_token}},
+        headers=headers,
+        timeout=15,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if "errors" in body:
+        msgs = [e.get("message", "?") for e in body["errors"]]
+        raise ValueError(f"Token renewal mislukt ({'; '.join(msgs)}) — log opnieuw in via Instellingen")
+    renew = (body.get("data") or {}).get("renewToken") or {}
+    new_auth = renew.get("authToken")
+    new_refresh = renew.get("refreshToken")
+    if not new_auth:
+        raise ValueError("Token renewal geen authToken — log opnieuw in via Instellingen")
+
+    session["authToken"] = new_auth
+    if new_refresh:
+        session["refreshToken"] = new_refresh
+    session["ts"] = int(time.time())
+    _save_frank_session(session)
+    # Invalidate BE caches tied to old token
+    _be_site_ref_cache.clear()
+    _be_period_cache.clear()
+    log.info("Frank token vernieuwd")
+    return new_auth
+
+
 FRANK_API_URL = "https://graphql.frankenergie.nl/"
 
 _QUERY_NL = """
@@ -355,6 +415,15 @@ query ConsumptionElectricity($date: String!) {
     electricity {
       from till usage
     }
+  }
+}
+"""
+
+_MUTATION_RENEW_TOKEN = """
+mutation RenewToken($authToken: String!, $refreshToken: String!) {
+  renewToken(authToken: $authToken, refreshToken: $refreshToken) {
+    authToken
+    refreshToken
   }
 }
 """
@@ -581,14 +650,16 @@ def frank_consumption():
         end = datetime.strptime(end_date_str, "%Y-%m-%d").date()
 
         session = _frank_session()
-        auth_token = session.get("authToken")
+        if not session.get("authToken"):
+            return jsonify({"error": "Frank authentication required"}), 401
+        try:
+            auth_token = _ensure_fresh_token(session)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 401
         country = session.get("country") or "NL"
 
-        if not auth_token:
-            return jsonify({"error": "Frank authentication required"}), 401
-
-        log.info("Fetching consumption  startDate=%s  endDate=%s  country=%s  token_valid=%s",
-                 start.isoformat(), end.isoformat(), country, bool(auth_token))
+        log.info("Fetching consumption  startDate=%s  endDate=%s  country=%s",
+                 start.isoformat(), end.isoformat(), country)
 
         # Fetch Frank consumption and P1 meter data for each day in range
         consumption_data = {}
@@ -654,7 +725,6 @@ def frank_consumption_test():
             return jsonify({"status": "error", "reason": "No Frank authentication"}), 401
 
         today = date.today()
-        tomorrow = today + timedelta(days=1)
 
         log.info("Testing Frank consumption query  country=%s", country)
 
@@ -662,20 +732,20 @@ def frank_consumption_test():
         month_start = date(yesterday.year, yesterday.month, 1)
 
         # Check token expiry from JWT payload
-        token_info = {}
+        token_info = {"was_expired": _token_expired(auth_token)}
+
+        # Auto-renew if expired
+        renewal_info = {}
         try:
-            import base64, json as _json
-            payload_b64 = auth_token.split(".")[1]
-            payload_b64 += "=" * (-len(payload_b64) % 4)
-            payload = _json.loads(base64.b64decode(payload_b64))
-            exp = payload.get("exp", 0)
-            token_info = {
-                "exp": exp,
-                "expired": exp < int(time.time()),
-                "expires_in_sec": exp - int(time.time()),
-            }
-        except Exception:
-            token_info = {"parse_error": True}
+            auth_token = _ensure_fresh_token(session)
+            renewal_info = {"renewed": token_info["was_expired"], "ok": True}
+        except ValueError as exc:
+            renewal_info = {"error": str(exc)}
+            return jsonify({
+                "status": "error",
+                "reason": str(exc),
+                "token_info": token_info,
+            }), 401
 
         # Step 1a: userSites WITHOUT x-country header (correct way per library)
         sites_result_no_hdr = {}
@@ -737,6 +807,7 @@ def frank_consumption_test():
             "date_tested": str(yesterday),
             "month_tested": str(month_start),
             "token_info": token_info,
+            "renewal": renewal_info,
             "user_sites_no_country_hdr": sites_result_no_hdr,
             "user_sites_be_country_hdr": sites_result_be_hdr,
             "period_usage": period_result,
