@@ -386,79 +386,141 @@ function TabApparaten({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDevi
 }
 
 // ---------------------------------------------------------------------------
-// Settings page with tabs
+// Settings page with 3-category grouped navigation
 // ---------------------------------------------------------------------------
 
-const TABS = [
-  { id: "apparaten", label: "🔋 Apparaten" },
-  { id: "bronnen",   label: "⚡ Bronnen"   },
-  { id: "prijzen",   label: "💶 Prijzen"   },
-  { id: "zon",       label: "☀️ Zon"       },
-  { id: "strategie", label: "🧠 Strategie" },
-  { id: "data",      label: "🗄️ Data"      },
-  { id: "telegram",  label: "✈️ Telegram"  },
-  { id: "debug",     label: "🛠️ Debug"     },
+const GROUPS = [
+  {
+    id: "databronnen",
+    label: "📡 Data-bronnen",
+    tabs: [
+      { id: "entsoe",        label: "⚡ ENTSO-E"        },
+      { id: "homewizard",    label: "🏠 HomeWizard"     },
+      { id: "homeassistant", label: "🔗 Home Assistant" },
+      { id: "influxdb",      label: "🗄️ InfluxDB"       },
+      { id: "flowbronnen",   label: "🔀 Stroom­vlak"    },
+    ],
+  },
+  {
+    id: "apparaten",
+    label: "🔋 Apparaten & strategie",
+    tabs: [
+      { id: "apparaten",  label: "🔋 Apparaten"  },
+      { id: "strategie",  label: "🧠 Strategie"  },
+      { id: "pvlimiter",  label: "☀️ PV Limiter" },
+      { id: "captariff",  label: "💶 Cap Tariff" },
+      { id: "rollingcap", label: "📉 Rolling Cap" },
+    ],
+  },
+  {
+    id: "integraties",
+    label: "🔌 Integraties",
+    tabs: [
+      { id: "forecast", label: "☀️ Forecast" },
+      { id: "telegram", label: "✈️ Telegram" },
+    ],
+  },
+  {
+    id: "debug",
+    label: "🛠️ Debug",
+    tabs: [
+      { id: "debug", label: "🛠️ Debug" },
+    ],
+  },
 ];
 
+function readLS(key, fallback) {
+  try { return localStorage.getItem(key) || fallback; } catch { return fallback; }
+}
+function writeLS(key, value) {
+  try { localStorage.setItem(key, value); } catch {}
+}
+
+function resolveInitialGroup() {
+  const saved = readLS("marstek_sg", GROUPS[0].id);
+  return GROUPS.some((g) => g.id === saved) ? saved : GROUPS[0].id;
+}
+
+function resolveInitialTab(groupId) {
+  const group = GROUPS.find((g) => g.id === groupId) || GROUPS[0];
+  const saved = readLS(`marstek_st_${groupId}`, group.tabs[0].id);
+  return group.tabs.some((t) => t.id === saved) ? saved : group.tabs[0].id;
+}
+
 export default function SettingsPage({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDeviceDeleted }) {
-  const [tab, setTab] = useState("apparaten");
+  const [activeGroup, setActiveGroup] = useState(resolveInitialGroup);
+  const [activeTab,   setActiveTab]   = useState(() => resolveInitialTab(resolveInitialGroup()));
+
+  const currentGroup = GROUPS.find((g) => g.id === activeGroup) || GROUPS[0];
+
+  const handleGroupChange = (groupId) => {
+    setActiveGroup(groupId);
+    writeLS("marstek_sg", groupId);
+    const tab = resolveInitialTab(groupId);
+    setActiveTab(tab);
+  };
+
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    writeLS(`marstek_st_${activeGroup}`, tabId);
+  };
 
   return (
     <div className="settings-page">
-      {/* Tab bar */}
-      <div className="settings-tabs">
-        {TABS.map((t) => (
-          <button key={t.id}
-            className={`settings-tab ${tab === t.id ? "active" : ""}`}
-            onClick={() => setTab(t.id)}>
-            {t.label}
+
+      {/* ── Desktop: group buttons ── */}
+      <div className="settings-groups">
+        {GROUPS.map((g) => (
+          <button key={g.id}
+            className={`settings-group-btn ${activeGroup === g.id ? "active" : ""}`}
+            onClick={() => handleGroupChange(g.id)}>
+            {g.label}
           </button>
         ))}
       </div>
 
-      {tab === "apparaten" && (
-        <TabApparaten
-          devices={devices} powerMap={powerMap}
-          onDeviceAdded={onDeviceAdded}
-          onDeviceEdited={onDeviceEdited}
-          onDeviceDeleted={onDeviceDeleted}
-        />
+      {/* ── Desktop: sub-tabs (only when group has >1 tab) ── */}
+      {currentGroup.tabs.length > 1 && (
+        <div className="settings-tabs">
+          {currentGroup.tabs.map((t) => (
+            <button key={t.id}
+              className={`settings-tab ${activeTab === t.id ? "active" : ""}`}
+              onClick={() => handleTabChange(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
       )}
 
-      {tab === "bronnen" && (
-        <>
-          <FlowSourcesSettings devices={devices} powerMap={powerMap ?? {}} />
-          <PvLimiterSettings />
-          <CapTariffSettings />
-          <RollingCapSettings />
-        </>
+      {/* ── Mobile: select dropdowns ── */}
+      <div className="settings-mobile-nav">
+        <select value={activeGroup} onChange={(e) => handleGroupChange(e.target.value)}>
+          {GROUPS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+        </select>
+        {currentGroup.tabs.length > 1 && (
+          <select value={activeTab} onChange={(e) => handleTabChange(e.target.value)}>
+            {currentGroup.tabs.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        )}
+      </div>
+
+      {/* ── Tab content ── */}
+      {activeTab === "entsoe"        && <EntsoESection />}
+      {activeTab === "homewizard"    && <HomeWizardSettings />}
+      {activeTab === "homeassistant" && <HomeAssistantSettings />}
+      {activeTab === "influxdb"      && <InfluxSettings />}
+      {activeTab === "flowbronnen"   && <FlowSourcesSettings devices={devices} powerMap={powerMap ?? {}} />}
+      {activeTab === "apparaten"     && (
+        <TabApparaten devices={devices} powerMap={powerMap}
+          onDeviceAdded={onDeviceAdded} onDeviceEdited={onDeviceEdited} onDeviceDeleted={onDeviceDeleted} />
       )}
-
-      {tab === "prijzen" && (
-        <>
-          <EntsoESection />
-          <HomeAssistantSettings />
-        </>
-      )}
-
-      {tab === "zon" && (
-        <ForecastSettings />
-      )}
-
-      {tab === "strategie" && (
-        <StrategySettings />
-      )}
-
-      {tab === "data" && (
-        <>
-          <InfluxSettings />
-          <HomeWizardSettings />
-        </>
-      )}
-
-      {tab === "telegram" && <TelegramSettings />}
-
-      {tab === "debug" && <DebugPanel />}
+      {activeTab === "strategie"  && <StrategySettings />}
+      {activeTab === "pvlimiter"  && <PvLimiterSettings />}
+      {activeTab === "captariff"  && <CapTariffSettings />}
+      {activeTab === "rollingcap" && <RollingCapSettings />}
+      {activeTab === "forecast"   && <ForecastSettings />}
+      {activeTab === "telegram"   && <TelegramSettings />}
+      {activeTab === "debug"      && <DebugPanel />}
     </div>
   );
 }

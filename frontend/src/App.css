@@ -1733,9 +1733,43 @@ html, body {
 }
 
 /* =========================================================
-   Settings Tabs
+   Settings Tabs — 2-level grouped navigation
    ========================================================= */
 
+/* Primary group bar */
+.settings-groups {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.settings-group-btn {
+  padding: 9px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.settings-group-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.settings-group-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* Secondary sub-tab bar */
 .settings-tabs {
   display: flex;
   gap: 4px;
@@ -1771,6 +1805,36 @@ html, body {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+/* Mobile: replace tab rows with select dropdowns */
+.settings-mobile-nav {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.settings-mobile-nav select {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  appearance: auto;
+}
+
+@media (max-width: 600px) {
+  .settings-groups,
+  .settings-tabs {
+    display: none;
+  }
+  .settings-mobile-nav {
+    display: flex;
+  }
 }
 
 /* =========================================================
