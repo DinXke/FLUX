@@ -671,6 +671,8 @@ def frank_consumption():
                 ))
 
         # Fetch Frank consumption and P1 meter data for each day in range
+        tz_name = _entsoe_settings().get("timezone") or "Europe/Brussels"
+        tz = ZoneInfo(tz_name)
         consumption_data = {}
         for current_day in all_days:
             day_key = current_day.isoformat()
@@ -679,9 +681,16 @@ def frank_consumption():
             frank_rows = _fetch_consumption(auth_token, current_day, current_day + timedelta(days=1), country)
             for row in frank_rows:
                 from_time = row.get("from", "")
-                # BE items have a local-timezone 'date' field; use it to avoid UTC-midnight drift
-                date_part = row.get("date") or (from_time.split("T")[0] if "T" in from_time else day_key)
-                time_part = from_time.split("T")[1][:5] if "T" in from_time else "00:00"
+                if from_time and "T" in from_time:
+                    # Convert UTC timestamp to local time so P1 hour buckets align
+                    from_dt_local = datetime.fromisoformat(
+                        from_time.replace("Z", "+00:00")
+                    ).astimezone(tz)
+                    date_part = from_dt_local.strftime("%Y-%m-%d")
+                    time_part = from_dt_local.strftime("%H:%M")
+                else:
+                    date_part = day_key
+                    time_part = "00:00"
                 record_key = f"{date_part}_{time_part}"
 
                 if record_key not in consumption_data:

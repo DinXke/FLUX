@@ -155,50 +155,81 @@ export default function HistoricalFrankPage() {
         <>
           {/* Chart */}
           <div style={{ background: "var(--card-bg, #f9fafb)", borderRadius: 8, padding: "16px 12px 8px", border: "1px solid var(--border-color)" }}>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 200, overflowX: "auto", paddingBottom: 4 }}>
-              {aggregated.map((point, idx) => {
-                const isSelected = selectedIdx === idx;
-                return (
-                <div key={idx}
-                  onClick={() => setSelectedIdx(isSelected ? null : idx)}
-                  style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: windowDays === 1 ? 26 : 20, flex: 1, cursor: "pointer",
-                    outline: isSelected ? "2px solid #3b82f6" : "none", borderRadius: 3 }}>
-                  <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: 178, width: "100%" }}>
-                    <div style={{
-                      flex: 1,
-                      height: `${Math.max(0, (point.frank_kwh || 0) / maxKwh * 178)}px`,
-                      minHeight: point.frank_kwh > 0 ? 2 : 0,
-                      background: isSelected ? "linear-gradient(to top,#1d4ed8,#3b82f6)" : "linear-gradient(to top, #2563eb, #60a5fa)",
-                      borderRadius: "3px 3px 0 0",
-                      transition: "background 0.1s",
-                    }} />
-                    {point.p1_import_kwh > 0 && (
-                      <div style={{
-                        flex: 1,
-                        height: `${(point.p1_import_kwh / maxKwh) * 178}px`,
-                        minHeight: 2,
-                        background: isSelected ? "linear-gradient(to top,#b45309,#f59e0b)" : "linear-gradient(to top, #d97706, #fbbf24)",
-                        borderRadius: "3px 3px 0 0",
-                        opacity: 0.85,
-                      }} />
-                    )}
-                  </div>
-                  <div style={{ fontSize: 9, color: isSelected ? "#3b82f6" : "var(--text-muted)", fontWeight: isSelected ? 700 : 400, writingMode: "vertical-rl", transform: "rotate(180deg)", whiteSpace: "nowrap", maxHeight: 38, overflow: "hidden" }}>
-                    {point.label || fmtDate(point.date)}
-                  </div>
-                </div>
-              );})}
+            {/* Bar area + P1 line overlay */}
+            <div style={{ position: "relative" }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 218, overflowX: "auto", paddingBottom: 38 }}>
+                {aggregated.map((point, idx) => {
+                  const isSelected = selectedIdx === idx;
+                  return (
+                    <div key={idx}
+                      onClick={() => setSelectedIdx(isSelected ? null : idx)}
+                      style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: windowDays === 1 ? 26 : 20, flex: 1, cursor: "pointer",
+                        outline: isSelected ? "2px solid #3b82f6" : "none", outlineOffset: 1, borderRadius: 3 }}>
+                      <div style={{ display: "flex", alignItems: "flex-end", height: 178, width: "100%" }}>
+                        <div style={{
+                          flex: 1,
+                          height: `${Math.max(0, (point.frank_kwh || 0) / maxKwh * 178)}px`,
+                          minHeight: point.frank_kwh > 0 ? 2 : 0,
+                          background: isSelected ? "linear-gradient(to top,#1d4ed8,#3b82f6)" : "linear-gradient(to top,#2563eb,#60a5fa)",
+                          borderRadius: "3px 3px 0 0",
+                          transition: "background 0.1s",
+                        }} />
+                      </div>
+                      <div style={{ fontSize: 9, color: isSelected ? "#3b82f6" : "var(--text-muted)", fontWeight: isSelected ? 700 : 400, writingMode: "vertical-rl", transform: "rotate(180deg)", whiteSpace: "nowrap", maxHeight: 36, overflow: "hidden" }}>
+                        {point.label || fmtDate(point.date)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* P1 import SVG line — overlaid on bars */}
+              {aggregated.length > 1 && (
+                <svg
+                  viewBox={`0 0 ${aggregated.length} 178`}
+                  preserveAspectRatio="none"
+                  style={{ position: "absolute", top: 0, left: 0, width: "100%", height: 178, pointerEvents: "none", overflow: "visible" }}
+                >
+                  {/* Line */}
+                  <polyline
+                    points={aggregated
+                      .map((p, i) => `${i + 0.5},${178 - (Math.max(0, p.p1_import_kwh || 0) / maxKwh) * 178}`)
+                      .join(" ")}
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  {/* Dots at each data point */}
+                  {aggregated.map((p, i) => (
+                    p.p1_import_kwh > 0 && (
+                      <circle
+                        key={i}
+                        cx={i + 0.5}
+                        cy={178 - (p.p1_import_kwh / maxKwh) * 178}
+                        r="3"
+                        fill="#f59e0b"
+                        stroke="#fff"
+                        strokeWidth="1.5"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    )
+                  ))}
+                </svg>
+              )}
             </div>
 
             {/* Legend */}
-            <div style={{ display: "flex", gap: 16, padding: "6px 2px 0", fontSize: 11, color: "var(--text-muted)" }}>
+            <div style={{ display: "flex", gap: 16, padding: "4px 2px 0", fontSize: 11, color: "var(--text-muted)" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 2, background: "linear-gradient(to top,#2563eb,#60a5fa)", display: "inline-block" }} />
                 Frank verbruik
               </span>
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: "linear-gradient(to top,#d97706,#fbbf24)", display: "inline-block" }} />
-                P1 import
+                <span style={{ width: 2, height: 10, background: "#f59e0b", display: "inline-block", borderRadius: 1 }} />
+                P1 import (lijn)
               </span>
             </div>
           </div>
@@ -209,15 +240,41 @@ export default function HistoricalFrankPage() {
             const fromLocal = p.from ? new Date(p.from).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" }) : null;
             const tillLocal = p.till ? new Date(p.till).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" }) : null;
             const timeLabel = fromLocal && tillLocal ? `${fromLocal} – ${tillLocal}` : (p.label || fmtDate(p.date));
+            const pricePerKwh = p.frank_kwh > 0 && p.frank_cost_eur > 0 ? (p.frank_cost_eur / p.frank_kwh) : null;
             return (
-              <div style={{ margin: "10px 0", padding: "10px 14px", background: "var(--card-bg)", border: "2px solid #3b82f6", borderRadius: 8, display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: "#3b82f6", minWidth: 80 }}>{timeLabel}</div>
-                {p.frank_kwh > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)", marginRight: 4 }}>Frank:</span><strong>{(p.frank_kwh).toFixed(3)} kWh</strong></div>}
-                {p.frank_cost_eur > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)", marginRight: 4 }}>Kosten:</span><strong>€ {(p.frank_cost_eur).toFixed(3)}</strong></div>}
-                {p.frank_kwh > 0 && p.frank_cost_eur > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)", marginRight: 4 }}>Prijs/kWh:</span><strong>€ {(p.frank_cost_eur / p.frank_kwh).toFixed(3)}</strong></div>}
-                {p.p1_import_kwh > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)", marginRight: 4 }}>P1 import:</span><strong>{(p.p1_import_kwh).toFixed(3)} kWh</strong></div>}
-                {p.p1_export_kwh > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)", marginRight: 4 }}>P1 export:</span><strong>{(p.p1_export_kwh).toFixed(3)} kWh</strong></div>}
-                <button onClick={() => setSelectedIdx(null)} style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16 }}>✕</button>
+              <div style={{ margin: "10px 0", background: "var(--card-bg)", border: "2px solid #3b82f6", borderRadius: 8, overflow: "hidden" }}>
+                {/* Header */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", background: "#3b82f620", borderBottom: "1px solid #3b82f640" }}>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: "#3b82f6" }}>{timeLabel}</span>
+                  <button onClick={() => setSelectedIdx(null)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>✕</button>
+                </div>
+                {/* Frank data */}
+                <div style={{ padding: "8px 14px", borderBottom: "1px solid var(--border-color)" }}>
+                  <div style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Frank Energie</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 20px" }}>
+                    <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Verbruik: </span><strong>{(p.frank_kwh || 0).toFixed(3)} kWh</strong></div>
+                    {p.frank_cost_eur > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Kosten: </span><strong>€ {p.frank_cost_eur.toFixed(4)}</strong></div>}
+                    {pricePerKwh && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Prijs/kWh: </span><strong>€ {pricePerKwh.toFixed(4)}</strong></div>}
+                  </div>
+                </div>
+                {/* P1 data */}
+                <div style={{ padding: "8px 14px" }}>
+                  <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>P1 Meter</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 20px" }}>
+                    <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Import: </span><strong>{(p.p1_import_kwh || 0).toFixed(3)} kWh</strong></div>
+                    {p.p1_export_kwh > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Export: </span><strong>{(p.p1_export_kwh || 0).toFixed(3)} kWh</strong></div>}
+                    {p.p1_import_kwh > 0 && p.frank_kwh > 0 && (
+                      <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Verschil: </span>
+                        <strong style={{ color: Math.abs(p.p1_import_kwh - p.frank_kwh) < 0.05 ? "#10b981" : "#f59e0b" }}>
+                          {((p.p1_import_kwh - p.frank_kwh)).toFixed(3)} kWh
+                        </strong>
+                      </div>
+                    )}
+                    {p.p1_import_kwh === 0 && p.p1_export_kwh === 0 && (
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>Geen P1 data voor dit uur</div>
+                    )}
+                  </div>
+                </div>
               </div>
             );
           })()}
