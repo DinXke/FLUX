@@ -365,7 +365,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
 
         {/* Huis ↔ Bat */}
         <GlowArrow x1={batArrowX1} y1={midY} x2={batArrowX2} y2={midY}
-          color={batColor} active={batActive} reverse={!batDisch} power={batDisplayPower} />
+          color={batColor} active={batActive} reverse={batDisch} power={batDisplayPower} />
 
         {/* ── Power labels ── */}
 
