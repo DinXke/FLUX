@@ -597,38 +597,47 @@ def frank_consumption_test():
         yesterday = today - timedelta(days=1)
         results = {}
 
-        # Try many different field names that might exist for BE consumption
-        candidate_queries = {
-            "consumptionElectricity": f'query {{ consumptionElectricity(startDate: "{yesterday}", endDate: "{today}") {{ from till usage }} }}',
-            "consumption": f'query {{ consumption(date: "{yesterday}") {{ electricity {{ from till usage }} }} }}',
-            "periodConsumption": f'query {{ periodConsumption(startDate: "{yesterday}", endDate: "{today}") {{ from till usage }} }}',
-            "me_consumption": f'query {{ me {{ consumptionElectricity(startDate: "{yesterday}", endDate: "{today}") {{ from till usage }} }} }}',
-            "electricityConsumption": f'query {{ electricityConsumption(startDate: "{yesterday}", endDate: "{today}") {{ from till usage }} }}',
-            "usageElectricity": f'query {{ usageElectricity(startDate: "{yesterday}", endDate: "{today}") {{ from till usage }} }}',
-        }
+        FRANK_API_URL_BE = "https://graphql.frankenergie.be/"
 
-        headers_be = {
+        # One simple query to probe each URL — consumptionElectricity is the NL field
+        probe_gql = f'query {{ consumptionElectricity(startDate: "{yesterday}", endDate: "{today}") {{ from till usage }} }}'
+
+        def _try_query(url, gql, hdrs):
+            try:
+                r = _req.post(url, json={"query": gql}, headers=hdrs, timeout=10)
+                body = r.json()
+                data = body.get("data") or {}
+                errors = body.get("errors") or []
+                first_error = errors[0].get("message") if errors else None
+                return {
+                    "http_status": r.status_code,
+                    "data_keys": list(data.keys()) if isinstance(data, dict) else [],
+                    "error": first_error or data.get("error"),
+                    "raw": str(body)[:300],
+                }
+            except Exception as exc:
+                return {"error": str(exc)}
+
+        headers_nl = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {auth_token}",
-            "x-country": "BE",
             "x-graphql-client-name": "frank-app",
             "x-graphql-client-version": "4.13.3",
             "skip-graphcdn": "1",
         }
+        headers_be = {**headers_nl, "x-country": "BE"}
 
-        for name, gql in candidate_queries.items():
-            try:
-                r = _req.post(FRANK_API_URL, json={"query": gql}, headers=headers_be, timeout=10)
-                body = r.json()
-                data = body.get("data") or {}
-                errors = body.get("errors") or []
-                results[name] = {
-                    "data_keys": list(data.keys()) if isinstance(data, dict) else str(data)[:50],
-                    "has_error": bool(errors) or ("error" in (data or {})),
-                    "rows": len(list(data.values())[0]) if data and not errors and isinstance(list(data.values())[0], list) else 0
-                }
-            except Exception as exc:
-                results[name] = {"error": str(exc)}
+        # Test both API URLs with the same query
+        url_results = {
+            "nl_url_no_country_hdr": _try_query(FRANK_API_URL, probe_gql, headers_nl),
+            "nl_url_be_country_hdr": _try_query(FRANK_API_URL, probe_gql, headers_be),
+            "be_url_no_country_hdr": _try_query(FRANK_API_URL_BE, probe_gql, headers_nl),
+            "be_url_be_country_hdr": _try_query(FRANK_API_URL_BE, probe_gql, headers_be),
+        }
+
+        # Also probe with a simple __typename query to see if the BE URL is reachable
+        typename_gql = "query { __typename }"
+        url_results["be_url_typename"] = _try_query(FRANK_API_URL_BE, typename_gql, headers_be)
 
         frank_rows = _fetch_consumption(auth_token, today, tomorrow, country)
 
@@ -637,7 +646,7 @@ def frank_consumption_test():
             "country": country,
             "date_tested": str(yesterday),
             "rows_returned": len(frank_rows),
-            "candidate_queries": results
+            "url_tests": url_results,
         })
     except Exception as exc:
         log.error("Frank consumption test error: %s", exc, exc_info=True)
