@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.27.13] - 2026-04-25
+
+### Fixed
+- **Telegram werkt niet als SmartMarstek op andere server staat** ([SCH-737](/SCH/issues/SCH-737)): `localhost:3001` was hardcoded in `telegram.py` — onbereikbaar vanuit HA add-on op een andere machine. Fix: nieuwe instelling `telegram_comm_url` (standaard `http://localhost:3001`) die aanpasbaar is via de Telegram-instellingenpagina. Communicatieservice gebruikt nu `SMARTMARSTEK_URL` env-var i.p.v. hardcoded `localhost:5000`.
+
 ## [1.27.12] - 2026-04-25
 
 ### Fixed

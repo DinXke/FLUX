@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 
 log = logging.getLogger("telegram")
 
-COMM_SERVICE_URL = "http://localhost:3001/api/notify"
+_DEFAULT_COMM_URL = "http://localhost:3001"
 APPROVAL_TTL_S   = 1800  # 30 minutes
 
 _approvals_lock = threading.Lock()
@@ -86,9 +86,10 @@ def notify_event(
     if approval_id:
         body["approval_id"] = approval_id
 
+    comm_base = (s.get("telegram_comm_url") or _DEFAULT_COMM_URL).rstrip("/")
     try:
         data = json.dumps(body).encode()
-        req  = Request(COMM_SERVICE_URL, data=data, method="POST")
+        req  = Request(f"{comm_base}/api/notify", data=data, method="POST")
         req.add_header("Content-Type", "application/json")
         req.add_header("Content-Length", str(len(data)))
         with urlopen(req, timeout=5) as resp:

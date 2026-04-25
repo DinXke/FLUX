@@ -13,6 +13,7 @@ const EVENT_LABELS = {
 const DEFAULTS = {
   telegram_enabled:               false,
   telegram_chat_id:               "",
+  telegram_comm_url:              "http://localhost:3001",
   telegram_events: {
     plan_ready:              true,
     grid_charge_opportunity: true,
@@ -60,6 +61,7 @@ export default function TelegramSettings() {
         ...DEFAULTS,
         telegram_enabled:              d.telegram_enabled              ?? DEFAULTS.telegram_enabled,
         telegram_chat_id:              d.telegram_chat_id              ?? DEFAULTS.telegram_chat_id,
+        telegram_comm_url:             d.telegram_comm_url             ?? DEFAULTS.telegram_comm_url,
         telegram_events:               { ...DEFAULTS.telegram_events,  ...(d.telegram_events  || {}) },
         telegram_grid_price_threshold: d.telegram_grid_price_threshold ?? DEFAULTS.telegram_grid_price_threshold,
         telegram_grid_soc_threshold:   d.telegram_grid_soc_threshold   ?? DEFAULTS.telegram_grid_soc_threshold,
@@ -82,6 +84,7 @@ export default function TelegramSettings() {
         body: JSON.stringify({
           telegram_enabled:              vals.telegram_enabled,
           telegram_chat_id:              vals.telegram_chat_id,
+          telegram_comm_url:             vals.telegram_comm_url,
           telegram_events:               vals.telegram_events,
           telegram_grid_price_threshold: parseFloat(vals.telegram_grid_price_threshold) || 0.10,
           telegram_grid_soc_threshold:   parseInt(vals.telegram_grid_soc_threshold)     || 80,
@@ -125,6 +128,14 @@ export default function TelegramSettings() {
           onChange={(e) => setVals((s) => ({ ...s, telegram_chat_id: e.target.value }))}
           disabled={!vals.telegram_enabled}
           style={{ width: 160 }} />
+      </Row>
+
+      <Row label="Communicatieservice URL" desc="Adres van de Telegram bridge-service (pas aan als SmartMarstek op een andere server staat dan de bot)">
+        <input className="form-input" type="text" placeholder="http://192.168.1.x:3001"
+          value={vals.telegram_comm_url}
+          onChange={(e) => setVals((s) => ({ ...s, telegram_comm_url: e.target.value }))}
+          disabled={!vals.telegram_enabled}
+          style={{ width: 240 }} />
       </Row>
 
       <div className="settings-row-label" style={{ marginTop: 16, marginBottom: 4, fontWeight: 600 }}>

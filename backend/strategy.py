@@ -132,6 +132,7 @@ DEFAULT_SETTINGS = {
     # Telegram-notificaties via CommunicationAgent
     "telegram_enabled":            False,
     "telegram_chat_id":            "",
+    "telegram_comm_url":           "http://localhost:3001",
     "telegram_events": {
         "plan_ready":             True,
         "grid_charge_opportunity": True,
