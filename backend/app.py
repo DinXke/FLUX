@@ -4837,7 +4837,7 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
             log.warning("Modbus PV-limiter: kan niet verbinden met %s:%d", host, port)
             return False
         try:
-            result = client.write_registers(address=addr, values=[value], slave=unit_id)
+            result = client.write_registers(address=addr, values=[value], device_id=unit_id)
             if hasattr(result, "isError") and result.isError():
                 log.warning("Modbus PV-limiter: write_registers fout: %s", result)
                 return False
