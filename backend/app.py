@@ -688,6 +688,8 @@ def frank_consumption():
                     consumption_data[record_key] = {
                         "date": date_part,
                         "label": time_part,
+                        "from": row.get("from"),
+                        "till": row.get("till"),
                         "frank_kwh": 0.0,
                         "frank_cost_eur": 0.0,
                         "p1_import_kwh": 0.0,

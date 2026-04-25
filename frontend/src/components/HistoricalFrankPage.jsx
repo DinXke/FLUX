@@ -52,10 +52,11 @@ export default function HistoricalFrankPage() {
   const today = toIso(new Date());
 
   const [windowDays, setWindowDays] = useState(1);
-  const [startDate,  setStartDate]  = useState(today);
-  const [consumption, setConsumption] = useState([]);
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState(null);
+  const [startDate,    setStartDate]    = useState(today);
+  const [consumption,  setConsumption]  = useState([]);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState(null);
+  const [selectedIdx,  setSelectedIdx]  = useState(null);
 
   const endDate = addDays(startDate, windowDays - 1);
   const isToday = endDate >= today;
@@ -80,10 +81,11 @@ export default function HistoricalFrankPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const handlePrev = () => setStartDate(prev => addDays(prev, -windowDays));
-  const handleNext = () => { if (!isToday) setStartDate(prev => addDays(prev, windowDays)); };
+  const handlePrev = () => { setSelectedIdx(null); setStartDate(prev => addDays(prev, -windowDays)); };
+  const handleNext = () => { if (!isToday) { setSelectedIdx(null); setStartDate(prev => addDays(prev, windowDays)); } };
 
   const handlePeriod = (days) => {
+    setSelectedIdx(null);
     setWindowDays(days);
     setStartDate(addDays(today, -(days - 1)));
   };
@@ -154,34 +156,38 @@ export default function HistoricalFrankPage() {
           {/* Chart */}
           <div style={{ background: "var(--card-bg, #f9fafb)", borderRadius: 8, padding: "16px 12px 8px", border: "1px solid var(--border-color)" }}>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 200, overflowX: "auto", paddingBottom: 4 }}>
-              {aggregated.map((point, idx) => (
+              {aggregated.map((point, idx) => {
+                const isSelected = selectedIdx === idx;
+                return (
                 <div key={idx}
-                  title={`${point.label || point.date}: Frank ${(point.frank_kwh || 0).toFixed(3)} kWh${point.frank_cost_eur ? ` / €${point.frank_cost_eur.toFixed(3)}` : ""}${point.p1_import_kwh ? `, P1 ${point.p1_import_kwh.toFixed(3)} kWh` : ""}`}
-                  style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: windowDays === 1 ? 26 : 20, flex: 1 }}>
+                  onClick={() => setSelectedIdx(isSelected ? null : idx)}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: windowDays === 1 ? 26 : 20, flex: 1, cursor: "pointer",
+                    outline: isSelected ? "2px solid #3b82f6" : "none", borderRadius: 3 }}>
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: 178, width: "100%" }}>
                     <div style={{
                       flex: 1,
                       height: `${Math.max(0, (point.frank_kwh || 0) / maxKwh * 178)}px`,
                       minHeight: point.frank_kwh > 0 ? 2 : 0,
-                      background: "linear-gradient(to top, #2563eb, #60a5fa)",
+                      background: isSelected ? "linear-gradient(to top,#1d4ed8,#3b82f6)" : "linear-gradient(to top, #2563eb, #60a5fa)",
                       borderRadius: "3px 3px 0 0",
+                      transition: "background 0.1s",
                     }} />
                     {point.p1_import_kwh > 0 && (
                       <div style={{
                         flex: 1,
                         height: `${(point.p1_import_kwh / maxKwh) * 178}px`,
                         minHeight: 2,
-                        background: "linear-gradient(to top, #d97706, #fbbf24)",
+                        background: isSelected ? "linear-gradient(to top,#b45309,#f59e0b)" : "linear-gradient(to top, #d97706, #fbbf24)",
                         borderRadius: "3px 3px 0 0",
                         opacity: 0.85,
                       }} />
                     )}
                   </div>
-                  <div style={{ fontSize: 9, color: "var(--text-muted)", writingMode: "vertical-rl", transform: "rotate(180deg)", whiteSpace: "nowrap", maxHeight: 38, overflow: "hidden" }}>
+                  <div style={{ fontSize: 9, color: isSelected ? "#3b82f6" : "var(--text-muted)", fontWeight: isSelected ? 700 : 400, writingMode: "vertical-rl", transform: "rotate(180deg)", whiteSpace: "nowrap", maxHeight: 38, overflow: "hidden" }}>
                     {point.label || fmtDate(point.date)}
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
 
             {/* Legend */}
@@ -196,6 +202,25 @@ export default function HistoricalFrankPage() {
               </span>
             </div>
           </div>
+
+          {/* Selected bar detail */}
+          {selectedIdx !== null && aggregated[selectedIdx] && (() => {
+            const p = aggregated[selectedIdx];
+            const fromLocal = p.from ? new Date(p.from).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" }) : null;
+            const tillLocal = p.till ? new Date(p.till).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" }) : null;
+            const timeLabel = fromLocal && tillLocal ? `${fromLocal} – ${tillLocal}` : (p.label || fmtDate(p.date));
+            return (
+              <div style={{ margin: "10px 0", padding: "10px 14px", background: "var(--card-bg)", border: "2px solid #3b82f6", borderRadius: 8, display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: "#3b82f6", minWidth: 80 }}>{timeLabel}</div>
+                {p.frank_kwh > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)", marginRight: 4 }}>Frank:</span><strong>{(p.frank_kwh).toFixed(3)} kWh</strong></div>}
+                {p.frank_cost_eur > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)", marginRight: 4 }}>Kosten:</span><strong>€ {(p.frank_cost_eur).toFixed(3)}</strong></div>}
+                {p.frank_kwh > 0 && p.frank_cost_eur > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)", marginRight: 4 }}>Prijs/kWh:</span><strong>€ {(p.frank_cost_eur / p.frank_kwh).toFixed(3)}</strong></div>}
+                {p.p1_import_kwh > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)", marginRight: 4 }}>P1 import:</span><strong>{(p.p1_import_kwh).toFixed(3)} kWh</strong></div>}
+                {p.p1_export_kwh > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)", marginRight: 4 }}>P1 export:</span><strong>{(p.p1_export_kwh).toFixed(3)} kWh</strong></div>}
+                <button onClick={() => setSelectedIdx(null)} style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16 }}>✕</button>
+              </div>
+            );
+          })()}
 
           {/* Totals */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, marginTop: 10 }}>
