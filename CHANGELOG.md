@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.27.9] - 2026-04-25
+
+### Fixed
+- **`temperature` deprecated voor Claude 4.x modellen** ([SCH-740](/SCH/issues/SCH-740)): `temperature=0.1` verwijderd uit de Anthropic API-aanroep in `strategy_claude.py` — Sonnet 4.6 en Opus 4.7 ondersteunen deze parameter niet meer, wat een 400-fout veroorzaakte en een fallback naar de regelgebaseerde strategie.
+
 ## [1.27.8] - 2026-04-25
 
 ### Fixed

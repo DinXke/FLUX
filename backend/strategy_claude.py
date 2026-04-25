@@ -1097,7 +1097,6 @@ def build_plan_claude(
         response = client.messages.create(
             model=model,
             max_tokens=8192,
-            temperature=0.1,
             system=[{
                 "type": "text",
                 "text": _SYSTEM_PROMPT,
