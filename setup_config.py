@@ -6,6 +6,9 @@ and writes the individual settings JSON files that the Flask app reads.
 
 Only writes a file when the relevant option is non-empty, so users can still
 manage settings via the SmartMarstek web UI when they leave a field blank.
+
+In Standalone Docker mode, options.json won't exist – the app reads from
+environment variables via the Config abstraction layer instead.
 """
 import json
 import os
@@ -13,6 +16,7 @@ import sys
 
 DATA_DIR     = os.environ.get("MARSTEK_DATA_DIR", "/data")
 OPTIONS_FILE = "/data/options.json"
+STANDALONE_MODE = os.environ.get("STANDALONE_MODE", "").lower() == "true"
 
 
 def load_options() -> dict:
@@ -42,6 +46,11 @@ def write_if_changed(path: str, data: dict) -> None:
 
 
 def main():
+    if STANDALONE_MODE:
+        print("[setup_config] Standalone Docker mode detected – skipping options.json processing", flush=True)
+        print("[setup_config] Configuration will be read from environment variables via Config layer", flush=True)
+        return
+
     opts = load_options()
     if not opts:
         return
