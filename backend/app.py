@@ -101,7 +101,7 @@ def _effective_soc_limits(devices: dict, settings: dict) -> tuple[int, int]:
 # ESPHome helpers
 # ---------------------------------------------------------------------------
 
-def _get_esphome_inverter_state(ip: str, port: int) -> Optional[str]:
+def _get_esphome_inverter_state(ip: str, port: int):
     """
     Read the 'Inverter State' text entity from ESPHome SSE stream.
     Returns lowercase state string (e.g. 'ac bypass', 'charge') or None if unavailable.
