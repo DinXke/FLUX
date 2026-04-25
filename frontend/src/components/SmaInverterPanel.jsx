@@ -72,8 +72,7 @@ export default function SmaInverterPanel({ refreshTick }) {
   // Also refresh when parent dashboard refreshes
   useEffect(() => { if (refreshTick) fetch_data(); }, [refreshTick]);
 
-  // Don't render panel at all when reader is off and never got data
-  if (!loading && data && !data.online && !data.ts) return null;
+  // Never fully hide — always show so user can discover the feature
 
   const online  = data?.online ?? false;
   const pac     = data?.pac_w;
@@ -124,9 +123,13 @@ export default function SmaInverterPanel({ refreshTick }) {
           )}
 
           {!loading && !online && (
-            <div style={{ color: MUTED, fontSize: 13, padding: "8px 0" }}>
-              SMA reader niet verbonden of niet ingeschakeld.
-              Activeer de reader via <em>Instellingen → SMA Reader</em>.
+            <div style={{
+              fontSize: 13, padding: "8px 12px", borderRadius: 8,
+              background: "rgba(255,214,0,.06)", border: "1px dashed rgba(255,214,0,.25)",
+              color: MUTED,
+            }}>
+              SMA Modbus reader niet actief.
+              Ga naar <strong>Instellingen → Apparaten &amp; strategie → 📡 SMA Reader</strong> om het IP-adres in te stellen en de reader in te schakelen.
             </div>
           )}
 
