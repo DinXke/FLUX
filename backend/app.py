@@ -4622,7 +4622,7 @@ def _automation_tick() -> None:
     # Divide evenly across devices; Marstek expects watts as an integer.
     # Per-device max_soc overrides global setting for Charge to SoC.
     global_grid_charge_settings: dict = {}
-    if action == "grid_charge" and effective_action == "grid_charge":
+    if effective_action == "grid_charge":
         s_now      = load_strategy_settings()
         num_dev    = len(devices)
         total_w    = float(s_now.get("max_charge_kw", 3.0)) * 1000.0
