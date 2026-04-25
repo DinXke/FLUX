@@ -25,6 +25,8 @@ function Arrow({ x1, y1, x2, y2, color, active, reverse }) {
   const as = 6;
   const ax1 = ex - ux * as - uy * as * 0.6, ay1 = ey - uy * as + ux * as * 0.6;
   const ax2 = ex - ux * as + uy * as * 0.6, ay2 = ey - uy * as - ux * as * 0.6;
+  const bx1 = sx + ux * as - uy * as * 0.6, by1 = sy + uy * as + ux * as * 0.6;
+  const bx2 = sx + ux * as + uy * as * 0.6, by2 = sy + uy * as - ux * as * 0.6;
   return (
     <g>
       <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="#1e293b" strokeWidth={2.5} />
@@ -36,8 +38,11 @@ function Arrow({ x1, y1, x2, y2, color, active, reverse }) {
             dur="1.2s" repeatCount="indefinite" />
         </line>
       )}
-      {active && (
+      {active && !reverse && (
         <polygon points={`${ex},${ey} ${ax1},${ay1} ${ax2},${ay2}`} fill={color} opacity={0.9} />
+      )}
+      {active && reverse && (
+        <polygon points={`${sx},${sy} ${bx1},${by1} ${bx2},${by2}`} fill={color} opacity={0.9} />
       )}
     </g>
   );

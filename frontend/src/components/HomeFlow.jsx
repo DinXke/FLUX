@@ -113,6 +113,7 @@ function GlowArrow({ x1, y1, x2, y2, color, active, reverse, power }) {
   const ux = dx / len, uy = dy / len;
   const as = 7;
   const px = -uy * as * 0.55, py = ux * as * 0.55;
+  const bpx = uy * as * 0.55, bpy = -ux * as * 0.55;
   const dur = flowDur(power);
 
   return (
@@ -127,9 +128,16 @@ function GlowArrow({ x1, y1, x2, y2, color, active, reverse, power }) {
             from={reverse ? "0" : "56"} to={reverse ? "56" : "0"}
             dur={dur} repeatCount="indefinite" />
         </line>
-        <polygon
-          points={`${x2},${y2} ${x2 - ux * as + px},${y2 - uy * as + py} ${x2 - ux * as - px},${y2 - uy * as - py}`}
-          fill={color} opacity={0.9} />
+        {!reverse && (
+          <polygon
+            points={`${x2},${y2} ${x2 - ux * as + px},${y2 - uy * as + py} ${x2 - ux * as - px},${y2 - uy * as - py}`}
+            fill={color} opacity={0.9} />
+        )}
+        {reverse && (
+          <polygon
+            points={`${x1},${y1} ${x1 + ux * as + bpx},${y1 + uy * as + bpy} ${x1 + ux * as - bpx},${y1 + uy * as - bpy}`}
+            fill={color} opacity={0.9} />
+        )}
       </g>
     </g>
   );
