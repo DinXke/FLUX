@@ -20,6 +20,8 @@ from rte_calculator import measure_rte as _measure_rte
 from strategy import (load_strategy_settings, save_strategy_settings,
                       build_plan, split_days, read_soc_cache)
 from telegram import notify_event as _tg_notify, resolve_approval, get_pending_approvals
+from anomaly_detector import run_anomaly_detection, get_anomaly_summary
+from prophet_forecast import get_prophet_forecast
 
 import requests as _req  # aliased to avoid clash with flask.request
 import urllib3
@@ -3235,6 +3237,60 @@ def get_rte():
 
 
 # ---------------------------------------------------------------------------
+# Anomaly detection (stale sensors, unusual peaks, inverter faults)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/anomalies/detect", methods=["POST"])
+def post_anomalies_detect():
+    """Trigger anomaly detection scan and return findings."""
+    anomalies = run_anomaly_detection()
+    return jsonify(anomalies)
+
+
+@app.route("/api/anomalies/summary", methods=["GET"])
+def get_anomalies_summary():
+    """Get current anomaly state summary."""
+    summary = get_anomaly_summary()
+    return jsonify(summary)
+
+
+# ---------------------------------------------------------------------------
+# Prophet ML forecasting (consumption forecast)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/forecast/prophet", methods=["GET"])
+def get_forecast_prophet():
+    """
+    Get 7-day hourly consumption forecast using Prophet ML.
+    Uses cached forecast if <6 hours old, else trains new model on 32 days history.
+
+    Query params:
+      refresh=1 – force retraining (ignore cache)
+
+    Response:
+      {
+        "status": "success"|"error"|"insufficient_data",
+        "trained_on_points": int,
+        "trained_on_days": float,
+        "forecast_start": ISO timestamp,
+        "forecast_end": ISO timestamp,
+        "data": [
+          {
+            "timestamp": ISO timestamp,
+            "forecast": float (kWh),
+            "upper": float (95% CI),
+            "lower": float (95% CI)
+          },
+          ...
+        ]
+      }
+    """
+    use_cache = request.args.get("refresh", "0") != "1"
+    forecast = get_prophet_forecast(use_cache=use_cache)
+    return jsonify(forecast)
+
+
+# ---------------------------------------------------------------------------
 # InfluxDB connection scanner  (v1 + v2)
 # ---------------------------------------------------------------------------
 
@@ -5363,6 +5419,30 @@ def _start_automation_thread(interval: int = 60) -> None:
     pv.start()
     log.info("PV limiter background thread started (interval=15s)")
 
+
+def _start_anomaly_detection_thread(interval: int = 600) -> None:
+    """Start background thread for periodic anomaly detection (10 min interval)."""
+    import threading
+
+    def anomaly_loop():
+        import time as _time
+        while True:
+            try:
+                anomalies = run_anomaly_detection()
+                if anomalies.get("stale_sensors") or anomalies.get("unusual_peaks") or anomalies.get("inverter_faults"):
+                    log.info("Anomaly detection found issues: stale=%d peaks=%d faults=%d",
+                             len(anomalies.get("stale_sensors", {})),
+                             len(anomalies.get("unusual_peaks", {})),
+                             len(anomalies.get("inverter_faults", {})))
+                    # TODO: Send Telegram alert when anomalies detected
+            except Exception as exc:
+                log.warning("Anomaly detection thread error: %s", exc)
+            _time.sleep(interval)
+
+    t = threading.Thread(target=anomaly_loop, daemon=True, name="anomaly_detector")
+    t.start()
+    log.info("Anomaly detection background thread started (interval=%ds)", interval)
+
     def rolling_cap_loop():
         import time as _time
         while True:
@@ -5794,5 +5874,7 @@ if __name__ == "__main__":
     start_sma_reader(load_strategy_settings, interval=10)
     # Start automation background thread
     _start_automation_thread(interval=60)
+    # Start anomaly detection background thread
+    _start_anomaly_detection_thread(interval=600)
     print("Marstek Dashboard → http://localhost:5000")
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
