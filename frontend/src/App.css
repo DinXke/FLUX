@@ -1120,6 +1120,7 @@ html, body {
   cursor: pointer;
   transition: color 0.15s;
   min-width: 0;
+  min-height: 44px;
 }
 .mobile-nav-btn.active { color: var(--accent); }
 .mobile-nav-btn:hover  { color: var(--text); }

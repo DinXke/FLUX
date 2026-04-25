@@ -141,7 +141,7 @@ const NAV_ITEMS = [
   { id: "forecast",  icon: "☀️", label: "Voorspelling"     },
   { id: "strategy",  icon: "🧠", label: "Strategie"        },
   { id: "profit",    icon: "💰", label: "Winst"             },
-  { id: "frank",     icon: "📊", label: "Frank Historia"   },
+  { id: "frank",     icon: "📊", label: "Prijshistorie"     },
   { id: "settings",  icon: "⚙️", label: "Instellingen"     },
 ];
 

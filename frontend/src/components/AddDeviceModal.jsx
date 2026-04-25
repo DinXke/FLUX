@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 export default function AddDeviceModal({ onClose, onAdded }) {
   const [name, setName] = useState("");
@@ -8,6 +8,28 @@ export default function AddDeviceModal({ onClose, onAdded }) {
   const [maxSoc, setMaxSoc] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const modalRef = useRef(null);
+
+  useEffect(() => {
+    const modal = modalRef.current;
+    if (!modal) return;
+    const focusable = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    function onKeyDown(e) {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key !== "Tab") return;
+      const els = Array.from(modal.querySelectorAll(focusable)).filter((el) => !el.disabled);
+      if (!els.length) return;
+      const first = els[0];
+      const last = els[els.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -44,7 +66,7 @@ export default function AddDeviceModal({ onClose, onAdded }) {
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Add Device">
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Add Device" ref={modalRef}>
         <div className="modal-header">
           <span className="modal-title">Add Device</span>
           <button className="btn-icon btn" onClick={onClose} aria-label="Close">✕</button>
