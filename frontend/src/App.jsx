@@ -79,6 +79,32 @@ function UiVersionToggle() {
   );
 }
 
+function useUiMode() {
+  const [mode, setMode] = useState(
+    () => localStorage.getItem("marstek_ui_mode") || "classic"
+  );
+  useEffect(() => {
+    document.documentElement.setAttribute("data-ui-mode", mode);
+    localStorage.setItem("marstek_ui_mode", mode);
+  }, [mode]);
+  return [mode, setMode];
+}
+
+function UiModeToggle() {
+  const [mode, setMode] = useUiMode();
+  const isNew = mode === "new";
+  return (
+    <button
+      className="btn btn-ghost btn-sm ui-mode-toggle"
+      onClick={() => setMode(isNew ? "classic" : "new")}
+      title={isNew ? "Schakel naar Classic UI" : "Schakel naar New UI"}
+      style={{ gap: 4, fontSize: 12 }}
+    >
+      {isNew ? "🔁 Classic" : "🆕 New UI"}
+    </button>
+  );
+}
+
 function ThemeToggle() {
   const [theme, setTheme] = useTheme();
   const current = THEMES.find((t) => t.id === theme) || THEMES[0];
@@ -114,6 +140,8 @@ export default function App() {
     document.documentElement.setAttribute("data-view", view);
     const ui = localStorage.getItem("marstek_ui") || "old";
     document.documentElement.setAttribute("data-ui", ui);
+    const uiMode = localStorage.getItem("marstek_ui_mode") || "classic";
+    document.documentElement.setAttribute("data-ui-mode", uiMode);
   }, []);
   const [page, setPage]       = useState("batteries");
   const [devices, setDevices] = useState([]);
@@ -189,6 +217,7 @@ export default function App() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <ViewToggle />
+          <UiModeToggle />
           <ThemeToggle />
           <UiVersionToggle />
           {page === "batteries" && (

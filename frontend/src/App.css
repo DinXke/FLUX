@@ -2460,6 +2460,20 @@ html, body {
 /* stylelint-disable-next-line block-no-empty */
 [data-ui="new"] {}
 
+/* =========================================================
+   UI Mode gating (data-ui-mode="classic" | data-ui-mode="new")
+   UiModeToggle knop is standaard verborgen; voeg stijlen toe onder
+   [data-ui-mode="new"] om de knop automatisch zichtbaar te maken.
+   ========================================================= */
+
+.ui-mode-toggle { display: none; }
+
+/* stylelint-disable-next-line block-no-empty */
+[data-ui-mode="classic"] {}
+
+/* stylelint-disable-next-line block-no-empty */
+[data-ui-mode="new"] {}
+
 /* InfluxDB multi-battery entries */
 .influx-multi-entries {
   display: flex;
