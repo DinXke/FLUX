@@ -1,5 +1,84 @@
 # Changelog
 
+## [1.27.8] - 2026-04-25
+
+### Fixed
+- **import threading ontbrak in app.py** — NameError bij opstarten opgelost door ontbrekende import toe te voegen.
+- **Batterijpijlrichting in HomeFlow en EnergyMap** ([SCH-739](/SCH/issues/SCH-739)): pijlrichting voor lading/ontlading nu correct weergegeven na QA-validatie.
+
+## [1.27.6] - 2026-04-25
+
+### Added
+- **Modbus register scanner** ([SCH-737](/SCH/issues/SCH-737)): nieuw diagnosetool in het SMA-paneel dat alle beschikbare Modbus-registers van de SMA Sunny Boy uitleest voor troubleshooting.
+- **Telegram testknop in SMA-instellingen** ([SCH-737](/SCH/issues/SCH-737)): directe testknop om Telegram-notificaties vanuit het SMA-dashboard te verifiëren.
+
+### Fixed
+- **Correcte SMA Modbus registermap** ([SCH-737](/SCH/issues/SCH-737)): registermap bijgewerkt op basis van de Loxone-configuratie van de SMA Sunny Boy; vermijdt verkeerde registers bij poll.
+- **`device_id` ipv `slave` in pymodbus reads** ([SCH-737](/SCH/issues/SCH-737)): pymodbus ≥ 3.7 gebruikt `device_id` — oude `slave`-parameter veroorzaakte silent failures.
+- **Omgekeerde pijlrichting batterij bij reverse-flow** ([SCH-739](/SCH/issues/SCH-739)): pijl draait nu correct om bij teruglevering.
+
+## [1.27.0] - 2026-04-25
+
+### Added
+- **SMA Sunny Boy Modbus reader + dashboard + alerts** ([SCH-737](/SCH/issues/SCH-737)): volledig nieuw paneel in de UI voor de SMA Sunny Boy omvormer via Modbus TCP. Toont live AC-vermogen, dagopbrengst, foutcodes en stelt Telegram-alerts in bij fouten.
+- **Collapsible EnergyMap sectie op batterijen-pagina** ([SCH-735](/SCH/issues/SCH-735)): de energiestroomkaart is nu in- en uitklapbaar voor een compactere weergave.
+- **WCAG-fixes + hernoem nav-label naar Prijshistorie** ([SCH-736](/SCH/issues/SCH-736)): verbeterde toegankelijkheid (contrast, aria-labels) en duidelijker navigatielabel voor de Frank verbruikspagina.
+
+### Fixed
+- **SMA paneel altijd zichtbaar** ([SCH-737](/SCH/issues/SCH-737)): paneel wordt nu getoond ongeacht of er al een verbinding is, zodat configuratie altijd mogelijk is.
+- **localStorage-default niet opgeslagen bij eerste page-load EnergyMap** ([SCH-735](/SCH/issues/SCH-735)): standaardwaarden worden nu correct gepersisteerd bij het eerste laden.
+- **Click-outside handler voor ThemeToggle dropdown** ([SCH-733](/SCH/issues/SCH-733)): dropdown sluit nu correct wanneer er buiten geklikt wordt.
+
+## [1.26.43] - 2026-04-25
+
+### Changed
+- **Instellingen 11 tabs hergroeperen in 3 categorieën** ([SCH-734](/SCH/issues/SCH-734)): de elf instellingen-tabs zijn gehergroepeerd in drie categorieën (Systeem, Strategie, Integraties) voor een overzichtelijkere configuratie-UI.
+
+## [1.26.42] - 2026-04-25
+
+### Added
+- **UiVersionToggle in header** ([SCH-731](/SCH/issues/SCH-731)): nieuwe toggle in de header waarmee gebruikers kunnen schakelen tussen UI-versies.
+- **useUiMode hook + UiModeToggle** ([SCH-732](/SCH/issues/SCH-732)): centraal hook voor UI-modus beheer; nieuwe toggle-knop in de header.
+- **Theme-toggle dropdown vervangt cyclische knop** ([SCH-733](/SCH/issues/SCH-733)): thema-selectie via uitklapmenu (Dark / Light / Matrix / System) i.p.v. cyclische enkele knop — alle opties altijd direct zichtbaar.
+
+## [1.26.37] - 2026-04-25
+
+### Added
+- **Modbus TCP/IP aanstuurmodus voor PV-limiter** ([SCH-729](/SCH/issues/SCH-729)): de PV-limiter kan nu direct via Modbus TCP/IP communiceren met de SMA Sunny Boy (naast de bestaande ESPHome-modus).
+
+### Fixed
+- **FC6→FC16 Modbus write + register default 42062** ([SCH-729](/SCH/issues/SCH-729)): schrijven naar Modbus-register gebruikte Function Code 6 i.p.v. FC16; standaard register voor SMA Sunny Boy gecorrigeerd naar 42062.
+- **Modbus TCP/IP guard** ([SCH-729](/SCH/issues/SCH-729)): `pv_limiter_use_modbus`-check passeerde de early-return guard niet — Modbus-pad werd nooit bereikt.
+- **pymodbus `slave` → `device_id`** ([SCH-729](/SCH/issues/SCH-729)): pymodbus ≥ 3.7.0 vereist `device_id` als parameter; dependency bijgewerkt naar `>=3.7.0`.
+
+## [1.26.35] - 2026-04-25
+
+### Fixed
+- **Automation overgeslagen bij AC Bypass of Fault inverter status** ([SCH-726](/SCH/issues/SCH-726)): automatisering stuurt nu geen commando's meer als de omvormer in AC Bypass of Fault staat om ongewenste acties te voorkomen.
+- **Optional type hint crashte app bij opstarten** ([SCH-726](/SCH/issues/SCH-726)): `Optional`-type hint zonder import veroorzaakte een `NameError` bij het starten van de applicatie.
+
+## [1.26.32] - 2026-04-25
+
+### Added
+- **Zwevend netsaldo-plafond met PV-first prioriteit** ([SCH-727](/SCH/issues/SCH-727)): nieuw instelbaar netsaldo-plafond (W) dat dynamisch meeschuift — zonnestroom heeft altijd prioriteit, net vult enkel aan wanneer noodzakelijk.
+
+### Fixed
+- **Batterij ontlaadt niet meer bij negatieve marktprijzen** ([SCH-726](/SCH/issues/SCH-726)): automatisering blokkeerde ontlading ten onrechte ook bij negatieve prijzen; logica gecorrigeerd.
+- **Forcible Charge Power altijd sturen bij grid_charge override** ([SCH-726](/SCH/issues/SCH-726)): bij een handmatige netlaadinstructie werd het vermogenscommando niet altijd meegezonden; nu consequent.
+
+## [1.26.6] - 2026-04-24
+
+### Added
+- **Frank Verbruikshistorie pagina** ([SCH-717](/SCH/issues/SCH-717)): nieuw tabblad met historisch verbruik via de Frank Energie API, met dag/week/maand-aggregatie en klikbare balkjes voor detailweergave.
+- **P1 meter overlay** ([SCH-717](/SCH/issues/SCH-717)): P1-nettoverbruik (import − export) als lijndiagram én gegroepeerde balkjes naast de Frank-bars; fallback naar externe InfluxDB als lokale tellers ontbreken.
+- **Belgisch verbruik via periodUsageAndCosts** ([SCH-717](/SCH/issues/SCH-717)): BE-gebruikers krijgen verbruiksdata via de correcte Frank BE GraphQL-query inclusief `userSites`-authenticatie.
+- **Auto-renew verlopen Frank token** ([SCH-717](/SCH/issues/SCH-717)): verlopen access tokens worden automatisch ververst via `refreshToken` zonder handmatige herlogin.
+- **Frank API debug panel** ([SCH-717](/SCH/issues/SCH-717)): debug-knop in de UI toont API-fouten en ruwe queryresultaten voor probleemoplossing.
+
+### Fixed
+- **Frank verbruik data-aggregatie over meerdere dagen** ([SCH-717](/SCH/issues/SCH-717)): data van meerdere dagen werd niet correct samengevoegd; aggregatie gecorrigeerd.
+- **Relatieve fetch URL achter HA Ingress** ([SCH-717](/SCH/issues/SCH-717)): absolute URL veroorzaakte 404 bij gebruik via Home Assistant Ingress-proxy; omgezet naar relatief pad.
+
 ## [1.26.1] - 2026-04-24
 
 ### Added
