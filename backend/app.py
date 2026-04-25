@@ -4813,7 +4813,7 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
     host     = (s.get("pv_limiter_modbus_host") or "").strip()
     port     = int(s.get("pv_limiter_modbus_port", 502))
     unit_id  = int(s.get("pv_limiter_modbus_unit_id", 3))
-    reg_raw  = int(s.get("pv_limiter_modbus_register", 40236))
+    reg_raw  = int(s.get("pv_limiter_modbus_register", 42062))
     val_mode = (s.get("pv_limiter_modbus_value_mode") or "W").upper()
     max_w    = int(s.get("pv_limiter_max_w", 4000))
 
@@ -4837,9 +4837,9 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
             log.warning("Modbus PV-limiter: kan niet verbinden met %s:%d", host, port)
             return False
         try:
-            result = client.write_register(address=addr, value=value, slave=unit_id)
+            result = client.write_registers(address=addr, values=[value], slave=unit_id)
             if hasattr(result, "isError") and result.isError():
-                log.warning("Modbus PV-limiter: write_register fout: %s", result)
+                log.warning("Modbus PV-limiter: write_registers fout: %s", result)
                 return False
             log.debug("Modbus PV-limiter: %dW → %s:%d reg %d (addr=%d) unit=%d val=%d",
                       target_w, host, port, reg_raw, addr, unit_id, value)

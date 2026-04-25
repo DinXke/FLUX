@@ -98,7 +98,7 @@ export default function PvLimiterSettings() {
   const [modbusHost,    setModbusHost]    = useState("");
   const [modbusPort,    setModbusPort]    = useState(502);
   const [modbusUnitId,  setModbusUnitId]  = useState(3);
-  const [modbusReg,     setModbusReg]     = useState(40236);
+  const [modbusReg,     setModbusReg]     = useState(42062);
   const [modbusValMode, setModbusValMode] = useState("W");
   // Shared
   const [minW,            setMinW]            = useState(0);
@@ -140,7 +140,7 @@ export default function PvLimiterSettings() {
         setModbusHost(d.pv_limiter_modbus_host ?? "");
         setModbusPort(d.pv_limiter_modbus_port ?? 502);
         setModbusUnitId(d.pv_limiter_modbus_unit_id ?? 3);
-        setModbusReg(d.pv_limiter_modbus_register ?? 40236);
+        setModbusReg(d.pv_limiter_modbus_register ?? 42062);
         setModbusValMode(d.pv_limiter_modbus_value_mode ?? "W");
         setMinW(d.pv_limiter_min_w ?? 0);
         setMaxW(d.pv_limiter_max_w ?? 4000);
@@ -378,8 +378,8 @@ export default function PvLimiterSettings() {
             <div>
               <div className="settings-row-label">Register (1-gebaseerd)</div>
               <div className="settings-row-desc">
-                SMA WMaxLimPct = <code>40236</code>. Gebruik het adres zoals vermeld in de
-                SMA Modbus documentatie (1-gebaseerd).
+                SMA Sunny Boy W-limiet (aanbevolen): <code>42062</code> · WMaxLimPct (%): <code>40236</code>.
+                Gebruik het adres zoals vermeld in de SMA Modbus documentatie (1-gebaseerd).
               </div>
             </div>
             <input className="form-input" type="number" style={{ width: 90 }}
