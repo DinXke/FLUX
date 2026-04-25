@@ -544,31 +544,25 @@ def _fetch_consumption(auth_token: str | None, start: date, end: date,
                 log.warning("No BE siteReference — cannot fetch consumption")
                 return []
 
-            # periodUsageAndCosts returns a full month; cache per month
-            month_key = f"{start.year}-{start.month:02d}"
-            period_cache_key = f"{cache_key}_{month_key}"
-            if period_cache_key not in _be_period_cache:
-                month_start = date(start.year, start.month, 1)
+            # periodUsageAndCosts returns ONE day of data per call (24 items)
+            day_cache_key = f"{cache_key}_{str(start)}"
+            if day_cache_key not in _be_period_cache:
                 try:
                     p_data = _frank_request(
                         _QUERY_BE_PERIOD_CONSUMPTION,
-                        {"date": str(month_start), "siteReference": site_ref},
+                        {"date": str(start), "siteReference": site_ref},
                         auth_token=auth_token, country="BE",
                     )
                     period = p_data.get("periodUsageAndCosts") or {}
                     electricity = period.get("electricity") or {}
                     items = electricity.get("items") or []
-                    log.info("BE period consumption month=%s  items=%d", month_key, len(items))
-                    _be_period_cache[period_cache_key] = items
+                    log.info("BE period consumption day=%s  items=%d", start, len(items))
+                    _be_period_cache[day_cache_key] = items
                 except Exception as exc:
-                    log.warning("BE period consumption month=%s error: %s", month_key, exc)
-                    _be_period_cache[period_cache_key] = []
+                    log.warning("BE period consumption day=%s error: %s", start, exc)
+                    _be_period_cache[day_cache_key] = []
 
-            all_items = _be_period_cache.get(period_cache_key, [])
-            # Filter to the requested day
-            day_str = str(start)
-            rows = [item for item in all_items
-                    if (item.get("date") or item.get("from", ""))[:10] == day_str]
+            rows = _be_period_cache.get(day_cache_key, [])
         else:  # NL
             data = _frank_request(_QUERY_NL_CONSUMPTION,
                                    {"startDate": str(start), "endDate": str(end)},
@@ -661,18 +655,32 @@ def frank_consumption():
         log.info("Fetching consumption  startDate=%s  endDate=%s  country=%s",
                  start.isoformat(), end.isoformat(), country)
 
+        # For BE: pre-fetch all days in parallel (periodUsageAndCosts is 1 call/day)
+        all_days = []
+        d = start
+        while d <= end:
+            all_days.append(d)
+            d += timedelta(days=1)
+
+        if country == "BE" and len(all_days) > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                list(pool.map(
+                    lambda day: _fetch_consumption(auth_token, day, day + timedelta(days=1), country),
+                    all_days,
+                ))
+
         # Fetch Frank consumption and P1 meter data for each day in range
         consumption_data = {}
-        current_day = start
-        day_count = 0
-        while current_day <= end:
+        for current_day in all_days:
             day_key = current_day.isoformat()
 
-            # Fetch Frank consumption
+            # Fetch Frank consumption (cached for BE after pre-fetch above)
             frank_rows = _fetch_consumption(auth_token, current_day, current_day + timedelta(days=1), country)
             for row in frank_rows:
                 from_time = row.get("from", "")
-                date_part = from_time.split("T")[0] if "T" in from_time else day_key
+                # BE items have a local-timezone 'date' field; use it to avoid UTC-midnight drift
+                date_part = row.get("date") or (from_time.split("T")[0] if "T" in from_time else day_key)
                 time_part = from_time.split("T")[1][:5] if "T" in from_time else "00:00"
                 record_key = f"{date_part}_{time_part}"
 
@@ -681,10 +689,12 @@ def frank_consumption():
                         "date": date_part,
                         "label": time_part,
                         "frank_kwh": 0.0,
+                        "frank_cost_eur": 0.0,
                         "p1_import_kwh": 0.0,
                         "p1_export_kwh": 0.0,
                     }
-                consumption_data[record_key]["frank_kwh"] = float(row.get("usage", 0)) if row.get("usage") else 0.0
+                consumption_data[record_key]["frank_kwh"] = float(row.get("usage") or 0)
+                consumption_data[record_key]["frank_cost_eur"] = float(row.get("costs") or 0)
 
             # Fetch P1 meter data
             p1_data = query_hourly_import_export_kwh(day_key)
@@ -696,13 +706,12 @@ def frank_consumption():
                         "date": day_key,
                         "label": label_hour,
                         "frank_kwh": 0.0,
+                        "frank_cost_eur": 0.0,
                         "p1_import_kwh": 0.0,
                         "p1_export_kwh": 0.0,
                     }
                 consumption_data[record_key]["p1_import_kwh"] = p1_hour_data.get("import_kwh", 0.0)
                 consumption_data[record_key]["p1_export_kwh"] = p1_hour_data.get("export_kwh", 0.0)
-
-            current_day += timedelta(days=1)
 
         # Convert dict to sorted list
         result = sorted(consumption_data.values(), key=lambda x: (x["date"], x["label"]))
