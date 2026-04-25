@@ -4133,11 +4133,18 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
     _auto_info       = None
     _mode_configured = s.get("strategy_mode", "rule_based")
 
-    def _build_with_claude(s_in: dict, *, model_override: str | None = None) -> tuple:
-        """Call Claude engine; return (plan, debug). Raises on failure."""
+    def _build_with_claude(s_in: dict, *, model_override: str | None = None,
+                          provider_override: str | None = None) -> tuple:
+        """Call AI engine (Claude/OpenAI); return (plan, debug). Raises on failure."""
         s_c = dict(s_in)
+        if provider_override:
+            s_c["strategy_ai_provider"] = provider_override
         if model_override:
-            s_c["claude_model"] = model_override
+            # Infer whether model is Claude or OpenAI based on model ID
+            if "gpt" in model_override.lower() or model_override in ("o1", "o3"):
+                s_c["openai_model"] = model_override
+            else:
+                s_c["claude_model"] = model_override
         import strategy_claude as _sc_mod
         _plan = _sc_mod.build_plan_claude(prices, solar_wh, consumption_by_hour, soc_now, s_c,
                                           today_actuals=today_actuals)
@@ -4186,19 +4193,23 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
         _cached_fp  = _plan_cache.get("price_fingerprint")
         _have_cache = bool(_plan_cache.get("result"))
 
-        if _selected == "claude":
+        if _selected in ("claude", "openai"):
             if not force_claude and _have_cache and _cached_fp == _price_fp:
-                log.info("_compute_forward_plan: auto/Claude – prices unchanged, serving cache")
+                log.info("_compute_forward_plan: auto/%s – prices unchanged, serving cache", _selected)
                 _plan_cache["result"]["soc_now"]    = soc_now
                 _plan_cache["result"]["engine_auto_info"] = _auto_info
                 return _plan_cache["result"]
             s_eff = _apply_device_soc(s)
             try:
-                plan, _claude_debug = _build_with_claude(s_eff, model_override=_auto_info.get("model"))
-                log.info("_compute_forward_plan: auto/Claude done  fallback=%s",
-                         _claude_debug.get("fallback"))
+                plan, _claude_debug = _build_with_claude(
+                    s_eff,
+                    model_override=_auto_info.get("model"),
+                    provider_override=_selected if _selected in ("claude", "openai") else None
+                )
+                log.info("_compute_forward_plan: auto/%s done  fallback=%s",
+                         _selected, _claude_debug.get("fallback"))
             except Exception as _ce:
-                log.warning("_compute_forward_plan: auto/Claude failed (%s) — rule-based fallback", _ce)
+                log.warning("_compute_forward_plan: auto/%s failed (%s) — rule-based fallback", _selected, _ce)
                 plan = build_plan(prices, solar_wh, consumption_by_hour, soc_now, s_eff)
                 _selected = "rule_based"
         else:

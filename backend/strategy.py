@@ -101,18 +101,28 @@ DEFAULT_SETTINGS = {
     # Strategy engine: "rule_based" (default), "claude", or "auto"
     # "auto": picks rule_based on flat days, Claude on complex/negative-price days
     "strategy_mode":        "rule_based",
-    # Anthropic API key (only used when strategy_mode = "claude" or "auto")
+    # AI provider selection for strategy: "claude", "openai", or "auto"
+    # "auto": picks rule_based on flat days, Claude/OpenAI on complex/negative-price days
+    "strategy_ai_provider":  "claude",
+    # Anthropic API key (used when strategy_ai_provider = "claude" or "auto")
     "claude_api_key":       "",
     # Claude model to use for planning (Sonnet = recommended; Haiku = cheapest/fastest)
     "claude_model":         "claude-sonnet-4-6",
+    # OpenAI API key (used when strategy_ai_provider = "openai" or "auto")
+    "openai_api_key":       "",
+    # OpenAI model to use for planning (gpt-4o = recommended; gpt-4o-mini = cheaper)
+    # Available: gpt-4o, gpt-4o-mini, o1, o3
+    "openai_model":         "gpt-4o",
     # Auto-engine selection thresholds (only used when strategy_mode = "auto")
     # p75−p25 < auto_complexity_threshold AND no negatives → rule_based (flat day)
-    # p75−p25 ≥ auto_complexity_high_threshold OR negatives → Claude Sonnet (complex)
-    # in between → Claude Haiku (average day)
+    # p75−p25 ≥ auto_complexity_high_threshold OR negatives → Claude Sonnet/gpt-4o (complex)
+    # in between → Claude Haiku/gpt-4o-mini (average day)
     "auto_complexity_threshold":      0.03,
     "auto_complexity_high_threshold": 0.06,
     "auto_claude_model_simple":       "claude-haiku-4-5-20251001",
     "auto_claude_model_complex":      "claude-sonnet-4-6",
+    "auto_openai_model_simple":       "gpt-4o-mini",
+    "auto_openai_model_complex":      "gpt-4o",
     # Capaciteitstarief-bescherming (België: maandelijkse piekkwartier)
     # Als actief_net + geplande_charge > cap_tariff_max_grid_w: proportioneel afknijpen/blokkeren.
     "cap_tariff_enabled":    False,
@@ -169,8 +179,9 @@ def compute_price_complexity(prices: list, settings: Optional[dict] = None) -> d
     Analyse price spread to choose the right engine for auto mode.
 
     Returns a dict with:
-      selected_engine: "rule_based" | "claude"
-      model:           claude model id, or None for rule_based
+      selected_engine: "rule_based" | "claude" | "openai"
+      model:           model id, or None for rule_based
+      provider:        "claude", "openai", or None
       complexity:      "flat" | "average" | "complex"
       spread_eur_kwh:  p75 − p25 of market prices
       has_negative:    any price < 0
@@ -179,14 +190,22 @@ def compute_price_complexity(prices: list, settings: Optional[dict] = None) -> d
     s = settings or load_strategy_settings()
     threshold_low  = float(s.get("auto_complexity_threshold",      0.03))
     threshold_high = float(s.get("auto_complexity_high_threshold", 0.06))
-    model_simple   = s.get("auto_claude_model_simple",  "claude-haiku-4-5-20251001")
-    model_complex  = s.get("auto_claude_model_complex", "claude-sonnet-4-6")
+    ai_provider    = s.get("strategy_ai_provider", "claude").lower()
+
+    if ai_provider == "openai":
+        model_simple   = s.get("auto_openai_model_simple",  "gpt-4o-mini")
+        model_complex  = s.get("auto_openai_model_complex", "gpt-4o")
+        provider       = "openai"
+    else:  # default to claude
+        model_simple   = s.get("auto_claude_model_simple",  "claude-haiku-4-5-20251001")
+        model_complex  = s.get("auto_claude_model_complex", "claude-sonnet-4-6")
+        provider       = "claude"
 
     vals = [float(p["marketPrice"]) for p in (prices or [])
             if p.get("marketPrice") is not None]
     if not vals:
         return {
-            "selected_engine": "rule_based", "model": None,
+            "selected_engine": "rule_based", "model": None, "provider": None,
             "complexity": "flat", "spread_eur_kwh": 0.0, "has_negative": False,
             "reason": "geen prijsdata beschikbaar",
         }
@@ -200,8 +219,8 @@ def compute_price_complexity(prices: list, settings: Optional[dict] = None) -> d
 
     if spread < threshold_low and not has_negative:
         return {
-            "selected_engine": "rule_based", "model": None, "complexity": "flat",
-            "spread_eur_kwh": spread, "has_negative": False,
+            "selected_engine": "rule_based", "model": None, "provider": None,
+            "complexity": "flat", "spread_eur_kwh": spread, "has_negative": False,
             "reason": (f"vlakke dag — spread {spread*100:.1f}ct < {threshold_low*100:.0f}ct, "
                        "geen negatieve prijzen"),
         }
@@ -213,14 +232,14 @@ def compute_price_complexity(prices: list, settings: Optional[dict] = None) -> d
         if spread >= threshold_high:
             parts.append(f"grote spread {spread*100:.1f}ct ≥ {threshold_high*100:.0f}ct")
         return {
-            "selected_engine": "claude", "model": model_complex, "complexity": "complex",
-            "spread_eur_kwh": spread, "has_negative": has_negative,
+            "selected_engine": provider, "model": model_complex, "provider": provider,
+            "complexity": "complex", "spread_eur_kwh": spread, "has_negative": has_negative,
             "reason": f"complexe dag — {', '.join(parts)}",
         }
 
     return {
-        "selected_engine": "claude", "model": model_simple, "complexity": "average",
-        "spread_eur_kwh": spread, "has_negative": False,
+        "selected_engine": provider, "model": model_simple, "provider": provider,
+        "complexity": "average", "spread_eur_kwh": spread, "has_negative": False,
         "reason": (f"gemiddelde dag — spread {spread*100:.1f}ct "
                    f"({threshold_low*100:.0f}–{threshold_high*100:.0f}ct)"),
     }

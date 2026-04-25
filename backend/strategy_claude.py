@@ -739,21 +739,29 @@ def build_plan_claude(
     """
     from strategy import (build_plan, load_strategy_settings,
                           SOLAR_CHARGE, GRID_CHARGE, SAVE, DISCHARGE, NEUTRAL)
+    from llm_provider import get_provider
 
     s = settings or load_strategy_settings()
 
-    api_key = s.get("claude_api_key", "").strip()
+    # Determine which provider and API key to use
+    ai_provider = s.get("strategy_ai_provider", "claude").lower()
+    if ai_provider == "openai":
+        api_key = s.get("openai_api_key", "").strip()
+        model = s.get("openai_model", "gpt-4o")
+    else:  # default to claude
+        api_key = s.get("claude_api_key", "").strip()
+        model = s.get("claude_model", "claude-sonnet-4-6")
+
     if not api_key:
-        log.warning("strategy_claude: no API key configured — falling back to rule-based")
-        _set_debug(fallback=True, fallback_reason="Geen API-sleutel geconfigureerd")
+        log.warning("strategy_claude: no API key configured for %s — falling back to rule-based", ai_provider)
+        _set_debug(fallback=True, fallback_reason=f"Geen API-sleutel voor {ai_provider}")
         return build_plan(prices, solar_wh, consumption_by_hour, bat_soc_now, s,
                           start_dt, num_slots)
 
-    try:
-        import anthropic
-    except ImportError:
-        log.error("strategy_claude: 'anthropic' package not installed — falling back")
-        _set_debug(fallback=True, fallback_reason="'anthropic' package niet geïnstalleerd")
+    provider = get_provider(ai_provider, api_key, model)
+    if not provider:
+        log.error("strategy_claude: unknown provider '%s' — falling back to rule-based", ai_provider)
+        _set_debug(fallback=True, fallback_reason=f"Onbekende AI provider: {ai_provider}")
         return build_plan(prices, solar_wh, consumption_by_hour, bat_soc_now, s,
                           start_dt, num_slots)
 
@@ -781,7 +789,6 @@ def build_plan_claude(
     }
     tz_name       = s.get("timezone", "Europe/Brussels")
     tz            = ZoneInfo(tz_name)
-    model         = s.get("claude_model", "claude-haiku-4-5-20251001")
 
     bat_min = min_soc_f * cap_kwh
     bat_max = max_soc_f * cap_kwh
@@ -1088,61 +1095,49 @@ def build_plan_claude(
         },
     }
 
-    log.info("strategy_claude: calling model=%s  slots=%d  breakeven=%.3f",
-             model, len(slots_input), breakeven or 0)
+    log.info("strategy_claude: calling %s model=%s  slots=%d  breakeven=%.3f",
+             ai_provider, model, len(slots_input), breakeven or 0)
+
+    user_message = (
+        "Hier zijn de batterijparameters en de geplande uren voor de komende 48 uur. "
+        "Analyseer de prijscurve en stel het optimale laadplan op:\n\n"
+        f"```json\n{json.dumps(payload, ensure_ascii=False, indent=2)}\n```"
+    )
 
     t0 = _time.monotonic()
-    try:
-        client   = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model=model,
-            max_tokens=8192,
-            system=[{
-                "type": "text",
-                "text": _SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            tools=[tool_def],
-            tool_choice={"type": "tool", "name": "submit_battery_plan"},
-            messages=[{
-                "role":    "user",
-                "content": (
-                    "Hier zijn de batterijparameters en de geplande uren voor de komende 48 uur. "
-                    "Analyseer de prijscurve en stel het optimale laadplan op:\n\n"
-                    f"```json\n{json.dumps(payload, ensure_ascii=False, indent=2)}\n```"
-                ),
-            }],
-        )
-    except Exception as exc:
-        elapsed = round(_time.monotonic() - t0, 2)
-        log.error("strategy_claude: API call failed (%.1fs): %s — falling back", elapsed, exc)
+    tool_response = provider.call_with_tool(
+        system_prompt=_SYSTEM_PROMPT,
+        user_message=user_message,
+        tool_def=tool_def,
+        tool_name="submit_battery_plan",
+        max_tokens=8192,
+    )
+    elapsed = round(_time.monotonic() - t0, 2)
+
+    if not tool_response:
+        log.error("strategy_claude: API call failed (%.1fs) — falling back", elapsed)
         _set_debug(
             fallback=True,
-            fallback_reason=f"API-fout: {exc}",
+            fallback_reason="API-fout: geen tool response",
             model=model,
+            provider=ai_provider,
             elapsed_s=elapsed,
         )
         return build_plan(prices, solar_wh, consumption_by_hour, bat_soc_now, s,
                           start_dt, num_slots)
 
-    elapsed = round(_time.monotonic() - t0, 2)
-
     # ── Parse tool-use response ───────────────────────────────────────────
     VALID_ACTIONS = {SOLAR_CHARGE, GRID_CHARGE, SAVE, DISCHARGE, NEUTRAL}
     plan_actions: dict[str, tuple[str, str]] = {}
-    raw_plan_items: list = []
+    raw_plan_items = tool_response.get("plan", [])
 
-    for block in response.content:
-        if getattr(block, "type", None) == "tool_use" and block.name == "submit_battery_plan":
-            raw_plan_items = block.input.get("plan", [])
-            for item in raw_plan_items:
-                t = str(item.get("time", "")).strip()
-                a = str(item.get("action", "neutral"))
-                r = str(item.get("reason", ""))
-                if a not in VALID_ACTIONS:
-                    a = NEUTRAL
-                plan_actions[t] = (a, r)
-            break
+    for item in raw_plan_items:
+        t = str(item.get("time", "")).strip()
+        a = str(item.get("action", "neutral"))
+        r = str(item.get("reason", ""))
+        if a not in VALID_ACTIONS:
+            a = NEUTRAL
+        plan_actions[t] = (a, r)
 
     # ── Post-processing: failsafe overrides ──────────────────────────────
     # Rule 1: save + solar surplus + battery not full → solar_charge

@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.27.14] - 2026-04-25
+
+### Added
+- **Multi-model AI support: Claude + OpenAI** ([SCH-754](/SCH/issues/SCH-754)): strategiemotor ondersteunt nu zowel Anthropic Claude als OpenAI (gpt-4o, gpt-4o-mini, o1, o3). Nieuwe instellingen `strategy_ai_provider` ("claude" | "openai" | "auto"), `openai_api_key` en `openai_model` bepalen welke AI-provider en welk model worden gebruikt. LLM-abstractielaag (`llm_provider.py`) verwerkt beide APIs met eenheid tool-use-aanroepen. Auto-mode kiest nu automatisch Claude of OpenAI op basis van prijscomplexiteit.
+
+### Changed
+- **Settings uitgebreid voor OpenAI**: `claude_api_key` en `claude_model` blijven werken voor Claude-gebruikers; nieuwe `openai_api_key` en `openai_model` velden voor OpenAI.
+- **Backward compatible**: bestaande Claude-setups werken ongewijzigd (standaard blijft `strategy_ai_provider: "claude"`).
+
 ## [1.27.13] - 2026-04-25
 
 ### Fixed
