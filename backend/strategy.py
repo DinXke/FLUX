@@ -453,7 +453,11 @@ def build_plan(
 
         # ── Decision logic ───────────────────────────────────────────────────
 
-        if buy_price is not None and buy_price < neg_dis_thresh:
+        # When the raw market price is negative, never allow discharge — even if
+        # markup pushes the effective buy_price above the threshold.
+        _raw_is_neg = price_raw is not None and price_raw < 0
+
+        if buy_price is not None and (buy_price < neg_dis_thresh or _raw_is_neg):
             # Negative/below-threshold price: always GRID_CHARGE regardless of SOC.
             # Consuming from grid is FREE or PAID — signal GRID_CHARGE so inverter
             # pulls from grid even when battery is full.
@@ -522,9 +526,11 @@ def build_plan(
                 remaining_solar_today_wh / 1000.0 * rte >= (bat_max - bat_kwh) - 0.1
             )
 
-            if _upcoming_neg and bat_kwh > bat_min + 0.2:
+            if _upcoming_neg and bat_kwh > bat_min + 0.2 and not _raw_is_neg:
                 # Negative price expected within lookahead window: discharge now to
                 # create battery headroom for free/paid grid charging later.
+                # Guard: skip if the current raw market price is already negative —
+                # discharging at negative prices is wasteful (you could be charging).
                 discharge_possible = min(max(0.0, -net_wh) / 1000.0, bat_kwh - bat_min)
                 if discharge_possible > 0.05:
                     bat_kwh      -= discharge_possible

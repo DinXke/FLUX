@@ -4555,9 +4555,55 @@ def _automation_tick() -> None:
                 log.info("Automation: cap tariff block net=%.0fW >= max=%.0fW → save",
                          _cap_live_net_w, _cap_max_w)
 
+    # ── Negatieve marktprijs veiligheidsnet ─────────────────────────────────
+    # Als de live marktprijs (zonder markup) negatief is, nooit ontladen.
+    # Vangt gevallen op waar plan of overrides de verkeerde actie geven —
+    # bijv. als markup de effectieve prijs boven 0 duwt maar de marktprijs
+    # al negatief is, of als het inverter terugschakelt naar anti-feed.
+    try:
+        _plan_slots_now = _plan_cache.get("slots", [])
+        _tz_ng = ZoneInfo(_entsoe_settings().get("timezone", "Europe/Brussels"))
+        _now_h_ng = datetime.now(_tz_ng).hour
+        _cur_slot_ng = next((sl for sl in _plan_slots_now if sl.get("hour") == _now_h_ng), None)
+        if _cur_slot_ng:
+            _raw_mkt_price = _cur_slot_ng.get("price_raw")
+            if _raw_mkt_price is not None and _raw_mkt_price < 0:
+                if effective_action in ("discharge", "neutral", "save"):
+                    log.warning(
+                        "Automation: neg marktprijs (%.1fct) maar actie=%s – override naar grid_charge",
+                        _raw_mkt_price * 100, effective_action,
+                    )
+                    effective_action = "grid_charge"
+                    override_reason = (
+                        f"⚡ Negatieve marktprijs ({_raw_mkt_price*100:.1f}ct) – "
+                        f"geforceerd laden (plan zei: {action})"
+                    )
+    except Exception as _ng_exc:
+        log.debug("Automation: neg-price guard fout: %s", _ng_exc)
+
     prev_action = auto.get("last_action")
-    if effective_action == prev_action:
-        log.debug("Automation: action unchanged (%s) – no commands sent", effective_action)
+    last_applied_str = auto.get("last_applied")
+
+    # Periodieke hertoepassing: stuur commando's opnieuw elke 5 min zodat het
+    # inverter na een eigen reset/terugval naar anti-feed automatisch herstelt.
+    _REAPPLY_INTERVAL_S = 300
+    _force_reapply = False
+    if prev_action is not None and last_applied_str:
+        try:
+            _elapsed = (
+                datetime.now(timezone.utc) - datetime.fromisoformat(last_applied_str)
+            ).total_seconds()
+            if _elapsed >= _REAPPLY_INTERVAL_S:
+                _force_reapply = True
+                log.info(
+                    "Automation: periodieke hertoepassing (actie=%s, verstreken=%.0fs)",
+                    prev_action, _elapsed,
+                )
+        except Exception:
+            pass
+
+    if effective_action == prev_action and not _force_reapply:
+        log.debug("Automation: actie ongewijzigd (%s) – geen commando's gestuurd", effective_action)
         # Still update override_reason in state so the UI can reflect live status
         if auto.get("override_reason") != override_reason:
             auto["override_reason"] = override_reason
@@ -4602,6 +4648,7 @@ def _automation_tick() -> None:
              prev_action or "none", effective_action,
              f" [override from {action}]" if override_reason else "", len(devices))
     global_reserve_soc = int(s_now.get("min_reserve_soc", 10))
+    _commands_all_ok = True
     for device_id, device in devices.items():
         commands = list(base_commands)
         if global_grid_charge_settings:
@@ -4630,6 +4677,7 @@ def _automation_tick() -> None:
             else:
                 log.warning("Automation: ✗ %s → %s=%s  (device %s): %s",
                             effective_action, name, value, device_id, result.get("error"))
+                _commands_all_ok = False
                 if not esphome_failed_sent:
                     esphome_failed_sent = True
                     try:
@@ -4643,7 +4691,9 @@ def _automation_tick() -> None:
                         log.debug("esphome_failed telegram notify failed: %s", _tge)
 
     # ── grid_charge_opportunity Telegram notification ─────────────────────────
-    if effective_action == "grid_charge" and action == "grid_charge":
+    # Stuur notificatie ook bij neg-price guard override (effective_action = "grid_charge"
+    # terwijl action iets anders was).
+    if effective_action == "grid_charge" and _commands_all_ok:
         _soc_vals = _read_live_flow_slots("bat_soc")
         _live_soc = _soc_vals.get("bat_soc")
         _gc_thresh = float(s_now.get("telegram_grid_price_threshold", 0.10))
@@ -4670,10 +4720,19 @@ def _automation_tick() -> None:
             except Exception as _tge:
                 log.debug("grid_charge_opportunity telegram notify failed: %s", _tge)
 
-    auto["last_action"]    = effective_action   # what was actually sent to devices
+    # Sla last_action alleen op als ALLE commando's slaagden. Bij falen blijft
+    # last_action op de vorige waarde zodat de volgende tick het opnieuw probeert.
+    if _commands_all_ok:
+        auto["last_action"] = effective_action   # what was actually sent to devices
+        auto["last_applied"] = datetime.now(timezone.utc).isoformat()
+    else:
+        log.warning(
+            "Automation: ESPHome commando's mislukt – last_action NIET bijgewerkt "
+            "zodat de volgende tick het opnieuw probeert (was=%s, geprobeerd=%s)",
+            prev_action, effective_action,
+        )
     auto["planned_action"] = action             # what the strategy intended
     auto["override_reason"] = override_reason   # non-None when override active
-    auto["last_applied"]   = datetime.now(timezone.utc).isoformat()
 
     # ── PV power limiter (e.g. SMA Sunny Boy via HA) ─────────────────────────
     # At negative/very cheap prices: curtail PV to avoid costly export.
