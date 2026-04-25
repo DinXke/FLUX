@@ -161,24 +161,49 @@ log_info "Services starting (this may take 1-2 minutes)..."
 log_title "Waiting for services to be ready..."
 
 WAIT_TIME=0
-MAX_WAIT=120
+MAX_WAIT=180  # Increased to 3 minutes for production startup
+
+# Check all critical services
+check_services() {
+    local flask_ok=false
+    local influx_ok=false
+    local nginx_ok=false
+
+    # Check Flask backend
+    if curl -sf http://localhost:5000/api/status >/dev/null 2>&1; then
+        flask_ok=true
+    fi
+
+    # Check InfluxDB
+    if curl -sf http://localhost:8086/health >/dev/null 2>&1; then
+        influx_ok=true
+    fi
+
+    # Check Nginx reverse proxy
+    if curl -sf http://localhost/health >/dev/null 2>&1; then
+        nginx_ok=true
+    fi
+
+    [[ "$flask_ok" == "true" ]] && [[ "$influx_ok" == "true" ]] && [[ "$nginx_ok" == "true" ]]
+}
 
 while [[ $WAIT_TIME -lt $MAX_WAIT ]]; do
-    if curl -sf http://localhost:5000/api/status >/dev/null 2>&1; then
-        log_info "SmartMarstek is ready!"
+    if check_services; then
+        log_info "All services are ready!"
         break
     fi
 
     WAIT_TIME=$((WAIT_TIME + 5))
-    if [[ $((WAIT_TIME % 15)) -eq 0 ]]; then
+    if [[ $((WAIT_TIME % 20)) -eq 0 ]]; then
         log_warn "Still waiting for services... ($WAIT_TIME/${MAX_WAIT}s)"
     fi
     sleep 5
 done
 
 if [[ $WAIT_TIME -ge $MAX_WAIT ]]; then
-    log_warn "Services did not become ready in time. Check logs with:"
-    echo "  cd $INSTALL_DIR && $COMPOSE_CMD logs -f"
+    log_warn "Services did not become ready in time (timeout: ${MAX_WAIT}s)"
+    log_warn "Check logs with: cd $INSTALL_DIR && $COMPOSE_CMD logs -f"
+    log_warn "This is non-fatal; services may still start. Proceeding..."
 fi
 
 # ─────────────────────────────────────────────────────────────────────────

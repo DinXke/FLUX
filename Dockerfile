@@ -31,8 +31,9 @@ COPY backend/ ./
 
 # Add-on helpers
 COPY run.sh /run.sh
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 COPY setup_config.py /app/setup_config.py
-RUN chmod +x /run.sh
+RUN chmod +x /run.sh /app/docker-entrypoint.sh
 
 # Environment
 ENV MARSTEK_DATA_DIR=/data \

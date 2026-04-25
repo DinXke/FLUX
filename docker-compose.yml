@@ -1,23 +1,105 @@
 version: "3.8"
 
 services:
+  smartmarstek:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smartmarstek
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    depends_on:
+      - influxdb
+    entrypoint: /bin/bash
+    command: /app/docker-entrypoint.sh
+    environment:
+      MARSTEK_DATA_DIR: /data
+      MARSTEK_FRONTEND_DIST: /app/frontend/dist
+      PYTHONUNBUFFERED: 1
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_USERNAME: ${INFLUX_USERNAME}
+      INFLUX_PASSWORD: ${INFLUX_PASSWORD}
+      INFLUX_ORG: ${INFLUX_ORG}
+      INFLUX_BUCKET: ${INFLUX_BUCKET}
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      TIMEZONE: ${TIMEZONE:-Europe/Brussels}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      STANDALONE_MODE: "true"
+      ENTSOE_API_KEY: ${ENTSOE_API_KEY}
+      ENTSOE_COUNTRY: ${ENTSOE_COUNTRY}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      SMA_IP: ${SMA_IP}
+      SMA_PORT: ${SMA_PORT}
+      HOMEWIZARD_IP: ${HOMEWIZARD_IP}
+      FRANK_ENERGIE_API_KEY: ${FRANK_ENERGIE_API_KEY}
+      DAIKIN_TOKEN: ${DAIKIN_TOKEN}
+      BOSCH_TOKEN: ${BOSCH_TOKEN}
+    volumes:
+      - ./data:/data
+
   influxdb:
     image: influxdb:2.7
-    container_name: marstek-influxdb
+    container_name: smartmarstek-influxdb
     restart: unless-stopped
     ports:
       - "8086:8086"
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: marstek
-      DOCKER_INFLUXDB_INIT_PASSWORD: marstek2024!
-      DOCKER_INFLUXDB_INIT_ORG: marstek
-      DOCKER_INFLUXDB_INIT_BUCKET: energy
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: marstek-influx-token-local
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_USERNAME}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
+      DOCKER_INFLUXDB_INIT_RETENTION: ${INFLUX_RETENTION:-0}
     volumes:
       - influxdb_data:/var/lib/influxdb2
       - influxdb_config:/etc/influxdb2
 
+  grafana:
+    image: grafana/grafana:11.0
+    container_name: smartmarstek-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - influxdb
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_INSTALL_PLUGINS:
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+
+  nginx:
+    image: nginx:latest
+    container_name: smartmarstek-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - smartmarstek
+      - grafana
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 volumes:
   influxdb_data:
   influxdb_config:
+  grafana_data:
+
+networks:
+  default:
+    name: smartmarstek-network
