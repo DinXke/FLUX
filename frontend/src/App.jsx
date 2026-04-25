@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import DeviceCard from "./components/DeviceCard.jsx";
 import AddDeviceModal from "./components/AddDeviceModal.jsx";
 import PricesPage from "./components/PricesPage.jsx";
@@ -108,16 +108,30 @@ function UiModeToggle() {
 function ThemeToggle() {
   const [theme, setTheme] = useTheme();
   const current = THEMES.find((t) => t.id === theme) || THEMES[0];
-  const next    = THEMES[(THEMES.findIndex((t) => t.id === theme) + 1) % THEMES.length];
+  const detailsRef = useRef(null);
+
+  function pick(id) {
+    setTheme(id);
+    if (detailsRef.current) detailsRef.current.open = false;
+  }
+
   return (
-    <button
-      className="btn btn-ghost btn-sm"
-      onClick={() => setTheme(next.id)}
-      title={`Schakel naar ${next.label} thema`}
-      style={{ gap: 4, fontSize: 12 }}
-    >
-      {current.icon} {current.label}
-    </button>
+    <details ref={detailsRef} className="theme-picker">
+      <summary className="btn btn-ghost btn-sm theme-picker-summary" style={{ gap: 4, fontSize: 12 }}>
+        {current.icon} {current.label}
+      </summary>
+      <div className="theme-picker-menu">
+        {THEMES.map((t) => (
+          <button
+            key={t.id}
+            className={`theme-picker-item${theme === t.id ? " active" : ""}`}
+            onClick={() => pick(t.id)}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+    </details>
   );
 }
 
