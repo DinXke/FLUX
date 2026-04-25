@@ -91,6 +91,13 @@ DEFAULT_SETTINGS = {
     "pv_limiter_modbus_unit_id":     3,    # SMA default = 3
     "pv_limiter_modbus_register":    42062, # SMA Sunny Boy W-limiet: 42062 (1-based); WMaxLimPct (%): 40236
     "pv_limiter_modbus_value_mode":  "W",  # "W" = absolute watts, "pct" = 0–100 %
+    # SMA Modbus reader — uitlezen van omvormerdata (Fase 1 SCH-737)
+    "sma_reader_enabled":    False,
+    "sma_reader_host":       "",    # IP-adres omvormer (kan zelfde zijn als pv_limiter_modbus_host)
+    "sma_reader_port":       502,
+    "sma_reader_unit_id":    3,     # SMA default slave ID = 3
+    "sma_reader_interval_s": 10,    # pollinterval in seconden
+    "sma_reader_max_w":      4000,  # nominaal max vermogen (W) — voor strategie-logica
     # Strategy engine: "rule_based" (default), "claude", or "auto"
     # "auto": picks rule_based on flat days, Claude on complex/negative-price days
     "strategy_mode":        "rule_based",
@@ -130,6 +137,9 @@ DEFAULT_SETTINGS = {
         "grid_charge_opportunity": True,
         "esphome_failed":         True,
         "daily_summary":          True,
+        "sma_offline":            True,
+        "sma_error":              True,
+        "sma_day_summary":        True,
     },
     "telegram_grid_price_threshold": 0.10,  # €/kWh: grid_charge_opportunity als prijs < dit
     "telegram_grid_soc_threshold":   80,    # %: grid_charge_opportunity als SoC < dit

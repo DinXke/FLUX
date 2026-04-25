@@ -321,6 +321,31 @@ def _collect_and_write(app_context_fn):
     except Exception as exc:
         log.warning("InfluxDB write error: %s", exc)
 
+    # ── SMA inverter data (separate measurement) ──────────────────────────────
+    try:
+        from sma_modbus import get_sma_live as _get_sma  # lazy import to avoid circular
+        sma = _get_sma()
+        if sma.get("online") and sma.get("ts", 0) > 0 and (time.time() - sma["ts"]) < 60:
+            from influxdb_client import Point  # type: ignore
+            sma_fields = {
+                k: sma[k] for k in (
+                    "pac_w", "e_day_wh", "e_total_wh",
+                    "grid_v", "freq_hz", "dc_power_w", "dc_voltage_v",
+                )
+                if sma.get(k) is not None
+            }
+            if sma_fields:
+                sp = Point("sma_inverter")
+                if sma.get("status"):
+                    sp = sp.tag("status", sma["status"])
+                for k, v in sma_fields.items():
+                    sp = sp.field(k, float(v))
+                sp = sp.time(datetime.now(timezone.utc))
+                write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=sp)
+                log.debug("InfluxDB SMA write OK  fields=%s", list(sma_fields.keys()))
+    except Exception as exc:
+        log.debug("InfluxDB SMA write skip: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # Background thread entry point

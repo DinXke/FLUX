@@ -10,6 +10,7 @@ import PvLimiterSettings from "./PvLimiterSettings.jsx";
 import CapTariffSettings from "./CapTariffSettings.jsx";
 import RollingCapSettings from "./RollingCapSettings.jsx";
 import TelegramSettings from "./TelegramSettings.jsx";
+import SmaReaderSettings from "./SmaReaderSettings.jsx";
 
 // ---------------------------------------------------------------------------
 // Persisted settings helpers (localStorage)
@@ -408,6 +409,7 @@ const GROUPS = [
       { id: "apparaten",  label: "🔋 Apparaten"  },
       { id: "strategie",  label: "🧠 Strategie"  },
       { id: "pvlimiter",  label: "☀️ PV Limiter" },
+      { id: "smareader",  label: "📡 SMA Reader" },
       { id: "captariff",  label: "💶 Cap Tariff" },
       { id: "rollingcap", label: "📉 Rolling Cap" },
     ],
@@ -516,6 +518,7 @@ export default function SettingsPage({ devices, powerMap, onDeviceAdded, onDevic
       )}
       {activeTab === "strategie"  && <StrategySettings />}
       {activeTab === "pvlimiter"  && <PvLimiterSettings />}
+      {activeTab === "smareader"  && <SmaReaderSettings />}
       {activeTab === "captariff"  && <CapTariffSettings />}
       {activeTab === "rollingcap" && <RollingCapSettings />}
       {activeTab === "forecast"   && <ForecastSettings />}

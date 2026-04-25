@@ -14,6 +14,7 @@ from urllib.error import URLError
 from influx_writer import (start_background_writer, query_avg_hourly_consumption,
                            query_recent_points, query_day_actuals,
                            query_hourly_import_export_kwh)
+from sma_modbus import start_sma_reader, get_sma_live
 from rte_calculator import measure_rte as _measure_rte
 from strategy import (load_strategy_settings, save_strategy_settings,
                       build_plan, split_days, read_soc_cache)
@@ -1612,6 +1613,22 @@ def get_flow_live():
         except Exception as exc:
             result[slot] = {"error": str(exc)}
 
+    # Append SMA inverter live data when reader is active and data is fresh (< 30 s)
+    sma = get_sma_live()
+    if sma.get("online") and sma.get("ts", 0) > 0 and (time.time() - sma["ts"]) < 30:
+        result["sma_inverter"] = {
+            k: sma[k]
+            for k in ("pac_w", "e_day_wh", "e_total_wh", "grid_v", "freq_hz",
+                      "dc_power_w", "dc_voltage_v", "status_code", "status", "online")
+        }
+        # Override solar_w slot with live Pac when not already resolved from HW
+        pac = sma.get("pac_w")
+        if pac is not None and "solar_power" not in result:
+            result["solar_power"] = {
+                "value":        pac,
+                "source_label": "SMA Modbus (live)",
+            }
+
     _flow_live_cache["data"] = result
     _flow_live_cache["ts"]   = now
     return jsonify(result)
@@ -2582,6 +2599,33 @@ def post_flow_cfg():
     with open(FLOW_CFG_SERVER_FILE, "w", encoding="utf-8") as f:
         json.dump(body, f)
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# SMA Modbus reader  – live data + settings  (SCH-737)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/sma/live")
+def get_sma_live_data():
+    """Return latest cached SMA inverter data (age in seconds included)."""
+    data = get_sma_live()
+    if data["ts"] > 0:
+        data["age_s"] = round(time.time() - data["ts"], 1)
+    return jsonify(data)
+
+
+@app.route("/api/sma/test", methods=["POST"])
+def test_sma_connection():
+    """Trigger an immediate on-demand poll and return the result."""
+    from sma_modbus import _poll
+    s    = load_strategy_settings()
+    host = (s.get("sma_reader_host") or "").strip()
+    port = int(s.get("sma_reader_port", 502))
+    uid  = int(s.get("sma_reader_unit_id", 3))
+    if not host:
+        return jsonify({"error": "sma_reader_host niet geconfigureerd"}), 400
+    result = _poll(host, port, uid)
+    return jsonify(result)
 
 
 @app.route("/api/strategy/settings", methods=["GET"])
@@ -5662,6 +5706,8 @@ if __name__ == "__main__":
     _prefetch_prices()
     # Start InfluxDB background writer
     start_background_writer(_influx_context, interval=30)
+    # Start SMA Modbus reader thread
+    start_sma_reader(load_strategy_settings, interval=10)
     # Start automation background thread
     _start_automation_thread(interval=60)
     print("Marstek Dashboard → http://localhost:5000")

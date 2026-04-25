@@ -9,6 +9,7 @@ import ProfitPage from "./components/ProfitPage.jsx";
 import HistoricalFrankPage from "./components/HistoricalFrankPage.jsx";
 import EnergyMap from "./components/EnergyMap.jsx";
 import HomeWizardPanel from "./components/HomeWizardPanel.jsx";
+import SmaInverterPanel from "./components/SmaInverterPanel.jsx";
 
 const THEMES = [
   { id: "dark",   icon: "🌙", label: "Dark"   },
@@ -330,6 +331,9 @@ export default function App() {
                   />
                 </div>
               </div>
+
+              {/* ── SMA Inverter live panel ── */}
+              <SmaInverterPanel />
 
               {/* ── HomeWizard panel ── */}
               <HomeWizardPanel />

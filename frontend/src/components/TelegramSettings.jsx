@@ -5,6 +5,9 @@ const EVENT_LABELS = {
   grid_charge_opportunity: "Goedkoop laden (goedkeuring)",
   esphome_failed:         "ESPHome verbindingsfout",
   daily_summary:          "Dagelijks overzicht (~08:00)",
+  sma_offline:            "SMA omvormer offline (> 5 min)",
+  sma_error:              "SMA foutcode",
+  sma_day_summary:        "SMA dagopbrengst (bij zonsondergang)",
 };
 
 const DEFAULTS = {
@@ -15,6 +18,9 @@ const DEFAULTS = {
     grid_charge_opportunity: true,
     esphome_failed:          true,
     daily_summary:           true,
+    sma_offline:             true,
+    sma_error:               true,
+    sma_day_summary:         true,
   },
   telegram_grid_price_threshold:  0.10,
   telegram_grid_soc_threshold:    80,
