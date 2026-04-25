@@ -58,17 +58,48 @@ function EntityPicker({ value, onChange, entities, placeholder }) {
   );
 }
 
+// "entiteit" | "service" | "modbus"
+function ModeSelector({ mode, onChange }) {
+  const options = [
+    { value: "entiteit", label: "Entiteit" },
+    { value: "service",  label: "Service" },
+    { value: "modbus",   label: "Modbus TCP/IP" },
+  ];
+  return (
+    <div style={{ display: "flex", gap: 4, background: "var(--bg)", borderRadius: 8,
+      padding: 3, border: "1px solid var(--border)" }}>
+      {options.map((o) => (
+        <button key={o.value} type="button"
+          onClick={() => onChange(o.value)}
+          style={{
+            flex: 1, padding: "5px 10px", borderRadius: 6, border: "none",
+            fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all .15s",
+            background: mode === o.value ? "var(--accent, #C17A3A)" : "transparent",
+            color: mode === o.value ? "#fff" : "var(--text-muted)",
+          }}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function PvLimiterSettings() {
   const [enabled,       setEnabled]       = useState(false);
-  const [useService,    setUseService]    = useState(false);
+  const [mode,          setMode]          = useState("entiteit"); // "entiteit" | "service" | "modbus"
   // Entity mode (number.*)
   const [entity,        setEntity]        = useState("");
   // Service mode
   const [service,       setService]       = useState("");
   const [paramKey,      setParamKey]      = useState("entity_id");
   const [paramVal,      setParamVal]      = useState("");
-  // Service entity picker (all domains)
   const [svcEntity,     setSvcEntity]     = useState("");
+  // Modbus TCP/IP mode
+  const [modbusHost,    setModbusHost]    = useState("");
+  const [modbusPort,    setModbusPort]    = useState(502);
+  const [modbusUnitId,  setModbusUnitId]  = useState(3);
+  const [modbusReg,     setModbusReg]     = useState(40236);
+  const [modbusValMode, setModbusValMode] = useState("W");
   // Shared
   const [minW,            setMinW]            = useState(0);
   const [maxW,            setMaxW]            = useState(4000);
@@ -96,7 +127,9 @@ export default function PvLimiterSettings() {
       .then((r) => r.json())
       .then((d) => {
         setEnabled(d.pv_limiter_enabled ?? false);
-        setUseService(d.pv_limiter_use_service ?? false);
+        const useModbus  = d.pv_limiter_use_modbus  ?? false;
+        const useService = d.pv_limiter_use_service ?? false;
+        setMode(useModbus ? "modbus" : useService ? "service" : "entiteit");
         setEntity(d.pv_limiter_entity ?? "");
         setNumSearch(d.pv_limiter_entity ?? "");
         setService(d.pv_limiter_service ?? "");
@@ -104,6 +137,11 @@ export default function PvLimiterSettings() {
         const pval = d.pv_limiter_service_param ?? "";
         setParamVal(pval);
         if ((d.pv_limiter_service_param_key ?? "entity_id") === "entity_id") setSvcEntity(pval);
+        setModbusHost(d.pv_limiter_modbus_host ?? "");
+        setModbusPort(d.pv_limiter_modbus_port ?? 502);
+        setModbusUnitId(d.pv_limiter_modbus_unit_id ?? 3);
+        setModbusReg(d.pv_limiter_modbus_register ?? 40236);
+        setModbusValMode(d.pv_limiter_modbus_value_mode ?? "W");
         setMinW(d.pv_limiter_min_w ?? 0);
         setMaxW(d.pv_limiter_max_w ?? 4000);
         setThresholdCt(d.pv_limiter_threshold_ct ?? 0);
@@ -128,7 +166,6 @@ export default function PvLimiterSettings() {
     return e.entity_id.toLowerCase().includes(q) || (e.friendly_name || "").toLowerCase().includes(q);
   });
 
-  // When paramKey changes to entity_id, sync svcEntity → paramVal
   const handleParamKeyChange = (k) => {
     setParamKey(k);
     if (k === "entity_id") { setParamVal(svcEntity); }
@@ -139,7 +176,6 @@ export default function PvLimiterSettings() {
     if (paramKey === "entity_id") setParamVal(eid);
   };
 
-  // Preview of the service call
   const previewData = { value: "‹W›" };
   if (paramKey && paramVal) previewData[paramKey] = paramVal;
 
@@ -151,11 +187,17 @@ export default function PvLimiterSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pv_limiter_enabled:           enabled,
-          pv_limiter_use_service:       useService,
+          pv_limiter_use_service:       mode === "service",
+          pv_limiter_use_modbus:        mode === "modbus",
           pv_limiter_entity:            entity,
           pv_limiter_service:           service,
           pv_limiter_service_param_key: paramKey,
           pv_limiter_service_param:     paramVal,
+          pv_limiter_modbus_host:       modbusHost,
+          pv_limiter_modbus_port:       Number(modbusPort),
+          pv_limiter_modbus_unit_id:    Number(modbusUnitId),
+          pv_limiter_modbus_register:   Number(modbusReg),
+          pv_limiter_modbus_value_mode: modbusValMode,
           pv_limiter_min_w:             Number(minW),
           pv_limiter_max_w:             Number(maxW),
           pv_limiter_threshold_ct:      Number(thresholdCt),
@@ -187,30 +229,26 @@ export default function PvLimiterSettings() {
         <Toggle on={enabled} onChange={setEnabled} />
       </div>
 
-      {/* Method toggle */}
-      <div className="settings-row">
+      {/* Method selector */}
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
         <div>
           <div className="settings-row-label">Aanstuurmethode</div>
           <div className="settings-row-desc">
-            <strong>Entiteit</strong>: standaard <code>number.set_value</code>.<br />
-            <strong>Service</strong>: aangepaste HA-service (bijv. <code>pysmaplus.set_value</code>).
+            <strong>Entiteit</strong>: stuurt via <code>number.set_value</code> in HA.&nbsp;
+            <strong>Service</strong>: aangepaste HA-service (bijv. <code>pysmaplus.set_value</code>).&nbsp;
+            <strong>Modbus TCP/IP</strong>: directe Modbus verbinding naar de omvormer (bypass HA).
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ fontSize: 13, color: useService ? "var(--text-muted)" : "var(--text)" }}>Entiteit</span>
-          <Toggle on={useService} onChange={setUseService} />
-          <span style={{ fontSize: 13, color: useService ? "var(--text)" : "var(--text-muted)" }}>Service</span>
-        </div>
+        <ModeSelector mode={mode} onChange={setMode} />
       </div>
 
       {/* ── Entity mode ── */}
-      {!useService && (
+      {mode === "entiteit" && (
         <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
           <div>
             <div className="settings-row-label">HA entiteit</div>
             <div className="settings-row-desc">
               Kies een <code>number.*</code>, <code>input_number.*</code> of <code>sensor.*</code> entiteit.
-              Bij sensor-entiteiten moet je ook de service instellen onder "Service" modus.
             </div>
           </div>
           <div ref={numberEntityRef} style={{ position: "relative", width: "100%", maxWidth: 460 }}>
@@ -243,9 +281,8 @@ export default function PvLimiterSettings() {
       )}
 
       {/* ── Service mode ── */}
-      {useService && (
+      {mode === "service" && (
         <>
-          {/* Service name */}
           <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
             <div>
               <div className="settings-row-label">HA service</div>
@@ -258,7 +295,6 @@ export default function PvLimiterSettings() {
               value={service} onChange={(e) => setService(e.target.value)} />
           </div>
 
-          {/* Extra data key */}
           <div className="settings-row">
             <div>
               <div className="settings-row-label">Extra veld in data</div>
@@ -272,29 +308,20 @@ export default function PvLimiterSettings() {
               value={paramKey} onChange={(e) => handleParamKeyChange(e.target.value)} />
           </div>
 
-          {/* Entity picker when key = entity_id */}
           {paramKey === "entity_id" ? (
             <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
               <div>
                 <div className="settings-row-label">Entiteit</div>
-                <div className="settings-row-desc">
-                  Kies de sensor/entiteit die de vermogensinstelling bijhoudt.
-                </div>
+                <div className="settings-row-desc">Kies de sensor/entiteit die de vermogensinstelling bijhoudt.</div>
               </div>
-              <EntityPicker
-                value={svcEntity}
-                onChange={handleSvcEntityChange}
-                entities={haEntities}
-                placeholder="Zoek sensor.* of number.* entiteit…"
-              />
+              <EntityPicker value={svcEntity} onChange={handleSvcEntityChange}
+                entities={haEntities} placeholder="Zoek sensor.* of number.* entiteit…" />
             </div>
           ) : (
             <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
               <div>
                 <div className="settings-row-label">Waarde voor <code>{paramKey || "sleutel"}</code></div>
-                <div className="settings-row-desc">
-                  Bijv. <code>Active Power Limitation</code> voor SMA Devices Plus.
-                </div>
+                <div className="settings-row-desc">Bijv. <code>Active Power Limitation</code> voor SMA Devices Plus.</div>
               </div>
               <input className="form-input" style={{ maxWidth: 460, width: "100%" }}
                 placeholder="Active Power Limitation"
@@ -302,7 +329,6 @@ export default function PvLimiterSettings() {
             </div>
           )}
 
-          {/* Preview */}
           <div style={{ margin: "0 20px 12px", padding: "10px 14px",
             background: "#0a0f1a", borderRadius: 6, fontSize: 11,
             fontFamily: "monospace", color: "#94a3b8", lineHeight: 1.8 }}>
@@ -313,6 +339,89 @@ export default function PvLimiterSettings() {
             {paramKey && paramVal && (
               <div>&nbsp;&nbsp;<span style={{ color: "#86efac" }}>{paramKey}</span>: <span style={{ color: "#fcd34d" }}>"{paramVal}"</span></div>
             )}
+          </div>
+        </>
+      )}
+
+      {/* ── Modbus TCP/IP mode ── */}
+      {mode === "modbus" && (
+        <>
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">IP-adres omvormer</div>
+              <div className="settings-row-desc">Bijv. <code>192.168.1.50</code> (SMA Sunny Boy op het LAN)</div>
+            </div>
+            <input className="form-input" style={{ width: 180 }}
+              placeholder="192.168.1.50"
+              value={modbusHost} onChange={(e) => setModbusHost(e.target.value)} />
+          </div>
+
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">Modbus port</div>
+              <div className="settings-row-desc">Standaard <code>502</code></div>
+            </div>
+            <input className="form-input" type="number" style={{ width: 90 }}
+              value={modbusPort} onChange={(e) => setModbusPort(e.target.value)} />
+          </div>
+
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">Unit ID</div>
+              <div className="settings-row-desc">SMA Sunny Boy standaard = <code>3</code></div>
+            </div>
+            <input className="form-input" type="number" style={{ width: 90 }}
+              value={modbusUnitId} onChange={(e) => setModbusUnitId(e.target.value)} />
+          </div>
+
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">Register (1-gebaseerd)</div>
+              <div className="settings-row-desc">
+                SMA WMaxLimPct = <code>40236</code>. Gebruik het adres zoals vermeld in de
+                SMA Modbus documentatie (1-gebaseerd).
+              </div>
+            </div>
+            <input className="form-input" type="number" style={{ width: 90 }}
+              value={modbusReg} onChange={(e) => setModbusReg(e.target.value)} />
+          </div>
+
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">Waarde-modus</div>
+              <div className="settings-row-desc">
+                <strong>W</strong>: schrijf absolute watts (bijv. 2000).<br />
+                <strong>%</strong>: schrijf percentage 0–100 van <em>Max PV-vermogen</em>.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 4, background: "var(--bg)", borderRadius: 8,
+              padding: 3, border: "1px solid var(--border)" }}>
+              {["W", "pct"].map((v) => (
+                <button key={v} type="button" onClick={() => setModbusValMode(v)}
+                  style={{
+                    padding: "4px 14px", borderRadius: 6, border: "none", fontSize: 12,
+                    fontWeight: 500, cursor: "pointer", transition: "all .15s",
+                    background: modbusValMode === v ? "var(--accent, #C17A3A)" : "transparent",
+                    color: modbusValMode === v ? "#fff" : "var(--text-muted)",
+                  }}>
+                  {v === "W" ? "Watt (W)" : "Procent (%)"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ margin: "0 20px 12px", padding: "10px 14px",
+            background: "#0a0f1a", borderRadius: 6, fontSize: 11,
+            fontFamily: "monospace", color: "#94a3b8", lineHeight: 1.8 }}>
+            <div style={{ color: "#64748b", marginBottom: 2 }}>Modbus schrijf-opdracht:</div>
+            <div>host: <span style={{ color: "#7dd3fc" }}>{modbusHost || "‹ip›"}</span>:{modbusPort}</div>
+            <div>unit: <span style={{ color: "#fcd34d" }}>{modbusUnitId}</span></div>
+            <div>register: <span style={{ color: "#fcd34d" }}>{modbusReg}</span> (addr {Math.max(0, Number(modbusReg) - 40001)})</div>
+            <div>value: <span style={{ color: "#86efac" }}>
+              {modbusValMode === "pct"
+                ? `‹target_W / ${maxW}W × 100›`
+                : "‹target_W›"}
+            </span></div>
           </div>
         </>
       )}

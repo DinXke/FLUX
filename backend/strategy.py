@@ -84,6 +84,13 @@ DEFAULT_SETTINGS = {
     "pv_limiter_service":        "",     # e.g. "pysmaplus.set_value"
     "pv_limiter_service_param_key":   "entity_id",  # data key alongside "value": "entity_id" or "parameter"
     "pv_limiter_service_param":  "",     # value for that key, e.g. "sensor.sb4_0_active_power_limitation"
+    # Direct Modbus TCP/IP mode (bypasses HA; communicates directly with inverter)
+    "pv_limiter_use_modbus":         False,
+    "pv_limiter_modbus_host":        "",    # IP address of the inverter (e.g. SMA Sunny Boy)
+    "pv_limiter_modbus_port":        502,
+    "pv_limiter_modbus_unit_id":     3,    # SMA default = 3
+    "pv_limiter_modbus_register":    40236, # SMA WMaxLimPct: 40236 (1-based Modbus address)
+    "pv_limiter_modbus_value_mode":  "W",  # "W" = absolute watts, "pct" = 0–100 %
     # Strategy engine: "rule_based" (default), "claude", or "auto"
     # "auto": picks rule_based on flat days, Claude on complex/negative-price days
     "strategy_mode":        "rule_based",

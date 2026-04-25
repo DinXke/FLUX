@@ -4802,8 +4802,59 @@ def _automation_tick() -> None:
     _save_automation(auto)
 
 
+def _pv_send_modbus(s: dict, target_w: int) -> bool:
+    """Send PV power limit directly to inverter via Modbus TCP (bypasses HA)."""
+    try:
+        from pymodbus.client import ModbusTcpClient
+    except ImportError:
+        log.error("pymodbus niet geïnstalleerd – Modbus PV-limiter niet beschikbaar")
+        return False
+
+    host     = (s.get("pv_limiter_modbus_host") or "").strip()
+    port     = int(s.get("pv_limiter_modbus_port", 502))
+    unit_id  = int(s.get("pv_limiter_modbus_unit_id", 3))
+    reg_raw  = int(s.get("pv_limiter_modbus_register", 40236))
+    val_mode = (s.get("pv_limiter_modbus_value_mode") or "W").upper()
+    max_w    = int(s.get("pv_limiter_max_w", 4000))
+
+    if not host:
+        log.warning("Modbus PV-limiter: geen host geconfigureerd")
+        return False
+
+    # SMA and most inverters document 1-based Modbus holding register addresses
+    # (40001 = register 1). Convert to 0-based address for pymodbus.
+    addr = reg_raw - 40001 if reg_raw >= 40001 else reg_raw
+
+    if val_mode == "PCT":
+        value = int(round(target_w / max_w * 100)) if max_w > 0 else 0
+        value = max(0, min(100, value))
+    else:
+        value = max(0, target_w)
+
+    try:
+        client = ModbusTcpClient(host=host, port=port)
+        if not client.connect():
+            log.warning("Modbus PV-limiter: kan niet verbinden met %s:%d", host, port)
+            return False
+        try:
+            result = client.write_register(address=addr, value=value, slave=unit_id)
+            if hasattr(result, "isError") and result.isError():
+                log.warning("Modbus PV-limiter: write_register fout: %s", result)
+                return False
+            log.debug("Modbus PV-limiter: %dW → %s:%d reg %d (addr=%d) unit=%d val=%d",
+                      target_w, host, port, reg_raw, addr, unit_id, value)
+            return True
+        finally:
+            client.close()
+    except Exception as exc:
+        log.warning("Modbus PV-limiter: uitzondering: %s", exc)
+        return False
+
+
 def _pv_send(s: dict, entity: str, use_service: bool, svc_str: str, target_w: int) -> bool:
     """Send target_w to HA via entity mode or service mode."""
+    if s.get("pv_limiter_use_modbus"):
+        return _pv_send_modbus(s, target_w)
     if use_service:
         param_key = (s.get("pv_limiter_service_param_key") or "entity_id").strip()
         svc_param = (s.get("pv_limiter_service_param") or "").strip()
@@ -5047,13 +5098,18 @@ def _rolling_cap_tick() -> None:
     pv_entity    = (s.get("pv_limiter_entity") or "").strip()
     pv_use_svc   = s.get("pv_limiter_use_service", False)
     pv_svc_str   = (s.get("pv_limiter_service") or "").strip()
-    pv_configured = bool(pv_entity) or (pv_use_svc and bool(pv_svc_str))
+    pv_use_modbus = s.get("pv_limiter_use_modbus", False)
+    pv_configured = bool(pv_entity) or (pv_use_svc and bool(pv_svc_str)) or pv_use_modbus
 
     remaining_overshoot = overshoot_w
     if pv_configured and solar_w is not None and solar_w > 0:
         new_pv_w = max(0, int(solar_w - overshoot_w))
+        prev_override = auto.get("rolling_cap_pv_override_w")
         auto["rolling_cap_pv_override_w"] = new_pv_w
-        auto.pop("pv_limiter_last_w", None)  # force re-send on next PV limiter tick
+        # Only clear last_w when the target changes to avoid re-sending the same
+        # value every 30 s (which overwrites manual Sunny Boy adjustments).
+        if prev_override != new_pv_w:
+            auto.pop("pv_limiter_last_w", None)
         pv_reduction = solar_w - new_pv_w
         remaining_overshoot = max(0.0, overshoot_w - pv_reduction)
         log.info("Rolling cap stap 1: PV %.0fW → %dW (reductie=%.0fW, rest overshoot=%.0fW)",
