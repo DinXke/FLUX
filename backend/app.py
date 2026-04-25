@@ -101,6 +101,45 @@ def _effective_soc_limits(devices: dict, settings: dict) -> tuple[int, int]:
 # ESPHome helpers
 # ---------------------------------------------------------------------------
 
+def _get_esphome_inverter_state(ip: str, port: int) -> Optional[str]:
+    """
+    Read the 'Inverter State' text entity from ESPHome SSE stream.
+    Returns lowercase state string (e.g. 'ac bypass', 'charge') or None if unavailable.
+    Skips silently on any network/parse error so automation continues unaffected.
+    """
+    try:
+        import requests as _r
+        import json as _j
+        with _r.get(
+            f"http://{ip}:{port}/events",
+            stream=True,
+            timeout=(3, 4),
+            headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
+        ) as resp:
+            resp.raise_for_status()
+            current_event = None
+            for raw_line in resp.iter_lines(decode_unicode=True):
+                if raw_line.startswith("event:"):
+                    current_event = raw_line[6:].strip()
+                    if current_event == "ping":
+                        return None
+                elif raw_line.startswith("data:") and current_event == "state":
+                    try:
+                        data = _j.loads(raw_line[5:].strip())
+                        eid = data.get("id", "").lower()
+                        if "inverter" in eid and "state" in eid:
+                            s = data.get("state", "")
+                            return s.lower().strip() if s else None
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    return None
+
+
+_BYPASS_STATES = {"ac bypass", "bypass", "fault"}
+
+
 def send_esphome_command(ip: str, port: int, domain: str, name: str, value: str) -> dict:
     """
     Send a command to an ESPHome entity identified by its friendly name.
@@ -4664,6 +4703,12 @@ def _automation_tick() -> None:
     global_reserve_soc = int(s_now.get("min_reserve_soc", 10))
     _commands_all_ok = True
     for device_id, device in devices.items():
+        inv_state = _get_esphome_inverter_state(device["ip"], device["port"])
+        if inv_state in _BYPASS_STATES:
+            log.warning("Automation: device %s in '%s' – skipping commands", device_id, inv_state)
+            _commands_all_ok = False
+            continue
+
         commands = list(base_commands)
         if global_grid_charge_settings:
             per_bat_w         = global_grid_charge_settings["per_bat_w"]
