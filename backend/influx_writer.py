@@ -278,6 +278,19 @@ def _collect_and_write(app_context_fn):
                     fields[influx_field] = float(val)
                     break
 
+    # When bat_soc is absent from flow_cfg (or configured for fewer batteries than
+    # are registered), fall back to averaging the SOC of ALL polled ESPHome devices.
+    # This keeps last_soc.json fresh for multi-battery setups that haven't yet
+    # added explicit bat_soc mappings, avoiding the hardcoded 50 % strategy fallback.
+    if "bat_soc" not in fields:
+        _all_socs = [v["soc"] for v in esphome_map.values() if "soc" in v]
+        if _all_socs:
+            fields["bat_soc"] = round(sum(_all_socs) / len(_all_socs), 1)
+            log.debug(
+                "_collect_and_write: bat_soc from all-device fallback (%d devs): %.1f%%",
+                len(_all_socs), fields["bat_soc"],
+            )
+
     # house_w derived
     solar = fields.get("solar_w", 0.0)
     net   = fields.get("net_w", 0.0)   # positive = import
@@ -345,6 +358,124 @@ def _collect_and_write(app_context_fn):
                 log.debug("InfluxDB SMA write OK  fields=%s", list(sma_fields.keys()))
     except Exception as exc:
         log.debug("InfluxDB SMA write skip: %s", exc)
+
+    # ── Strategy plan slots (48-hour forecast) ──────────────────────────────
+    try:
+        plan_slots = ctx.get("plan_slots", [])
+        if plan_slots:
+            from influxdb_client import Point  # type: ignore
+            written_count = 0
+            for slot in plan_slots:
+                try:
+                    slot_time = slot.get("time")
+                    if not slot_time:
+                        continue
+                    p = Point("strategy_slot")
+                    p = p.tag("action", slot.get("action", "UNKNOWN"))
+                    p = p.tag("is_peak", "true" if slot.get("is_peak") else "false")
+                    p = p.tag("is_past", "true" if slot.get("is_past") else "false")
+                    for k, v in [
+                        ("price_eur_kwh", slot.get("price_eur_kwh")),
+                        ("solar_wh", slot.get("solar_wh")),
+                        ("consumption_wh", slot.get("consumption_wh")),
+                        ("net_wh", slot.get("net_wh")),
+                        ("charge_kwh", slot.get("charge_kwh")),
+                        ("discharge_kwh", slot.get("discharge_kwh")),
+                        ("soc_start", slot.get("soc_start")),
+                        ("soc_end", slot.get("soc_end")),
+                        ("pv_limit_w", slot.get("pv_limit_w")),
+                    ]:
+                        if v is not None:
+                            p = p.field(k, float(v))
+                    from datetime import datetime as _dt
+                    p = p.time(_dt.fromisoformat(slot_time))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    written_count += 1
+                except Exception as e:
+                    log.debug("Strategy slot write error (hour %s): %s", slot.get("hour"), e)
+            if written_count > 0:
+                log.debug("InfluxDB strategy slots write OK  count=%d", written_count)
+    except Exception as exc:
+        log.debug("InfluxDB strategy slots write skip: %s", exc)
+
+    # ── Solar forecast (hourly prediction) ───────────────────────────────────
+    try:
+        forecast_data = ctx.get("solar_forecast", {})
+        if forecast_data:
+            from influxdb_client import Point  # type: ignore
+            from datetime import datetime as _dt
+            written_count = 0
+            for slot_time_str, wh in forecast_data.items():
+                try:
+                    if not wh:
+                        continue
+                    p = Point("solar_forecast")
+                    p = p.field("forecasted_wh", float(wh))
+                    slot_dt = _dt.fromisoformat(slot_time_str) if "T" in slot_time_str else _dt.fromisoformat(slot_time_str.replace(" ", "T"))
+                    if slot_dt.tzinfo is None:
+                        from zoneinfo import ZoneInfo
+                        slot_dt = slot_dt.replace(tzinfo=ZoneInfo("UTC"))
+                    p = p.time(slot_dt)
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    written_count += 1
+                except Exception as e:
+                    log.debug("Solar forecast write error (%s): %s", slot_time_str, e)
+            if written_count > 0:
+                log.debug("InfluxDB solar forecast write OK  count=%d", written_count)
+    except Exception as exc:
+        log.debug("InfluxDB solar forecast write skip: %s", exc)
+
+    # ── Anomaly alerts ──────────────────────────────────────────────────────
+    try:
+        anomalies = ctx.get("anomalies", {})
+        if anomalies:
+            from influxdb_client import Point  # type: ignore
+            from datetime import datetime as _dt
+            alert_count = 0
+
+            stale_sensors = anomalies.get("stale_sensors", {})
+            for sensor_name, last_update_ts in stale_sensors.items():
+                try:
+                    p = Point("anomaly_alert")
+                    p = p.tag("type", "stale_sensor")
+                    p = p.tag("sensor", sensor_name)
+                    p = p.field("description", f"No data for {stale_sensors[sensor_name]} seconds")
+                    p = p.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    alert_count += 1
+                except Exception as e:
+                    log.debug("Stale sensor alert write error: %s", e)
+
+            unusual_peaks = anomalies.get("unusual_peaks", {})
+            for sensor_name, peak_info in unusual_peaks.items():
+                try:
+                    p = Point("anomaly_alert")
+                    p = p.tag("type", "power_spike")
+                    p = p.tag("sensor", sensor_name)
+                    p = p.field("description", f"Unusual power spike detected")
+                    p = p.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    alert_count += 1
+                except Exception as e:
+                    log.debug("Peak alert write error: %s", e)
+
+            inverter_faults = anomalies.get("inverter_faults", {})
+            for inv_name, fault_info in inverter_faults.items():
+                try:
+                    p = Point("anomaly_alert")
+                    p = p.tag("type", "inverter_fault")
+                    p = p.tag("inverter", inv_name)
+                    p = p.field("description", fault_info.get("status", "Unknown fault"))
+                    p = p.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    alert_count += 1
+                except Exception as e:
+                    log.debug("Inverter fault alert write error: %s", e)
+
+            if alert_count > 0:
+                log.debug("InfluxDB anomaly alerts write OK  count=%d", alert_count)
+    except Exception as exc:
+        log.debug("InfluxDB anomaly alerts write skip: %s", exc)
 
 
 # ---------------------------------------------------------------------------
