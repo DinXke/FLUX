@@ -199,6 +199,7 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
   const [haEntities,  setHaEntities]  = useState([]);
   const [influxSrc,   setInfluxSrc]   = useState(null);
   const [influxLive,  setInfluxLive]  = useState({});
+  const [smaSources,  setSmaSources]  = useState([]);
   const [saved,       setSaved]       = useState(false);
   const [error,       setError]       = useState(null);
 
@@ -224,7 +225,14 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
     } catch {}
   }, []);
 
-  useEffect(() => { loadHw(); loadHa(); loadInflux(); }, [loadHw, loadHa, loadInflux]);
+  const loadSma = useCallback(async () => {
+    try {
+      const r = await apiFetch("api/sma/source");
+      if (r.ok) setSmaSources(await r.json());
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadHw(); loadHa(); loadInflux(); loadSma(); }, [loadHw, loadHa, loadInflux, loadSma]);
 
   // ── Build options ─────────────────────────────────────────────────────────
   const esphomeOptions = [];
@@ -268,7 +276,23 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
     }
   }
 
-  // HA current values map for live display
+  const smaOptions = (smaSources ?? []).map((s) => ({
+    key: s.key,
+    source: s.source,
+    deviceId: s.deviceId,
+    sensor: s.sensor,
+    label: s.label,
+    unit: s.unit,
+    current: s.current ?? null,
+    hint: "",
+  }));
+
+  // SMA and HA current values maps for live display
+  const smaCurrentValues = {};
+  for (const src of smaSources) {
+    if (src.current != null) smaCurrentValues[src.sensor] = src.current;
+  }
+
   const haCurrentValues = {};
   for (const e of haEntities) {
     if (e.state != null) haCurrentValues[e.entity_id] = parseFloat(e.state);
@@ -324,7 +348,7 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
     <div className="settings-section">
       <div className="settings-section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span>⚡ Vermogensstroom bronnen</span>
-        <button className="btn btn-ghost btn-sm" onClick={() => { loadHw(); loadHa(); loadInflux(); }}>Vernieuwen</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => { loadHw(); loadHa(); loadInflux(); loadSma(); }}>Vernieuwen</button>
       </div>
       <div style={{ padding: "4px 20px 12px", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
         Wijs per positie één of meer sensoren toe. Meerdere bronnen worden opgeteld.
@@ -348,6 +372,8 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
             cur = haCurrentValues[sc.sensor] ?? null;
           } else if (sc.source === "influx") {
             cur = influxLive[sc.sensor] ?? null;
+          } else if (sc.source === "sma") {
+            cur = smaCurrentValues[sc.sensor] ?? null;
           }
           if (cur != null) liveTotal = (liveTotal ?? 0) + (sc.invert ? -cur : cur);
         }
@@ -357,9 +383,10 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
           hw:      hwOptions.filter((o) => o.unit === slotDef.unit),
           ha:      haOptions.filter((o) => o.unit === slotDef.unit),
           influx:  influxOptions.filter((o) => o.unit === slotDef.unit),
+          sma:     smaOptions.filter((o) => o.unit === slotDef.unit),
         };
         const haSelected  = arr.filter((sc) => sc.source === "homeassistant");
-        const hasAnything = compatible.esphome.length + compatible.hw.length + compatible.ha.length + compatible.influx.length > 0;
+        const hasAnything = compatible.esphome.length + compatible.hw.length + compatible.ha.length + compatible.influx.length + compatible.sma.length > 0;
 
         return (
           <div key={slotKey} className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
@@ -444,6 +471,36 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
                   <div className="flow-source-group">
                     <div className="flow-opt-group-label">📊 InfluxDB</div>
                     {compatible.influx.map((opt) => {
+                      const checked = isSelected(arr, opt);
+                      const inv     = getInvert(arr, opt);
+                      return (
+                        <div key={opt.key} className={`flow-opt-row${checked ? " flow-opt-row--checked" : ""}`}>
+                          <label className="flow-opt-check">
+                            <input type="checkbox" checked={checked}
+                              onChange={(e) => toggleOption(slotKey, opt, e.target.checked)} />
+                            <span className="flow-opt-label">{opt.label}</span>
+                            {opt.current != null && <span className="flow-opt-val">{fmtVal(opt.current, opt.unit)}</span>}
+                          </label>
+                          {checked && (
+                            <div className="flow-opt-extras">
+                              <label className="flow-opt-invert">
+                                <input type="checkbox" checked={inv}
+                                  onChange={(e) => toggleInvert(slotKey, opt, e.target.checked)} />
+                                Omkeren
+                              </label>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* SMA Reader checkboxes */}
+                {compatible.sma.length > 0 && (
+                  <div className="flow-source-group">
+                    <div className="flow-opt-group-label">☀️ SMA Reader</div>
+                    {compatible.sma.map((opt) => {
                       const checked = isSelected(arr, opt);
                       const inv     = getInvert(arr, opt);
                       return (

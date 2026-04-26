@@ -17,7 +17,7 @@ from urllib.error import URLError
 from influx_writer import (start_background_writer, query_avg_hourly_consumption,
                            query_recent_points, query_day_actuals,
                            query_hourly_import_export_kwh)
-from sma_modbus import start_sma_reader, get_sma_live
+from sma_modbus import start_sma_reader, get_sma_live, get_sma_sensor_metadata
 from rte_calculator import measure_rte as _measure_rte
 from strategy import (load_strategy_settings, save_strategy_settings,
                       build_plan, split_days, read_soc_cache)
@@ -3168,6 +3168,25 @@ def get_sma_live_data():
     if data["ts"] > 0:
         data["age_s"] = round(time.time() - data["ts"], 1)
     return jsonify(data)
+
+
+@app.route("/api/sma/source")
+def sma_source():
+    """Return SMA available sources for flow configuration."""
+    metadata = get_sma_sensor_metadata()
+    live_data = get_sma_live()
+    result = []
+    for sensor_meta in metadata:
+        result.append({
+            "key": f"sma::sma::{sensor_meta['key']}",
+            "source": "sma",
+            "deviceId": "sma",
+            "sensor": sensor_meta["key"],
+            "label": f"SMA — {sensor_meta['label']}",
+            "unit": sensor_meta["unit"],
+            "current": live_data.get(sensor_meta["key"]),
+        })
+    return jsonify(result)
 
 
 _sma_scan_state: dict = {"running": False, "done": 0, "total": 0, "results": None, "error": None}

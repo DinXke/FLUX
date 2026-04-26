@@ -70,6 +70,30 @@ def get_default_register_map() -> list[dict]:
     return [dict(r) for r in _DEFAULT_REGISTER_MAP]
 
 
+def get_sma_sensor_metadata() -> list[dict]:
+    """Return SMA sensor metadata with normalized display units for the frontend."""
+    result = []
+    for reg in _DEFAULT_REGISTER_MAP:
+        sensor = {
+            "key": reg["key"],
+            "label": reg["label"],
+            "unit": reg["unit"],
+        }
+        # Normalize unit: if mult=0.01 and unit="0.01V", show "V"
+        if reg.get("mult") == 0.01 and "V" in reg["unit"]:
+            sensor["unit"] = "V"
+        elif reg.get("mult") == 0.01 and "Hz" in reg["unit"]:
+            sensor["unit"] = "Hz"
+        elif reg.get("mult") == 0.1 and "°C" in reg["unit"]:
+            sensor["unit"] = "°C"
+        elif reg.get("mult") == 0.001 and "A" in reg["unit"]:
+            sensor["unit"] = "A"
+        elif reg["unit"] == "kWh":
+            sensor["unit"] = "Wh"
+        result.append(sensor)
+    return result
+
+
 def _poll_register(client, reg_conf: dict, unit_id: int) -> Optional[float]:
     """Read one register entry and return the scaled value, or None on error/NaN."""
     addr  = reg_conf["reg"]              # SMA uses 1-based Modbus addressing
