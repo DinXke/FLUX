@@ -10,8 +10,16 @@
     "strategy": "Strategie",
     "profit": "Winst",
     "history": "Prijshistorie",
+    "statistics": "Statistieken",
     "settings": "Instellingen",
     "users": "Gebruikers"
+  },
+  "grafana": {
+    "liveFlow": "Live Stroom",
+    "battery": "Batterij",
+    "solar": "Zon",
+    "cost": "Kosten",
+    "aiLog": "AI Log"
   },
   "buttons": {
     "add": "+ Toevoegen",
