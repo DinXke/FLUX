@@ -19,9 +19,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ ./
 
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY setup_config.py /app/setup_config.py
+RUN chmod +x /app/docker-entrypoint.sh
+
 ENV STANDALONE_MODE=true \
+    MARSTEK_DATA_DIR=/data \
     MARSTEK_FRONTEND_DIST=/app/frontend/dist \
     PYTHONUNBUFFERED=1
 
 EXPOSE 5000
-CMD ["python", "app.py"]
+ENTRYPOINT ["/bin/sh"]
+CMD ["/app/docker-entrypoint.sh"]
