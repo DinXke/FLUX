@@ -10,8 +10,16 @@
     "strategy": "Strategy",
     "profit": "Profit",
     "history": "Price History",
+    "statistics": "Statistics",
     "settings": "Settings",
     "users": "Users"
+  },
+  "grafana": {
+    "liveFlow": "Live Flow",
+    "battery": "Battery",
+    "solar": "Solar",
+    "cost": "Cost",
+    "aiLog": "AI Log"
   },
   "buttons": {
     "add": "+ Add",

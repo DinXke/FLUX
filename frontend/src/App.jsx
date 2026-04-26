@@ -14,6 +14,7 @@ import SmaInverterPanel from "./components/SmaInverterPanel.jsx";
 import LanguageSwitcher from "./components/LanguageSwitcher.jsx";
 import LoginPage from "./components/LoginPage.jsx";
 import UserManagementPage from "./components/UserManagementPage.jsx";
+import GrafanaPage from "./components/GrafanaPage.jsx";
 import { getToken, clearToken, authHeaders, apiFetch } from "./auth.js";
 
 const THEMES = [
@@ -277,8 +278,9 @@ export default function App() {
     { id: "forecast",  icon: "☀️", label: t('nav.forecast') },
     { id: "strategy",  icon: "🧠", label: t('nav.strategy') },
     { id: "profit",    icon: "💰", label: t('nav.profit') },
-    { id: "frank",     icon: "📊", label: t('nav.history') },
-    { id: "settings",  icon: "⚙️", label: t('nav.settings') },
+    { id: "frank",       icon: "📊", label: t('nav.history') },
+    { id: "statistics",  icon: "📈", label: t('nav.statistics') },
+    { id: "settings",    icon: "⚙️", label: t('nav.settings') },
     ...(isAdmin ? [{ id: "users", icon: "👥", label: t('nav.users') }] : []),
   ];
 
@@ -436,7 +438,8 @@ export default function App() {
         {page === "forecast"  && <ForecastPage />}
         {page === "strategy"  && <StrategyPage />}
         {page === "profit"    && <ProfitPage />}
-        {page === "frank"     && <HistoricalFrankPage />}
+        {page === "frank"       && <HistoricalFrankPage />}
+        {page === "statistics"  && <GrafanaPage />}
 
         {page === "settings" && (
           <SettingsPage
