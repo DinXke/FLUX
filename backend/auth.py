@@ -149,23 +149,32 @@ class AuthManager:
         return False
 
     def ensure_admin_exists(self) -> bool:
-        """Initialize admin user from env vars if users.json doesn't exist."""
-        if os.path.exists(self.users_file):
-            return True  # Already initialized
-
+        """Initialize/update admin user from env vars."""
         admin_email = os.environ.get("FLUX_ADMIN_USER", "")
         admin_password = os.environ.get("FLUX_ADMIN_PASSWORD", "")
 
         if not admin_email or not admin_password:
             log.warning(
                 "FLUX_ADMIN_USER or FLUX_ADMIN_PASSWORD not set. "
-                "Set both to auto-create admin user on first startup."
+                "Set both to auto-create/update admin user on startup."
             )
             return False
 
+        # Check if admin user already exists
+        existing_admin = self.get_user_by_email(admin_email)
+        if existing_admin:
+            user_id = existing_admin["id"]
+            # Update password if changed
+            if self.update_user(user_id, password=admin_password, role="admin"):
+                log.info(f"Updated admin user credentials: {admin_email}")
+                return True
+            log.error(f"Failed to update admin user: {admin_email}")
+            return False
+
+        # Create new admin user if doesn't exist
         admin_user = self.create_user(admin_email, admin_password, role="admin")
         if admin_user:
-            log.info(f"Created admin user: {admin_email}")
+            log.info(f"Created new admin user: {admin_email}")
             return True
 
         log.error(f"Failed to create admin user: {admin_email}")
