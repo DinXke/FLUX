@@ -11,6 +11,7 @@ import CapTariffSettings from "./CapTariffSettings.jsx";
 import RollingCapSettings from "./RollingCapSettings.jsx";
 import TelegramSettings from "./TelegramSettings.jsx";
 import SmaReaderSettings from "./SmaReaderSettings.jsx";
+import HeatingSettings from "./HeatingSettings.jsx";
 
 // ---------------------------------------------------------------------------
 // Persisted settings helpers (localStorage)
@@ -420,6 +421,7 @@ const GROUPS = [
     tabs: [
       { id: "forecast", label: "☀️ Forecast" },
       { id: "telegram", label: "✈️ Telegram" },
+      { id: "heating", label: "🌡️ Verwarming" },
     ],
   },
   {
@@ -523,6 +525,7 @@ export default function SettingsPage({ devices, powerMap, onDeviceAdded, onDevic
       {activeTab === "rollingcap" && <RollingCapSettings />}
       {activeTab === "forecast"   && <ForecastSettings />}
       {activeTab === "telegram"   && <TelegramSettings />}
+      {activeTab === "heating"    && <HeatingSettings />}
       {activeTab === "debug"      && <DebugPanel />}
     </div>
   );

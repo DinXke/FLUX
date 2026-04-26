@@ -22,6 +22,8 @@ from strategy import (load_strategy_settings, save_strategy_settings,
 from telegram import notify_event as _tg_notify, resolve_approval, get_pending_approvals
 from anomaly_detector import run_anomaly_detection, get_anomaly_summary
 from prophet_forecast import get_prophet_forecast
+import daikin_onecta
+import bosch_home_connect
 
 import requests as _req  # aliased to avoid clash with flask.request
 import urllib3
@@ -816,6 +818,110 @@ def frank_status():
     return jsonify({"loggedIn": False})
 
 
+# ---------------------------------------------------------------------------
+# Daikin Onecta Integration
+# ---------------------------------------------------------------------------
+DAIKIN_CLIENT_ID = os.environ.get("DAIKIN_CLIENT_ID", "d2c97e4f-aab2-42f5-a863-e8fb0f95c21a")
+DAIKIN_CLIENT_SECRET = os.environ.get("DAIKIN_CLIENT_SECRET", "")
+
+@app.route("/api/daikin/status", methods=["GET"])
+def daikin_status():
+    try:
+        session = daikin_onecta.load_daikin_session(DATA_DIR)
+        if session.get("access_token"):
+            return jsonify({
+                "authenticated": True,
+                "email": session.get("email", "unknown"),
+                "region": session.get("region", "EU"),
+                "updated_at": session.get("updated_at"),
+            })
+        return jsonify({"authenticated": False})
+    except Exception as exc:
+        log.error("Daikin status error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/daikin/logout", methods=["POST"])
+def daikin_logout():
+    try:
+        daikin_onecta.daikin_logout(DATA_DIR)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log.error("Daikin logout error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/daikin/devices", methods=["GET"])
+def daikin_devices():
+    try:
+        session = daikin_onecta.load_daikin_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Not authenticated"}), 401
+
+        devices = daikin_onecta.get_daikin_devices(
+            session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET
+        )
+        return jsonify({"devices": devices})
+    except Exception as exc:
+        log.error("Daikin devices error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/daikin/set-temperature", methods=["POST"])
+def daikin_set_temperature():
+    try:
+        body = request.get_json(force=True)
+        device_id = body.get("device_id", "").strip()
+        target_celsius = float(body.get("target_celsius", 21))
+
+        if not device_id:
+            return jsonify({"error": "device_id required"}), 400
+
+        session = daikin_onecta.load_daikin_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Not authenticated"}), 401
+
+        result = daikin_onecta.set_daikin_temperature(
+            session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET,
+            device_id, target_celsius
+        )
+        daikin_onecta.save_daikin_session(DATA_DIR, session)
+
+        _tg_notify(f"🌡️ Daikin: Setpoint → {target_celsius}°C")
+        return jsonify(result)
+    except Exception as exc:
+        log.error("Daikin set-temperature error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/daikin/set-power", methods=["POST"])
+def daikin_set_power():
+    try:
+        body = request.get_json(force=True)
+        device_id = body.get("device_id", "").strip()
+        power_on = body.get("power_on", True)
+
+        if not device_id:
+            return jsonify({"error": "device_id required"}), 400
+
+        session = daikin_onecta.load_daikin_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Not authenticated"}), 401
+
+        result = daikin_onecta.set_daikin_power(
+            session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET,
+            device_id, power_on
+        )
+        daikin_onecta.save_daikin_session(DATA_DIR, session)
+
+        status_text = "Aan 🟢" if power_on else "Uit 🔴"
+        _tg_notify(f"🌡️ Daikin: {status_text}")
+        return jsonify(result)
+    except Exception as exc:
+        log.error("Daikin set-power error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
 @app.route("/api/frank/consumption", methods=["GET"])
 def frank_consumption():
     try:
@@ -1513,6 +1619,170 @@ def hw_scan():
     found.sort(key=lambda d: [int(x) for x in d["ip"].split(".")])
     log.info("HomeWizard scan complete  found=%d", len(found))
     return jsonify({"subnet": subnet_str, "found": found})
+
+
+# ---------------------------------------------------------------------------
+# Bosch Home Connect Integration
+# ---------------------------------------------------------------------------
+
+@app.route("/api/bosch/status", methods=["GET"])
+def bosch_status():
+    try:
+        devices = bosch_home_connect.load_bosch_devices(DATA_DIR)
+        return jsonify({
+            "devices_count": len(devices),
+            "devices": list(devices.keys()),
+            "last_sync": time.time(),
+        })
+    except Exception as exc:
+        log.error("Bosch status error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch/pair", methods=["POST"])
+def bosch_pair():
+    try:
+        body = request.get_json(force=True)
+        ip = (body.get("ip") or "").strip()
+
+        if not ip:
+            return jsonify({"error": "ip required"}), 400
+
+        log.info("Bosch pairing initiated for %s", ip)
+        result = bosch_home_connect.bosch_pair_v2(ip, "FLUX SmartMarstek", timeout=35)
+
+        # Save discovered devices
+        devices = bosch_home_connect.load_bosch_devices(DATA_DIR)
+        for dev in result.get("devices", []):
+            device_id = dev.get("id")
+            if device_id:
+                devices[device_id] = {
+                    "id": device_id,
+                    "name": dev.get("name", "Unknown"),
+                    "type": dev.get("type", "unknown"),
+                    "ip": ip,
+                    "api_version": "v2",
+                    "bearer_token": result.get("token"),
+                    "serial": dev.get("serial"),
+                    "discovered_at": time.time(),
+                }
+        bosch_home_connect.save_bosch_devices(DATA_DIR, devices)
+
+        _tg_notify(f"✅ Bosch pairing OK — {len(result.get('devices', []))} devices found")
+        return jsonify({"ok": True, "devices_found": len(result.get("devices", []))})
+
+    except Exception as exc:
+        log.error("Bosch pairing error: %s", exc, exc_info=True)
+        _tg_notify(f"❌ Bosch pairing failed: {str(exc)[:50]}")
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch/devices", methods=["GET"])
+def bosch_devices():
+    try:
+        devices_registry = bosch_home_connect.load_bosch_devices(DATA_DIR)
+        devices_state = []
+
+        for device_id, dev_config in devices_registry.items():
+            try:
+                ip = dev_config.get("ip")
+                token = dev_config.get("bearer_token")
+                state = bosch_home_connect.bosch_get_thermostat_state(ip, token, device_id)
+                state.update({
+                    "name": dev_config.get("name"),
+                    "type": dev_config.get("type"),
+                })
+                devices_state.append(state)
+            except Exception as exc:
+                log.warning("Failed to get state for Bosch device %s: %s", device_id, exc)
+                devices_state.append({
+                    "device_id": device_id,
+                    "name": dev_config.get("name"),
+                    "type": dev_config.get("type"),
+                    "error": str(exc),
+                })
+
+        return jsonify({"devices": devices_state})
+    except Exception as exc:
+        log.error("Bosch devices error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch/set-thermostat", methods=["POST"])
+def bosch_set_thermostat():
+    try:
+        body = request.get_json(force=True)
+        device_id = body.get("device_id", "").strip()
+        target_celsius = float(body.get("target_celsius", 21))
+
+        if not device_id:
+            return jsonify({"error": "device_id required"}), 400
+
+        devices_registry = bosch_home_connect.load_bosch_devices(DATA_DIR)
+        dev_config = devices_registry.get(device_id)
+        if not dev_config:
+            return jsonify({"error": "Device not found"}), 404
+
+        ip = dev_config.get("ip")
+        token = dev_config.get("bearer_token")
+        result = bosch_home_connect.bosch_set_thermostat(ip, token, device_id, target_celsius)
+
+        _tg_notify(f"🌡️ Bosch {dev_config.get('name')}: {target_celsius}°C")
+        return jsonify(result)
+
+    except Exception as exc:
+        log.error("Bosch set-thermostat error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch/set-power", methods=["POST"])
+def bosch_set_power():
+    try:
+        body = request.get_json(force=True)
+        device_id = body.get("device_id", "").strip()
+        power_on = body.get("power_on", True)
+
+        if not device_id:
+            return jsonify({"error": "device_id required"}), 400
+
+        devices_registry = bosch_home_connect.load_bosch_devices(DATA_DIR)
+        dev_config = devices_registry.get(device_id)
+        if not dev_config:
+            return jsonify({"error": "Device not found"}), 404
+
+        ip = dev_config.get("ip")
+        token = dev_config.get("bearer_token")
+        result = bosch_home_connect.bosch_set_power(ip, token, device_id, power_on)
+
+        status_text = "Aan 🟢" if power_on else "Uit 🔴"
+        _tg_notify(f"🌡️ Bosch {dev_config.get('name')}: {status_text}")
+        return jsonify(result)
+
+    except Exception as exc:
+        log.error("Bosch set-power error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch/unpair", methods=["POST"])
+def bosch_unpair():
+    try:
+        body = request.get_json(force=True)
+        device_id = body.get("device_id", "").strip()
+
+        if not device_id:
+            return jsonify({"error": "device_id required"}), 400
+
+        devices = bosch_home_connect.load_bosch_devices(DATA_DIR)
+        if device_id in devices:
+            del devices[device_id]
+            bosch_home_connect.save_bosch_devices(DATA_DIR, devices)
+            return jsonify({"ok": True})
+
+        return jsonify({"error": "Device not found"}), 404
+
+    except Exception as exc:
+        log.error("Bosch unpair error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
 
 
 # ---------------------------------------------------------------------------
@@ -4298,6 +4568,9 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
         result["claude_debug"]    = _claude_debug
     if _auto_info:
         result["engine_auto_info"] = _auto_info
+    # Heating device state for UI display and strategy consideration
+    result["daikin_devices"] = daikin_devices
+    result["bosch_devices"]  = bosch_devices
     # Expose calculated (or configured) standby for display in the UI
     from strategy import load_strategy_settings as _lss
     _ss = _lss()
@@ -4696,6 +4969,70 @@ def _current_slot_action() -> str | None:
     return "neutral"
 
 
+def _apply_heating_control(action: str, settings: dict) -> None:
+    """
+    Apply heating device control based on current automation action.
+    grid_charge → increase setpoint (store thermal energy)
+    discharge → decrease setpoint (release thermal energy)
+    save/neutral → comfort temperature
+    """
+    try:
+        daikin_session = daikin_onecta.load_daikin_session(DATA_DIR)
+        bosch_devices = bosch_home_connect.load_bosch_devices(DATA_DIR)
+
+        # Determine target temperatures based on action
+        if action == "grid_charge":
+            target_temp = float(settings.get("heating_grid_charge_setpoint", 25.0))
+        elif action == "discharge":
+            target_temp = float(settings.get("heating_discharge_setpoint", 16.0))
+        else:
+            target_temp = float(settings.get("heating_comfort_setpoint", 21.0))
+
+        # Daikin control
+        if daikin_session.get("access_token"):
+            try:
+                devices = daikin_onecta.get_daikin_devices(
+                    daikin_session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET
+                )
+                for dev in devices:
+                    dev_id = dev.get("id")
+                    current_setpoint = dev.get("setpoint")
+                    if current_setpoint and abs(current_setpoint - target_temp) > 0.5:
+                        daikin_onecta.set_daikin_temperature(
+                            daikin_session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET,
+                            dev_id, target_temp
+                        )
+                        log.info(
+                            "Heating: Daikin %s setpoint %.1f → %.1f (action=%s)",
+                            dev.get("name"), current_setpoint, target_temp, action
+                        )
+            except Exception as exc:
+                log.warning("Heating: Daikin control error: %s", exc)
+
+        # Bosch control
+        if bosch_devices:
+            try:
+                for device_id, dev_config in bosch_devices.items():
+                    ip = dev_config.get("ip")
+                    token = dev_config.get("bearer_token")
+                    try:
+                        state = bosch_home_connect.bosch_get_thermostat_state(ip, token, device_id)
+                        current_setpoint = state.get("setpoint")
+                        if current_setpoint and abs(current_setpoint - target_temp) > 0.5:
+                            bosch_home_connect.bosch_set_thermostat(ip, token, device_id, target_temp)
+                            log.info(
+                                "Heating: Bosch %s setpoint %.1f → %.1f (action=%s)",
+                                dev_config.get("name"), current_setpoint, target_temp, action
+                            )
+                    except Exception as exc:
+                        log.debug("Heating: Bosch device %s error: %s", device_id, exc)
+            except Exception as exc:
+                log.warning("Heating: Bosch control error: %s", exc)
+
+    except Exception as exc:
+        log.error("_apply_heating_control error: %s", exc)
+
+
 def _automation_tick() -> None:
     """
     Run once per minute. Only sends commands when the action changes
@@ -4982,6 +5319,11 @@ def _automation_tick() -> None:
     # At negative prices you also want to grid_charge (the strategy handles that),
     # but solar export at negative price costs money → limit PV output.
     _apply_pv_limiter(s_now, auto)
+
+    # ── Heating device control (Daikin/Bosch) ───────────────────────────────
+    # Dispatch heating setpoint/valve commands based on current action
+    if auto.get("heating_enabled", True):
+        _apply_heating_control(effective_action, s_now)
 
     _save_automation(auto)
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.28.0] - 2026-04-26
+
+### Added
+- **Daikin Onecta en Bosch Home Connect verwarming/koeling integratie** ([SCH-753](/SCH/issues/SCH-753)): automatische thermostaat- en ventielbediening op basis van laad-/ontlaadactions. Daikin Onecta OAuth2-API voor warmtepompen (setpoint-regeling), Bosch Home Connect REST API voor thermostaten en verwarmingselementen. Setpoints automatisch aangepast: grid_charge → hoge temperatuur (thermisch bufferen), discharge → lage temperatuur (thermische vrijgave), save/neutral → comfort. Instellingen voor het Verwarming-paneel in Instellingen > Integraties.
+
 ## [1.27.14] - 2026-04-25
 
 ### Added
