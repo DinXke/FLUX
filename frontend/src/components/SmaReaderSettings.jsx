@@ -236,10 +236,11 @@ export default function SmaReaderSettings() {
 // ---------------------------------------------------------------------------
 
 const DEBUG_FIELDS = [
-  { key: "online",       label: "Online",          fmt: v => v ? "ja" : "nee" },
-  { key: "night_mode",   label: "Nachtmodus",       fmt: v => v ? "ja" : "nee" },
-  { key: "status",       label: "Status",           fmt: v => v ?? "—" },
-  { key: "status_code",  label: "Status code",      fmt: v => v ?? "—" },
+  { key: "online",                  label: "Online",                   fmt: v => v ? "ja" : "nee" },
+  { key: "night_mode",              label: "Nachtmodus",               fmt: v => v ? "ja" : "nee" },
+  { key: "measurements_unavailable", label: "Meetregisters unavailable", fmt: v => v ? "ja — registermap klopt niet" : "nee" },
+  { key: "status",                  label: "Status",                   fmt: v => v ?? "—" },
+  { key: "status_code",             label: "Status code",              fmt: v => v ?? "—" },
   { key: "pac_w",        label: "AC-vermogen",      fmt: v => v != null ? `${v} W` : "null" },
   { key: "e_day_wh",     label: "Dagopbrengst",     fmt: v => v != null ? `${v} Wh` : "null" },
   { key: "e_total_wh",   label: "Totaalopbrengst",  fmt: v => v != null ? `${(v/1000).toFixed(2)} kWh` : "null" },
@@ -322,17 +323,20 @@ function SmaDebugLog() {
               <summary style={{
                 cursor: "pointer", padding: "6px 10px", fontSize: 12,
                 background: e.data.online
-                  ? e.data.night_mode ? "rgba(255,214,0,.07)" : "rgba(0,210,90,.07)"
+                  ? e.data.measurements_unavailable ? "rgba(255,140,0,.08)"
+                  : e.data.night_mode ? "rgba(255,214,0,.07)" : "rgba(0,210,90,.07)"
                   : "rgba(255,80,80,.07)",
                 display: "flex", gap: 8, alignItems: "center",
               }}>
                 <span style={{ fontFamily: "monospace", color: "var(--text-muted)" }}>{timeStr(e.ts)}</span>
                 <span style={{ fontWeight: 600,
                   color: e.data.online
-                    ? e.data.night_mode ? "#ffd600" : "var(--success)"
+                    ? e.data.measurements_unavailable ? "#ff8c00"
+                    : e.data.night_mode ? "#ffd600" : "var(--success)"
                     : "var(--danger)" }}>
                   {e.data.online
-                    ? e.data.night_mode ? "🌙 nacht" : "✓ online"
+                    ? e.data.measurements_unavailable ? "⚠ registermap mismatch"
+                    : e.data.night_mode ? "🌙 nacht" : "✓ online"
                     : "✗ offline"}
                 </span>
                 {e.data.status && <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{e.data.status}</span>}

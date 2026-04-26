@@ -323,10 +323,10 @@ def _make_client(host: str, port: int, use_udp: bool = False):
     try:
         if use_udp:
             from pymodbus.client import ModbusUdpClient
-            return ModbusUdpClient(host=host, port=port, timeout=5)
+            return ModbusUdpClient(host=host, port=port, timeout=1)
         else:
             from pymodbus.client import ModbusTcpClient
-            return ModbusTcpClient(host=host, port=port, timeout=5)
+            return ModbusTcpClient(host=host, port=port, timeout=1)
     except ImportError:
         return None
 
@@ -354,23 +354,25 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
 
     data: dict = {"online": True}
     try:
-        # Read all configured measurement registers
+        # Read all configured measurement registers — always write every key (None on failure)
+        # so the cache merge never retains stale values from a previous poll.
         for reg_conf in register_map:
             key = reg_conf["key"]
             val = _poll_register(client, reg_conf, unit_id)
             if val is not None:
                 mult = float(reg_conf.get("mult", 1.0))
-                # Round to sensible precision based on multiplier
                 if mult < 1.0:
                     data[key] = round(val, max(1, len(str(mult).rstrip("0").split(".")[-1])))
                 else:
                     data[key] = val
+            else:
+                data[key] = None
 
-        # Device status — tries reg 30201 (addr 30200) and reg 30202/30203 (addr 30201)
+        # Device status — always set (None if unreadable) so cache never shows a stale
+        # status_code from a prior poll alongside a contradictory night_mode from this one.
         code = _read_status(client, unit_id)
-        if code is not None:
-            data["status_code"] = code
-            data["status"] = _STATUS_LABELS.get(code, f"Code {code}")
+        data["status_code"] = code
+        data["status"] = _STATUS_LABELS.get(code, f"Code {code}") if code is not None else None
 
         # Night/standby mode: TCP connected but all measurement registers return
         # Modbus exceptions. Normal SMA behavior during darkness/standby.
@@ -381,8 +383,8 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
         has_values = any(data.get(k) is not None for k in measurement_keys)
         status_running = data.get("status_code") in _RUNNING_STATUS_CODES
         data["night_mode"] = not has_values and not status_running
+        data["measurements_unavailable"] = not has_values and status_running
         if not has_values and status_running:
-            data["measurements_unavailable"] = True
             log.warning(
                 "SMA status=%s maar meetregisters reageren niet — "
                 "controleer of het apparaattype overeenkomt met het registermap",
@@ -489,13 +491,14 @@ def _reader_loop(get_settings_fn, interval: int) -> None:
             # Retry when device is online but all measurements failed — typically a
             # simultaneous Modbus TCP session held by another client (e.g. Loxone).
             # A short pause lets the other client finish its cycle.
-            # Not needed with UDP (connectionless), but harmless.
+            # Skip retries when night_mode or measurements_unavailable: retrying won't help
+            # (standby state or register map mismatch — not a transient session conflict).
             measurement_keys = ("pac_w", "e_day_wh", "e_total_wh", "grid_v", "freq_hz")
             for attempt in range(_POLL_MAX_RETRIES):
                 has_data = any(result.get(k) is not None for k in measurement_keys)
                 if has_data or not result.get("online"):
                     break
-                if result.get("night_mode"):
+                if result.get("night_mode") or result.get("measurements_unavailable"):
                     break
                 log.debug("SMA meetregisters leeg, retry %d/%d na %ds",
                           attempt + 1, _POLL_MAX_RETRIES, _POLL_RETRY_DELAY)
