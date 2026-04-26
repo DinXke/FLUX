@@ -4797,6 +4797,13 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
     log.info("_compute_forward_plan: consumption=%s (%d slots), prices=%d, solar=%d, SoC=%.1f%%",
              consumption_source, len(consumption_by_hour), len(prices), len(solar_wh), soc_now)
 
+    # Frank prices are all-in (taxes + surcharges already included).
+    # Zero out the markup so build_plan doesn't add it a second time.
+    if price_source == "frank":
+        s = dict(s)
+        s["grid_markup_eur_kwh"] = 0.0
+        log.debug("_compute_forward_plan: Frank source – markup forced to 0 (all-in prices)")
+
     # ── Today's InfluxDB actuals (for past hours — more accurate than forecast) ──
     today_actuals: dict = {}
     try:

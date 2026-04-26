@@ -77,12 +77,15 @@ function LegendItem({ color, label }) {
 
 function HourBar({ slot, maxPrice, maxSolar, maxCons, isNow }) {
   const ac     = ACTION_COLOR[slot.action] || ACTION_COLOR.neutral;
-  const pPct   = maxPrice > 0 && slot.price_eur_kwh != null ? Math.max(2, (slot.price_eur_kwh / maxPrice) * 100) : 0;
+  const pPct   = maxPrice > 0 && slot.price_eur_kwh != null && slot.price_eur_kwh > 0
+    ? Math.max(2, (slot.price_eur_kwh / maxPrice) * 100) : 0;
   const sPct   = maxSolar > 0 ? Math.max(0, (slot.solar_wh / maxSolar) * 100) : 0;
   const cPct   = maxCons  > 0 ? Math.max(2, (slot.consumption_wh / maxCons) * 100) : 0;
   const isPast = slot.is_past;
+  const isNegPrice = slot.price_eur_kwh != null && slot.price_eur_kwh < 0;
 
   const priceColor = slot.price_eur_kwh == null ? "#475569"
+    : slot.price_eur_kwh < 0    ? "#0ea5e9"
     : slot.price_eur_kwh < 0.05 ? "#22c55e"
     : slot.price_eur_kwh < 0.10 ? "#84cc16"
     : slot.price_eur_kwh < 0.15 ? "#eab308"
@@ -94,9 +97,14 @@ function HourBar({ slot, maxPrice, maxSolar, maxCons, isNow }) {
       style={{ opacity: isPast ? 0.35 : 1 }}
       title={`${fmtHour(slot.time)} · ${fmtPrice(slot.price_eur_kwh)} · ${slot.reason || slot.action}`}>
 
-      {/* Price bar */}
+      {/* Price bar — negative prices show as full-height blue stripe at bottom */}
       <div className="strat-bar-track strat-price-track">
-        <div className="strat-bar-fill" style={{ height: `${pPct}%`, background: priceColor, opacity: 0.85 }} />
+        {isNegPrice
+          ? <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "100%",
+              background: "repeating-linear-gradient(135deg,#0ea5e9 0,#0ea5e9 3px,transparent 3px,transparent 8px)",
+              opacity: 0.5 }} />
+          : <div className="strat-bar-fill" style={{ height: `${pPct}%`, background: priceColor, opacity: 0.85 }} />
+        }
       </div>
 
       {/* Solar bar */}
