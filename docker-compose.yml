@@ -4,15 +4,13 @@ services:
   smartmarstek:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.standalone
     container_name: smartmarstek
     restart: unless-stopped
     ports:
       - "5000:5000"
     depends_on:
       - influxdb
-    entrypoint: /bin/bash
-    command: /app/docker-entrypoint.sh
     environment:
       MARSTEK_DATA_DIR: /data
       MARSTEK_FRONTEND_DIST: /app/frontend/dist
