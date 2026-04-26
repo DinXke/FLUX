@@ -78,6 +78,9 @@ services:
       # (vereist bij cloudflared of andere reverse proxies)
       GF_SERVER_ROOT_URL: "${GRAFANA_EXTERNAL_URL:-http://localhost:3000}"
       GF_INSTALL_PLUGINS:
+      INFLUX_ORG: ${INFLUX_ORG}
+      INFLUX_BUCKET: ${INFLUX_BUCKET}
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
