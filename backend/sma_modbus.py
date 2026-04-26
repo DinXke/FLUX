@@ -343,6 +343,8 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
     registers of the same FC are within MAX_GAP words of each other. Each batch is
     read in a single FC03/FC04 request; individual values are extracted by offset.
 
+    SMA uses 1-based Modbus addressing: pymodbus addr == SMA register number (no -1).
+
     Returns {key: scaled_value_or_None} for every entry in register_map.
     """
     MAX_GAP = 4  # max gap in register words allowed inside a single batch request
@@ -350,7 +352,7 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
     def _word_count(dtype: str) -> int:
         return 4 if dtype == "U64" else 2
 
-    # Sort by FC then by 0-based address so consecutive registers are adjacent
+    # Sort by FC then by register number so consecutive registers are adjacent
     sorted_regs = sorted(register_map, key=lambda r: (r["fc"], r["reg"]))
 
     # Build batches: list of [reg_conf, ...]
@@ -361,8 +363,8 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
             current = [reg_conf]
             continue
         prev = current[-1]
-        prev_end = (prev["reg"] - 1) + _word_count(prev.get("dtype", "U32"))
-        this_start = reg_conf["reg"] - 1
+        prev_end = prev["reg"] + _word_count(prev.get("dtype", "U32"))
+        this_start = reg_conf["reg"]
         if reg_conf["fc"] == prev["fc"] and (this_start - prev_end) <= MAX_GAP:
             current.append(reg_conf)
         else:
@@ -375,9 +377,9 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
 
     for batch in batches:
         fc = batch[0]["fc"]
-        first_addr = batch[0]["reg"] - 1
+        first_addr = batch[0]["reg"]
         last_conf = batch[-1]
-        last_addr = last_conf["reg"] - 1
+        last_addr = last_conf["reg"]
         total_count = last_addr + _word_count(last_conf.get("dtype", "U32")) - first_addr
 
         regs = _read_holding(client, first_addr, total_count, unit_id) if fc == 3 \
@@ -388,7 +390,7 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
             if regs is None:
                 results[key] = None
                 continue
-            offset = (reg_conf["reg"] - 1) - first_addr
+            offset = reg_conf["reg"] - first_addr
             dtype  = reg_conf.get("dtype", "U32")
             if dtype == "U32":
                 raw = _to_u32(regs, offset)
@@ -418,7 +420,6 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
 
     register_map: list of register config dicts (see _DEFAULT_REGISTER_MAP).
     If None, uses _DEFAULT_REGISTER_MAP.
-    pymodbus uses 0-based addresses → 1-based register number - 1.
     """
     if register_map is None:
         register_map = _DEFAULT_REGISTER_MAP
