@@ -8,7 +8,7 @@ import time
 import uuid
 from collections import deque as _deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 from zoneinfo import ZoneInfo
 from urllib.parse import urlencode, quote
 from urllib.request import urlopen, Request
@@ -541,8 +541,6 @@ def send_command(device_id):
 import asyncio
 import xml.etree.ElementTree as ET
 import re as _re
-from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 from python_frank_energie import FrankEnergie
 
 FRANK_SESSION_FILE = os.path.join(BASE_DIR, "frank_session.json")
