@@ -3125,10 +3125,11 @@ def start_sma_scan():
         if _sma_scan_state["running"]:
             return jsonify({"error": "Scan is al bezig"}), 409
 
-    s    = load_strategy_settings()
-    host = (s.get("sma_reader_host") or "").strip()
-    port = int(s.get("sma_reader_port", 502))
-    uid  = int(s.get("sma_reader_unit_id", 3))
+    s       = load_strategy_settings()
+    host    = (s.get("sma_reader_host") or "").strip()
+    port    = int(s.get("sma_reader_port", 502))
+    uid     = int(s.get("sma_reader_unit_id", 3))
+    use_udp = bool(s.get("sma_reader_use_udp", False))
     if not host:
         return jsonify({"error": "sma_reader_host niet geconfigureerd"}), 400
 
@@ -3141,7 +3142,7 @@ def start_sma_scan():
                 with _sma_scan_lock:
                     _sma_scan_state["done"]  = done
                     _sma_scan_state["total"] = total
-            results = scan_registers(host, port, uid, progress_cb=_progress)
+            results = scan_registers(host, port, uid, progress_cb=_progress, use_udp=use_udp)
             with _sma_scan_lock:
                 _sma_scan_state["results"] = results
         except Exception as exc:
@@ -3175,13 +3176,14 @@ def sma_scan_status():
 def test_sma_connection():
     """Trigger an on-demand diagnostic poll and return detailed results."""
     from sma_modbus import poll_diagnostics
-    s    = load_strategy_settings()
-    host = (s.get("sma_reader_host") or "").strip()
-    port = int(s.get("sma_reader_port", 502))
-    uid  = int(s.get("sma_reader_unit_id", 3))
+    s       = load_strategy_settings()
+    host    = (s.get("sma_reader_host") or "").strip()
+    port    = int(s.get("sma_reader_port", 502))
+    uid     = int(s.get("sma_reader_unit_id", 3))
+    use_udp = bool(s.get("sma_reader_use_udp", False))
     if not host:
         return jsonify({"error": "sma_reader_host niet geconfigureerd"}), 400
-    result = poll_diagnostics(host, port, uid)
+    result = poll_diagnostics(host, port, uid, use_udp=use_udp)
     return jsonify(result)
 
 
