@@ -121,18 +121,31 @@ else
 
     cp .env.example .env
 
-    # Generate secure passwords
-    INFLUX_PASS=$(openssl rand -base64 24)
-    GRAFANA_PASS=$(openssl rand -base64 24)
-    INFLUX_TOKEN=$(openssl rand -hex 32)
+    # Vraag admin wachtwoord (interactief)
+    ADMIN_PASS=""
+    while [[ -z "$ADMIN_PASS" ]]; do
+        echo -en "${BOLD}Admin wachtwoord voor FLUX (verplicht):${RESET} "
+        read -rs ADMIN_PASS
+        echo ""
+        [[ -z "$ADMIN_PASS" ]] && log_warn "Wachtwoord mag niet leeg zijn."
+    done
 
-    # Update .env with generated secrets (use 'sed' with different delimiter to avoid / issues)
+    # Genereer alle interne secrets
+    INFLUX_PASS=$(openssl rand -base64 24 | tr -d '\n/')
+    GRAFANA_PASS=$(openssl rand -base64 24 | tr -d '\n/')
+    INFLUX_TOKEN=$(openssl rand -hex 32)
+    FLASK_SECRET=$(openssl rand -hex 32)
+
+    # Schrijf secrets naar .env
     sed -i "s|INFLUX_PASSWORD=.*|INFLUX_PASSWORD=$INFLUX_PASS|g" .env
     sed -i "s|GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=$GRAFANA_PASS|g" .env
     sed -i "s|INFLUX_TOKEN=.*|INFLUX_TOKEN=$INFLUX_TOKEN|g" .env
+    sed -i "s|FLASK_SECRET_KEY=.*|FLASK_SECRET_KEY=$FLASK_SECRET|g" .env
+    sed -i "s|FLUX_ADMIN_PASSWORD=.*|FLUX_ADMIN_PASSWORD=$ADMIN_PASS|g" .env
 
-    log_info ".env generated with secure passwords"
-    log_warn "Saved to: $INSTALL_DIR/.env"
+    chmod 600 .env
+    log_info ".env gegenereerd met veilige secrets (chmod 600)"
+    log_warn "Bewaar $INSTALL_DIR/.env veilig — bevat wachtwoorden."
 fi
 
 # ─────────────────────────────────────────────────────────────────────────

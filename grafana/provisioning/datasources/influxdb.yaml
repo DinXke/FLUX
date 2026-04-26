@@ -5,11 +5,12 @@ datasources:
     type: influxdb
     access: proxy
     url: http://influxdb:8086
-    isDefault: true
     jsonData:
       version: Flux
-      organization: marstek
-      defaultBucket: energy
-      tlsSkipVerify: false
+      organization: ${INFLUX_ORG:-flux}
+      defaultBucket: ${INFLUX_BUCKET:-energy}
+      tlsSkipVerify: true
     secureJsonData:
       token: ${INFLUX_TOKEN}
+    isDefault: true
+    editable: false
