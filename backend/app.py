@@ -5573,9 +5573,9 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
         log.warning("Modbus PV-limiter: geen host geconfigureerd")
         return False
 
-    # SMA and most inverters document 1-based Modbus holding register addresses
-    # (40001 = register 1). Convert to 0-based address for pymodbus.
-    addr = reg_raw - 40001 if reg_raw >= 40001 else reg_raw
+    # SMA uses their own 1-based register numbering (30775, 42062, etc.).
+    # The 0-based Modbus address is simply reg_number - 1.
+    addr = reg_raw - 1
 
     if val_mode == "PCT":
         value = int(round(target_w / max_w * 100)) if max_w > 0 else 0

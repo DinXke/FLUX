@@ -74,9 +74,10 @@ export default function SmaInverterPanel({ refreshTick }) {
 
   // Never fully hide — always show so user can discover the feature
 
-  const online  = data?.online ?? false;
-  const status  = null; // status removed from live data — shown via InfluxDB
-  const pac     = data?.pac_w;
+  const online    = data?.online ?? false;
+  const nightMode = data?.night_mode ?? false;
+  const status    = null; // status removed from live data — shown via InfluxDB
+  const pac       = data?.pac_w;
   const eDay    = data?.e_day_wh;
   const eTotal  = data?.e_total_wh;
   const gridV   = data?.grid_v;
@@ -104,7 +105,13 @@ export default function SmaInverterPanel({ refreshTick }) {
           <span style={{ fontSize: 18 }}>☀️</span>
           <span style={{ fontWeight: 600, fontSize: 14 }}>SMA Sunny Boy</span>
           <StatusBadge status={status} online={online} />
-          {online && pac != null && (
+          {online && nightMode && (
+            <span style={{
+              display: "inline-block", padding: "2px 8px", borderRadius: 12,
+              background: "rgba(255,214,0,.12)", color: "#ffd600", fontSize: 11, fontWeight: 600,
+            }}>🌙 Nachtmodus</span>
+          )}
+          {online && !nightMode && pac != null && (
             <span style={{ fontSize: 13, color: SOLAR_COLOR, fontWeight: 700 }}>
               {fmtW(pac)} {wUnit(pac)}
             </span>
@@ -132,7 +139,17 @@ export default function SmaInverterPanel({ refreshTick }) {
             </div>
           )}
 
-          {!loading && online && (
+          {!loading && online && nightMode && (
+            <div style={{
+              fontSize: 13, padding: "8px 12px", borderRadius: 8, marginBottom: 12,
+              background: "rgba(255,214,0,.06)", border: "1px dashed rgba(255,214,0,.25)",
+              color: "var(--text-muted)",
+            }}>
+              Omvormer bereikbaar maar in nacht/standby-modus. Overdag verschijnen hier live waarden.
+            </div>
+          )}
+
+          {!loading && online && !nightMode && (
             <>
               {/* Main power stats */}
               <div style={{
