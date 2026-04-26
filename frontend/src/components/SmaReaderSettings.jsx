@@ -162,10 +162,12 @@ export default function SmaReaderSettings() {
         <div style={{
           marginTop: 16, padding: "12px 16px", borderRadius: 8,
           background: testResult.online
-            ? testResult.night_mode ? "rgba(255,214,0,.06)" : "rgba(0,230,100,.08)"
+            ? testResult.measurements_unavailable ? "rgba(255,140,0,.07)"
+            : testResult.night_mode ? "rgba(255,214,0,.06)" : "rgba(0,230,100,.08)"
             : "rgba(255,80,80,.08)",
           border: `1px solid ${testResult.online
-            ? testResult.night_mode ? "rgba(255,214,0,.35)" : "var(--success)"
+            ? testResult.measurements_unavailable ? "rgba(255,140,0,.5)"
+            : testResult.night_mode ? "rgba(255,214,0,.35)" : "var(--success)"
             : "var(--danger)"}`,
           fontSize: 13,
         }}>
@@ -174,9 +176,22 @@ export default function SmaReaderSettings() {
           ) : testResult.online ? (
             <div>
               <div style={{ fontWeight: 600, marginBottom: 8,
-                color: testResult.night_mode ? "#ffd600" : "var(--success)" }}>
-                {testResult.night_mode ? "🌙 Verbinding OK — omvormer in nachtmodus" : "✓ Verbinding geslaagd"}
+                color: testResult.measurements_unavailable ? "#ff8c00"
+                  : testResult.night_mode ? "#ffd600" : "var(--success)" }}>
+                {testResult.measurements_unavailable
+                  ? "⚠ Verbinding OK — meetregisters reageren niet (registermap mismatch)"
+                  : testResult.night_mode ? "🌙 Verbinding OK — omvormer in nachtmodus"
+                  : "✓ Verbinding geslaagd"}
               </div>
+
+              {testResult.measurements_unavailable && (
+                <div style={{ marginBottom: 12, color: "#ff8c00", lineHeight: 1.5, fontSize: 13 }}>
+                  {testResult.measurements_unavailable_msg || "Omvormer is actief maar meetregisters geven geen waarden terug. Bekijk de raw registerwaarden hieronder om te zien of de adressen kloppen voor dit model."}
+                  <div style={{ marginTop: 6, color: "var(--text-muted)" }}>
+                    Kijk naar de cross-FC kolommen (alt_*_fc3 / alt_*_fc4) — een werkende waarde daar geeft aan welke FC code jouw firmware nodig heeft.
+                  </div>
+                </div>
+              )}
 
               {testResult.night_mode && (
                 <div style={{ marginBottom: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
@@ -236,10 +251,11 @@ export default function SmaReaderSettings() {
 // ---------------------------------------------------------------------------
 
 const DEBUG_FIELDS = [
-  { key: "online",       label: "Online",          fmt: v => v ? "ja" : "nee" },
-  { key: "night_mode",   label: "Nachtmodus",       fmt: v => v ? "ja" : "nee" },
-  { key: "status",       label: "Status",           fmt: v => v ?? "—" },
-  { key: "status_code",  label: "Status code",      fmt: v => v ?? "—" },
+  { key: "online",                  label: "Online",                   fmt: v => v ? "ja" : "nee" },
+  { key: "night_mode",              label: "Nachtmodus",               fmt: v => v ? "ja" : "nee" },
+  { key: "measurements_unavailable", label: "Meetregisters unavailable", fmt: v => v ? "ja — registermap klopt niet" : "nee" },
+  { key: "status",                  label: "Status",                   fmt: v => v ?? "—" },
+  { key: "status_code",             label: "Status code",              fmt: v => v ?? "—" },
   { key: "pac_w",        label: "AC-vermogen",      fmt: v => v != null ? `${v} W` : "null" },
   { key: "e_day_wh",     label: "Dagopbrengst",     fmt: v => v != null ? `${v} Wh` : "null" },
   { key: "e_total_wh",   label: "Totaalopbrengst",  fmt: v => v != null ? `${(v/1000).toFixed(2)} kWh` : "null" },
@@ -322,17 +338,20 @@ function SmaDebugLog() {
               <summary style={{
                 cursor: "pointer", padding: "6px 10px", fontSize: 12,
                 background: e.data.online
-                  ? e.data.night_mode ? "rgba(255,214,0,.07)" : "rgba(0,210,90,.07)"
+                  ? e.data.measurements_unavailable ? "rgba(255,140,0,.08)"
+                  : e.data.night_mode ? "rgba(255,214,0,.07)" : "rgba(0,210,90,.07)"
                   : "rgba(255,80,80,.07)",
                 display: "flex", gap: 8, alignItems: "center",
               }}>
                 <span style={{ fontFamily: "monospace", color: "var(--text-muted)" }}>{timeStr(e.ts)}</span>
                 <span style={{ fontWeight: 600,
                   color: e.data.online
-                    ? e.data.night_mode ? "#ffd600" : "var(--success)"
+                    ? e.data.measurements_unavailable ? "#ff8c00"
+                    : e.data.night_mode ? "#ffd600" : "var(--success)"
                     : "var(--danger)" }}>
                   {e.data.online
-                    ? e.data.night_mode ? "🌙 nacht" : "✓ online"
+                    ? e.data.measurements_unavailable ? "⚠ registermap mismatch"
+                    : e.data.night_mode ? "🌙 nacht" : "✓ online"
                     : "✗ offline"}
                 </span>
                 {e.data.status && <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{e.data.status}</span>}

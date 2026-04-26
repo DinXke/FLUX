@@ -219,27 +219,40 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
 
     # (key, 0-based addr, count, dtype, scale, fc)
     # Primary: SMA SB30-50-1AV-40 Modbus register map
-    # Alt_*: fallback addresses found via scan on older/alternate models
+    # Alt_*: cross-FC fallbacks and alternate addresses — important for SB4.0/SB3.x-1AV-40
+    #        which may expose measurement registers under a different FC than SB30-50.
     PROBES_FC03 = [
-        ("pac_w",           30774, 2, "S32",    1, 3),  # reg 30775 — Pac (W)
-        ("grid_v",          30782, 2, "U32",  100, 3),  # reg 30783 — Uac L1 (0.01V)
-        ("temp_c",          30952, 2, "S32",   10, 3),  # reg 30953 — Internal temp (0.1°C)
-        ("status_code",     30200, 2, "U32",    1, 3),  # reg 30201 — Device status (ENUM)
-        ("alt_status_code", 30201, 2, "U32",    1, 3),  # reg 30202/30203 — Alt status addr
-        ("alt_nominal_w",   30204, 2, "U32",    1, 3),  # reg 30205 — Nominal AC power (W)
-        ("wmax_lim_w",      42061, 2, "U32",    1, 3),  # reg 42062 — WMaxLim (PV limiter)
-        ("wmax_lim_pct",    40235, 2, "U32",    1, 3),  # reg 40236 — WMaxLimPct
+        ("pac_w",            30774, 2, "S32",    1, 3),  # reg 30775 — Pac (W)
+        ("grid_v",           30782, 2, "U32",  100, 3),  # reg 30783 — Uac L1 (0.01V)
+        ("temp_c",           30952, 2, "S32",   10, 3),  # reg 30953 — Internal temp (0.1°C)
+        ("status_code",      30200, 2, "U32",    1, 3),  # reg 30201 — Device status (ENUM)
+        ("alt_status_code",  30201, 2, "U32",    1, 3),  # reg 30202/30203 — Alt status addr
+        ("alt_nominal_w",    30204, 2, "U32",    1, 3),  # reg 30205 — Nominal AC power (W)
+        ("wmax_lim_w",       42061, 2, "U32",    1, 3),  # reg 42062 — WMaxLim (PV limiter)
+        ("wmax_lim_pct",     40235, 2, "U32",    1, 3),  # reg 40236 — WMaxLimPct
+        # Cross-FC: registers normally FC04 — check if SB4.x responds via FC03 instead
+        ("alt_dc_current_fc3", 30768, 2, "U32", 1000, 3),  # reg 30769 via FC03
+        ("alt_dc_voltage_fc3", 30770, 2, "U32",  100, 3),  # reg 30771 via FC03
+        ("alt_dc_power_fc3",   30772, 2, "S32",    1, 3),  # reg 30773 via FC03
+        ("alt_freq_fc3",       30802, 2, "U32",  100, 3),  # reg 30803 via FC03
+        ("alt_op_time_fc3",    30540, 2, "U32",    1, 3),  # reg 30541 via FC03
+        ("alt_e_total_fc3",    30530, 2, "U32",    1, 3),  # reg 30531 via FC03
+        ("alt_e_day_fc3",      30534, 2, "U32",    1, 3),  # reg 30535 via FC03
     ]
     PROBES_FC04 = [
-        ("e_total_wh",     30512, 4, "U64",    1, 4),  # reg 30513 — E-Total (Wh) U64 new map
-        ("e_day_wh",       30516, 4, "U64",    1, 4),  # reg 30517 — E-Day (Wh) U64 new map
-        ("alt_e_total_kwh",30530, 2, "U32",    1, 4),  # reg 30531 — E-Total (kWh) U32 alt map
-        ("alt_e_day_wh",   30534, 2, "U32",    1, 4),  # reg 30535 — E-Day (Wh) U32 alt map
-        ("freq_hz",        30802, 2, "U32",  100, 4),  # reg 30803 — Grid freq (0.01Hz)
-        ("op_time_s",      30540, 2, "U32",    1, 4),  # reg 30541 — Operating time (s)
-        ("dc_current_a",   30768, 2, "U32", 1000, 4),  # reg 30769 — DC current str1 (mA)
-        ("dc_voltage_v",   30770, 2, "U32",  100, 4),  # reg 30771 — DC voltage str1 (0.01V)
-        ("dc_power_w",     30772, 2, "S32",    1, 4),  # reg 30773 — DC power str1 (W)
+        ("e_total_wh",      30512, 4, "U64",    1, 4),  # reg 30513 — E-Total (Wh) U64 new map
+        ("e_day_wh",        30516, 4, "U64",    1, 4),  # reg 30517 — E-Day (Wh) U64 new map
+        ("alt_e_total_kwh", 30530, 2, "U32",    1, 4),  # reg 30531 — E-Total (kWh) U32 alt map
+        ("alt_e_day_wh",    30534, 2, "U32",    1, 4),  # reg 30535 — E-Day (Wh) U32 alt map
+        ("freq_hz",         30802, 2, "U32",  100, 4),  # reg 30803 — Grid freq (0.01Hz)
+        ("op_time_s",       30540, 2, "U32",    1, 4),  # reg 30541 — Operating time (s)
+        ("dc_current_a",    30768, 2, "U32", 1000, 4),  # reg 30769 — DC current str1 (mA)
+        ("dc_voltage_v",    30770, 2, "U32",  100, 4),  # reg 30771 — DC voltage str1 (0.01V)
+        ("dc_power_w",      30772, 2, "S32",    1, 4),  # reg 30773 — DC power str1 (W)
+        # Cross-FC: registers normally FC03 — check if SB4.x responds via FC04 instead
+        ("alt_pac_w_fc4",   30774, 2, "S32",    1, 4),  # reg 30775 via FC04
+        ("alt_grid_v_fc4",  30782, 2, "U32",  100, 4),  # reg 30783 via FC04
+        ("alt_temp_c_fc4",  30952, 2, "S32",   10, 4),  # reg 30953 via FC04
     ]
 
     nan_count = 0
@@ -323,12 +336,88 @@ def _make_client(host: str, port: int, use_udp: bool = False):
     try:
         if use_udp:
             from pymodbus.client import ModbusUdpClient
-            return ModbusUdpClient(host=host, port=port, timeout=5)
+            return ModbusUdpClient(host=host, port=port, timeout=1)
         else:
             from pymodbus.client import ModbusTcpClient
-            return ModbusTcpClient(host=host, port=port, timeout=5)
+            return ModbusTcpClient(host=host, port=port, timeout=1)
     except ImportError:
         return None
+
+
+def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
+    """
+    Read all registers in register_map using the fewest possible Modbus requests.
+
+    Registers are sorted by (fc, address) and grouped into batches when consecutive
+    registers of the same FC are within MAX_GAP words of each other. Each batch is
+    read in a single FC03/FC04 request; individual values are extracted by offset.
+
+    Returns {key: scaled_value_or_None} for every entry in register_map.
+    """
+    MAX_GAP = 4  # max gap in register words allowed inside a single batch request
+
+    def _word_count(dtype: str) -> int:
+        return 4 if dtype == "U64" else 2
+
+    # Sort by FC then by 0-based address so consecutive registers are adjacent
+    sorted_regs = sorted(register_map, key=lambda r: (r["fc"], r["reg"]))
+
+    # Build batches: list of [reg_conf, ...]
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    for reg_conf in sorted_regs:
+        if not current:
+            current = [reg_conf]
+            continue
+        prev = current[-1]
+        prev_end = (prev["reg"] - 1) + _word_count(prev.get("dtype", "U32"))
+        this_start = reg_conf["reg"] - 1
+        if reg_conf["fc"] == prev["fc"] and (this_start - prev_end) <= MAX_GAP:
+            current.append(reg_conf)
+        else:
+            batches.append(current)
+            current = [reg_conf]
+    if current:
+        batches.append(current)
+
+    results: dict = {}
+
+    for batch in batches:
+        fc = batch[0]["fc"]
+        first_addr = batch[0]["reg"] - 1
+        last_conf = batch[-1]
+        last_addr = last_conf["reg"] - 1
+        total_count = last_addr + _word_count(last_conf.get("dtype", "U32")) - first_addr
+
+        regs = _read_holding(client, first_addr, total_count, unit_id) if fc == 3 \
+               else _read_input(client, first_addr, total_count, unit_id)
+
+        for reg_conf in batch:
+            key = reg_conf["key"]
+            if regs is None:
+                results[key] = None
+                continue
+            offset = (reg_conf["reg"] - 1) - first_addr
+            dtype  = reg_conf.get("dtype", "U32")
+            if dtype == "U32":
+                raw = _to_u32(regs, offset)
+            elif dtype == "S32":
+                raw = _to_s32(regs, offset)
+            else:
+                raw = _to_u64(regs, offset)
+            if raw is None:
+                results[key] = None
+            else:
+                mult = float(reg_conf.get("mult", 1.0))
+                if mult < 1.0:
+                    results[key] = round(
+                        raw * mult,
+                        max(1, len(str(mult).rstrip("0").split(".")[-1])),
+                    )
+                else:
+                    results[key] = raw * mult if mult != 1.0 else raw
+
+    return results
 
 
 def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_map=None) -> dict:
@@ -354,23 +443,18 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
 
     data: dict = {"online": True}
     try:
-        # Read all configured measurement registers
-        for reg_conf in register_map:
-            key = reg_conf["key"]
-            val = _poll_register(client, reg_conf, unit_id)
-            if val is not None:
-                mult = float(reg_conf.get("mult", 1.0))
-                # Round to sensible precision based on multiplier
-                if mult < 1.0:
-                    data[key] = round(val, max(1, len(str(mult).rstrip("0").split(".")[-1])))
-                else:
-                    data[key] = val
+        # Read all configured measurement registers in batches to minimise the number
+        # of Modbus round trips (and therefore the TCP session hold time, which matters
+        # when another client such as Loxone also polls the same inverter).
+        # Always write every key (None on failure) so the cache merge never retains
+        # stale values from a previous poll.
+        data.update(_batch_read_registers(client, register_map, unit_id))
 
-        # Device status — tries reg 30201 (addr 30200) and reg 30202/30203 (addr 30201)
+        # Device status — always set (None if unreadable) so cache never shows a stale
+        # status_code from a prior poll alongside a contradictory night_mode from this one.
         code = _read_status(client, unit_id)
-        if code is not None:
-            data["status_code"] = code
-            data["status"] = _STATUS_LABELS.get(code, f"Code {code}")
+        data["status_code"] = code
+        data["status"] = _STATUS_LABELS.get(code, f"Code {code}") if code is not None else None
 
         # Night/standby mode: TCP connected but all measurement registers return
         # Modbus exceptions. Normal SMA behavior during darkness/standby.
@@ -381,8 +465,8 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
         has_values = any(data.get(k) is not None for k in measurement_keys)
         status_running = data.get("status_code") in _RUNNING_STATUS_CODES
         data["night_mode"] = not has_values and not status_running
+        data["measurements_unavailable"] = not has_values and status_running
         if not has_values and status_running:
-            data["measurements_unavailable"] = True
             log.warning(
                 "SMA status=%s maar meetregisters reageren niet — "
                 "controleer of het apparaattype overeenkomt met het registermap",
@@ -489,13 +573,14 @@ def _reader_loop(get_settings_fn, interval: int) -> None:
             # Retry when device is online but all measurements failed — typically a
             # simultaneous Modbus TCP session held by another client (e.g. Loxone).
             # A short pause lets the other client finish its cycle.
-            # Not needed with UDP (connectionless), but harmless.
+            # Skip retries when night_mode or measurements_unavailable: retrying won't help
+            # (standby state or register map mismatch — not a transient session conflict).
             measurement_keys = ("pac_w", "e_day_wh", "e_total_wh", "grid_v", "freq_hz")
             for attempt in range(_POLL_MAX_RETRIES):
                 has_data = any(result.get(k) is not None for k in measurement_keys)
                 if has_data or not result.get("online"):
                     break
-                if result.get("night_mode"):
+                if result.get("night_mode") or result.get("measurements_unavailable"):
                     break
                 log.debug("SMA meetregisters leeg, retry %d/%d na %ds",
                           attempt + 1, _POLL_MAX_RETRIES, _POLL_RETRY_DELAY)
