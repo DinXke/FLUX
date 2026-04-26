@@ -219,27 +219,40 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
 
     # (key, 0-based addr, count, dtype, scale, fc)
     # Primary: SMA SB30-50-1AV-40 Modbus register map
-    # Alt_*: fallback addresses found via scan on older/alternate models
+    # Alt_*: cross-FC fallbacks and alternate addresses — important for SB4.0/SB3.x-1AV-40
+    #        which may expose measurement registers under a different FC than SB30-50.
     PROBES_FC03 = [
-        ("pac_w",           30774, 2, "S32",    1, 3),  # reg 30775 — Pac (W)
-        ("grid_v",          30782, 2, "U32",  100, 3),  # reg 30783 — Uac L1 (0.01V)
-        ("temp_c",          30952, 2, "S32",   10, 3),  # reg 30953 — Internal temp (0.1°C)
-        ("status_code",     30200, 2, "U32",    1, 3),  # reg 30201 — Device status (ENUM)
-        ("alt_status_code", 30201, 2, "U32",    1, 3),  # reg 30202/30203 — Alt status addr
-        ("alt_nominal_w",   30204, 2, "U32",    1, 3),  # reg 30205 — Nominal AC power (W)
-        ("wmax_lim_w",      42061, 2, "U32",    1, 3),  # reg 42062 — WMaxLim (PV limiter)
-        ("wmax_lim_pct",    40235, 2, "U32",    1, 3),  # reg 40236 — WMaxLimPct
+        ("pac_w",            30774, 2, "S32",    1, 3),  # reg 30775 — Pac (W)
+        ("grid_v",           30782, 2, "U32",  100, 3),  # reg 30783 — Uac L1 (0.01V)
+        ("temp_c",           30952, 2, "S32",   10, 3),  # reg 30953 — Internal temp (0.1°C)
+        ("status_code",      30200, 2, "U32",    1, 3),  # reg 30201 — Device status (ENUM)
+        ("alt_status_code",  30201, 2, "U32",    1, 3),  # reg 30202/30203 — Alt status addr
+        ("alt_nominal_w",    30204, 2, "U32",    1, 3),  # reg 30205 — Nominal AC power (W)
+        ("wmax_lim_w",       42061, 2, "U32",    1, 3),  # reg 42062 — WMaxLim (PV limiter)
+        ("wmax_lim_pct",     40235, 2, "U32",    1, 3),  # reg 40236 — WMaxLimPct
+        # Cross-FC: registers normally FC04 — check if SB4.x responds via FC03 instead
+        ("alt_dc_current_fc3", 30768, 2, "U32", 1000, 3),  # reg 30769 via FC03
+        ("alt_dc_voltage_fc3", 30770, 2, "U32",  100, 3),  # reg 30771 via FC03
+        ("alt_dc_power_fc3",   30772, 2, "S32",    1, 3),  # reg 30773 via FC03
+        ("alt_freq_fc3",       30802, 2, "U32",  100, 3),  # reg 30803 via FC03
+        ("alt_op_time_fc3",    30540, 2, "U32",    1, 3),  # reg 30541 via FC03
+        ("alt_e_total_fc3",    30530, 2, "U32",    1, 3),  # reg 30531 via FC03
+        ("alt_e_day_fc3",      30534, 2, "U32",    1, 3),  # reg 30535 via FC03
     ]
     PROBES_FC04 = [
-        ("e_total_wh",     30512, 4, "U64",    1, 4),  # reg 30513 — E-Total (Wh) U64 new map
-        ("e_day_wh",       30516, 4, "U64",    1, 4),  # reg 30517 — E-Day (Wh) U64 new map
-        ("alt_e_total_kwh",30530, 2, "U32",    1, 4),  # reg 30531 — E-Total (kWh) U32 alt map
-        ("alt_e_day_wh",   30534, 2, "U32",    1, 4),  # reg 30535 — E-Day (Wh) U32 alt map
-        ("freq_hz",        30802, 2, "U32",  100, 4),  # reg 30803 — Grid freq (0.01Hz)
-        ("op_time_s",      30540, 2, "U32",    1, 4),  # reg 30541 — Operating time (s)
-        ("dc_current_a",   30768, 2, "U32", 1000, 4),  # reg 30769 — DC current str1 (mA)
-        ("dc_voltage_v",   30770, 2, "U32",  100, 4),  # reg 30771 — DC voltage str1 (0.01V)
-        ("dc_power_w",     30772, 2, "S32",    1, 4),  # reg 30773 — DC power str1 (W)
+        ("e_total_wh",      30512, 4, "U64",    1, 4),  # reg 30513 — E-Total (Wh) U64 new map
+        ("e_day_wh",        30516, 4, "U64",    1, 4),  # reg 30517 — E-Day (Wh) U64 new map
+        ("alt_e_total_kwh", 30530, 2, "U32",    1, 4),  # reg 30531 — E-Total (kWh) U32 alt map
+        ("alt_e_day_wh",    30534, 2, "U32",    1, 4),  # reg 30535 — E-Day (Wh) U32 alt map
+        ("freq_hz",         30802, 2, "U32",  100, 4),  # reg 30803 — Grid freq (0.01Hz)
+        ("op_time_s",       30540, 2, "U32",    1, 4),  # reg 30541 — Operating time (s)
+        ("dc_current_a",    30768, 2, "U32", 1000, 4),  # reg 30769 — DC current str1 (mA)
+        ("dc_voltage_v",    30770, 2, "U32",  100, 4),  # reg 30771 — DC voltage str1 (0.01V)
+        ("dc_power_w",      30772, 2, "S32",    1, 4),  # reg 30773 — DC power str1 (W)
+        # Cross-FC: registers normally FC03 — check if SB4.x responds via FC04 instead
+        ("alt_pac_w_fc4",   30774, 2, "S32",    1, 4),  # reg 30775 via FC04
+        ("alt_grid_v_fc4",  30782, 2, "U32",  100, 4),  # reg 30783 via FC04
+        ("alt_temp_c_fc4",  30952, 2, "S32",   10, 4),  # reg 30953 via FC04
     ]
 
     nan_count = 0
