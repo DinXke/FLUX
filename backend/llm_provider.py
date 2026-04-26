@@ -100,7 +100,6 @@ class OpenAIProvider(LLMProvider):
             response = client.chat.completions.create(
                 model=self.model,
                 max_tokens=max_tokens,
-                system=system_prompt,
                 tools=[{
                     "type": "function",
                     "function": openai_tool_def,
@@ -109,10 +108,16 @@ class OpenAIProvider(LLMProvider):
                     "type": "function",
                     "function": {"name": tool_name},
                 },
-                messages=[{
-                    "role": "user",
-                    "content": user_message,
-                }],
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt,
+                    },
+                    {
+                        "role": "user",
+                        "content": user_message,
+                    },
+                ],
             )
 
             for choice in response.choices:

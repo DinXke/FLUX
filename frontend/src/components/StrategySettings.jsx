@@ -24,12 +24,17 @@ const DEFAULTS = {
   standby_w:            0,
   save_price_factor:    0.30,
   strategy_mode:                  "rule_based",
+  strategy_ai_provider:           "claude",
   claude_api_key:                 "",
   claude_model:                   "claude-haiku-4-5-20251001",
+  openai_api_key:                 "",
+  openai_model:                   "gpt-4o",
   auto_complexity_threshold:      0.03,
   auto_complexity_high_threshold: 0.06,
   auto_claude_model_simple:       "claude-haiku-4-5-20251001",
   auto_claude_model_complex:      "claude-sonnet-4-6",
+  auto_openai_model_simple:       "gpt-4o-mini",
+  auto_openai_model_complex:      "gpt-4o",
 };
 
 function Row({ label, desc, children }) {
@@ -111,8 +116,13 @@ export default function StrategySettings() {
         standby_w:            parseFloat(vals.standby_w) || 0,
         save_price_factor:    parseFloat(vals.save_price_factor) || 0.30,
         strategy_mode:        vals.strategy_mode || "rule_based",
+        strategy_ai_provider: vals.strategy_ai_provider || "claude",
         claude_api_key:       vals.claude_api_key || "",
         claude_model:         vals.claude_model   || "claude-haiku-4-5-20251001",
+        openai_api_key:       vals.openai_api_key || "",
+        openai_model:         vals.openai_model   || "gpt-4o",
+        auto_openai_model_simple:  vals.auto_openai_model_simple  || "gpt-4o-mini",
+        auto_openai_model_complex: vals.auto_openai_model_complex || "gpt-4o",
       };
       const r = await apiFetch("api/strategy/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -404,26 +414,68 @@ export default function StrategySettings() {
 
         {vals.strategy_mode === "claude" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", paddingTop: 4 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div className="settings-row-label" style={{ marginBottom: 4 }}>Anthropic API-sleutel</div>
-                <input className="form-input" type="password" style={{ width: "100%" }}
-                  placeholder="sk-ant-…"
-                  value={vals.claude_api_key}
-                  onChange={(e) => set("claude_api_key", e.target.value)} />
-              </div>
-              <div style={{ flexShrink: 0 }}>
-                <div className="settings-row-label" style={{ marginBottom: 4 }}>Model</div>
-                <select className="form-input" style={{ width: 220 }}
-                  value={vals.claude_model} onChange={(e) => set("claude_model", e.target.value)}>
-                  <option value="claude-haiku-4-5-20251001">Haiku 4.5 — snel &amp; goedkoop (~€0,001)</option>
-                  <option value="claude-sonnet-4-6">Sonnet 4.6 — beter redeneren (~€0,01)</option>
-                  <option value="claude-opus-4-7">Opus 4.7 — meest intelligent (~€0,05)</option>
-                </select>
+            <div>
+              <div className="settings-row-label" style={{ marginBottom: 6 }}>AI-provider</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { val: "claude", label: "Anthropic Claude" },
+                  { val: "openai", label: "OpenAI GPT" },
+                ].map(({ val, label }) => (
+                  <button key={val} type="button"
+                    onClick={() => set("strategy_ai_provider", val)}
+                    style={{
+                      padding: "4px 12px", borderRadius: 6, border: "1px solid", fontSize: 12, cursor: "pointer",
+                      borderColor: vals.strategy_ai_provider === val ? "var(--accent)" : "var(--border)",
+                      background:  vals.strategy_ai_provider === val ? "var(--accent)" : "transparent",
+                      color:       vals.strategy_ai_provider === val ? "#fff" : "var(--text)",
+                    }}>
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
+            {vals.strategy_ai_provider === "claude" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}>Anthropic API-sleutel</div>
+                  <input className="form-input" type="password" style={{ width: "100%" }}
+                    placeholder="sk-ant-…"
+                    value={vals.claude_api_key}
+                    onChange={(e) => set("claude_api_key", e.target.value)} />
+                </div>
+                <div style={{ flexShrink: 0 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}>Model</div>
+                  <select className="form-input" style={{ width: 220 }}
+                    value={vals.claude_model} onChange={(e) => set("claude_model", e.target.value)}>
+                    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (~€0,001)</option>
+                    <option value="claude-sonnet-4-6">Sonnet 4.6 (~€0,01)</option>
+                    <option value="claude-opus-4-7">Opus 4.7 (~€0,05)</option>
+                  </select>
+                </div>
+              </div>
+            )}
+            {vals.strategy_ai_provider === "openai" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}>OpenAI API-sleutel</div>
+                  <input className="form-input" type="password" style={{ width: "100%" }}
+                    placeholder="sk-…"
+                    value={vals.openai_api_key}
+                    onChange={(e) => set("openai_api_key", e.target.value)} />
+                </div>
+                <div style={{ flexShrink: 0 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}>Model</div>
+                  <select className="form-input" style={{ width: 220 }}
+                    value={vals.openai_model} onChange={(e) => set("openai_model", e.target.value)}>
+                    <option value="gpt-4o">GPT-4o (~€0,01)</option>
+                    <option value="gpt-4o-mini">GPT-4o Mini (~€0,0002)</option>
+                    <option value="o1">o1 — uitgebreid redeneren (~€0,05)</option>
+                  </select>
+                </div>
+              </div>
+            )}
             <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              Slaat de batterijstatus, prijzen en verbruiksprofiel op als JSON en stuurt die naar Claude.
+              Slaat de batterijstatus, prijzen en verbruiksprofiel op als JSON en stuurt die naar de gekozen AI-provider.
               Bij fout of geen sleutel valt het systeem automatisch terug op de regelgebaseerde engine.
             </div>
           </div>
@@ -433,17 +485,50 @@ export default function StrategySettings() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", paddingTop: 4 }}>
             <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
               Auto selecteert de engine op basis van de dagelijkse prijsspreiding (p75−p25):
-              vlakke dag → regelgebaseerd, gemiddelde dag → Haiku, complexe dag of negatieve prijzen → Sonnet.
+              vlakke dag → regelgebaseerd, gemiddelde dag → goedkoper model, complexe dag of negatieve prijzen → beter model.
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div className="settings-row-label" style={{ marginBottom: 4 }}>Anthropic API-sleutel</div>
-                <input className="form-input" type="password" style={{ width: "100%" }}
-                  placeholder="sk-ant-…"
-                  value={vals.claude_api_key}
-                  onChange={(e) => set("claude_api_key", e.target.value)} />
+            <div>
+              <div className="settings-row-label" style={{ marginBottom: 6 }}>AI-provider</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { val: "claude", label: "Anthropic Claude" },
+                  { val: "openai", label: "OpenAI GPT" },
+                ].map(({ val, label }) => (
+                  <button key={val} type="button"
+                    onClick={() => set("strategy_ai_provider", val)}
+                    style={{
+                      padding: "4px 12px", borderRadius: 6, border: "1px solid", fontSize: 12, cursor: "pointer",
+                      borderColor: vals.strategy_ai_provider === val ? "var(--accent)" : "var(--border)",
+                      background:  vals.strategy_ai_provider === val ? "var(--accent)" : "transparent",
+                      color:       vals.strategy_ai_provider === val ? "#fff" : "var(--text)",
+                    }}>
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
+            {vals.strategy_ai_provider === "claude" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}>Anthropic API-sleutel</div>
+                  <input className="form-input" type="password" style={{ width: "100%" }}
+                    placeholder="sk-ant-…"
+                    value={vals.claude_api_key}
+                    onChange={(e) => set("claude_api_key", e.target.value)} />
+                </div>
+              </div>
+            )}
+            {vals.strategy_ai_provider === "openai" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}>OpenAI API-sleutel</div>
+                  <input className="form-input" type="password" style={{ width: "100%" }}
+                    placeholder="sk-…"
+                    value={vals.openai_api_key}
+                    onChange={(e) => set("openai_api_key", e.target.value)} />
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <div className="settings-row-label" style={{ marginBottom: 4 }}>Vlak-drempel (ct/kWh)</div>
@@ -454,33 +539,57 @@ export default function StrategySettings() {
               </div>
               <div style={{ flex: 1 }}>
                 <div className="settings-row-label" style={{ marginBottom: 4 }}>Complex-drempel (ct/kWh)</div>
-                <div className="settings-row-desc" style={{ marginBottom: 4 }}>Spread ≥ dit of negatief → Sonnet</div>
+                <div className="settings-row-desc" style={{ marginBottom: 4 }}>Spread ≥ dit of negatief → beter model</div>
                 <input className="form-input" type="number" min="0" max="30" step="0.5"
                   value={Math.round(vals.auto_complexity_high_threshold * 100 * 10) / 10}
                   onChange={(e) => set("auto_complexity_high_threshold", parseFloat(e.target.value) / 100)} />
               </div>
             </div>
-            <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div className="settings-row-label" style={{ marginBottom: 4 }}>Model — gemiddelde dag</div>
-                <select className="form-input" style={{ width: "100%" }}
-                  value={vals.auto_claude_model_simple}
-                  onChange={(e) => set("auto_claude_model_simple", e.target.value)}>
-                  <option value="claude-haiku-4-5-20251001">Haiku 4.5 (~€0,001)</option>
-                  <option value="claude-sonnet-4-6">Sonnet 4.6 (~€0,01)</option>
-                </select>
+            {vals.strategy_ai_provider === "claude" && (
+              <div style={{ display: "flex", gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}>Model — gemiddelde dag</div>
+                  <select className="form-input" style={{ width: "100%" }}
+                    value={vals.auto_claude_model_simple}
+                    onChange={(e) => set("auto_claude_model_simple", e.target.value)}>
+                    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (~€0,001)</option>
+                    <option value="claude-sonnet-4-6">Sonnet 4.6 (~€0,01)</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}>Model — complexe dag</div>
+                  <select className="form-input" style={{ width: "100%" }}
+                    value={vals.auto_claude_model_complex}
+                    onChange={(e) => set("auto_claude_model_complex", e.target.value)}>
+                    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (~€0,001)</option>
+                    <option value="claude-sonnet-4-6">Sonnet 4.6 (~€0,01)</option>
+                    <option value="claude-opus-4-7">Opus 4.7 (~€0,05)</option>
+                  </select>
+                </div>
               </div>
-              <div style={{ flex: 1 }}>
-                <div className="settings-row-label" style={{ marginBottom: 4 }}>Model — complexe dag</div>
-                <select className="form-input" style={{ width: "100%" }}
-                  value={vals.auto_claude_model_complex}
-                  onChange={(e) => set("auto_claude_model_complex", e.target.value)}>
-                  <option value="claude-haiku-4-5-20251001">Haiku 4.5 (~€0,001)</option>
-                  <option value="claude-sonnet-4-6">Sonnet 4.6 (~€0,01)</option>
-                  <option value="claude-opus-4-7">Opus 4.7 (~€0,05)</option>
-                </select>
+            )}
+            {vals.strategy_ai_provider === "openai" && (
+              <div style={{ display: "flex", gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}>Model — gemiddelde dag</div>
+                  <select className="form-input" style={{ width: "100%" }}
+                    value={vals.auto_openai_model_simple}
+                    onChange={(e) => set("auto_openai_model_simple", e.target.value)}>
+                    <option value="gpt-4o-mini">GPT-4o Mini (~€0,0002)</option>
+                    <option value="gpt-4o">GPT-4o (~€0,01)</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}>Model — complexe dag</div>
+                  <select className="form-input" style={{ width: "100%" }}
+                    value={vals.auto_openai_model_complex}
+                    onChange={(e) => set("auto_openai_model_complex", e.target.value)}>
+                    <option value="gpt-4o">GPT-4o (~€0,01)</option>
+                    <option value="o1">o1 (~€0,05)</option>
+                  </select>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
