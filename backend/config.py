@@ -1,34 +1,60 @@
 """
 Unified configuration abstraction layer for FLUX.
 
-Supports dual-mode deployment:
-- HA Addon mode: reads from JSON files (created by setup_config.py from options.json)
-- Standalone Docker mode: reads from environment variables
+Minimal invasive design:
+- HA Addon mode: continues using JSON files (setup_config.py handles conversion)
+- Standalone Docker mode: supports config.yaml + .env with proper load order
 
-All internal code should use the Config class to access settings, not read JSON files directly.
-This abstraction allows swapping config sources without changing application code.
+Load order (highest to lowest priority):
+1. config.yaml (YAML config file)
+2. Environment variables (from .env or docker-compose)
+3. Per-feature JSON files (strategy_settings.json, etc.)
+4. Defaults
+
+This abstraction enables Standalone Docker mode while keeping HA Addon unchanged.
 """
 import json
 import logging
 import os
-from functools import lru_cache
 from typing import Any, Optional
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 log = logging.getLogger("config")
 
 
 class Config:
-    """Unified configuration object supporting both HA Addon and Standalone modes."""
+    """Configuration abstraction supporting both HA Addon and Standalone modes."""
 
-    def __init__(self):
+    def __init__(self, config_yaml_path: Optional[str] = None):
         self.data_dir = os.environ.get("MARSTEK_DATA_DIR", "/data")
         self.standalone_mode = os.environ.get("STANDALONE_MODE", "").lower() == "true"
-        self._cache = {}
+
+        # Load config.yaml if in standalone mode
+        self.config_yaml = {}
+        if self.standalone_mode and config_yaml_path:
+            self.config_yaml = self._load_yaml(config_yaml_path)
 
     @property
     def mode(self) -> str:
         """Return 'standalone' or 'ha_addon'."""
         return "standalone" if self.standalone_mode else "ha_addon"
+
+    def _load_yaml(self, filepath: str) -> dict:
+        """Load YAML config file."""
+        if not yaml:
+            log.warning("PyYAML not installed – skipping config.yaml loading")
+            return {}
+        try:
+            if os.path.exists(filepath):
+                with open(filepath, encoding="utf-8") as f:
+                    return yaml.safe_load(f) or {}
+        except Exception as e:
+            log.warning(f"Failed to load config.yaml: {e}")
+        return {}
 
     def _load_json(self, filename: str, defaults: Optional[dict] = None) -> dict:
         """Load JSON file from data directory with optional defaults."""
@@ -52,6 +78,19 @@ class Config:
         except Exception as e:
             log.error(f"Failed to save {filename}: {e}")
             return False
+
+    def _get_with_fallback(self, key: str, default: Any = None) -> Any:
+        """Get value with load order: config.yaml → env var → default."""
+        # Priority 1: config.yaml
+        if key in self.config_yaml:
+            return self.config_yaml[key]
+        # Priority 2: environment variable (uppercase, prefixed with FLUX_)
+        env_key = f"FLUX_{key.upper()}"
+        env_val = os.environ.get(env_key)
+        if env_val is not None:
+            return env_val
+        # Priority 3: default
+        return default
 
     # ─────────────────────────────────────────────────────────────────────────
     # Home Assistant Settings

@@ -12,7 +12,6 @@ from urllib.parse import urlencode, quote
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 
-from config import get_config
 from influx_writer import (start_background_writer, query_avg_hourly_consumption,
                            query_recent_points, query_day_actuals,
                            query_hourly_import_export_kwh)
@@ -1642,18 +1641,23 @@ def get_flow_live():
 # ENTSO-E Transparency Platform – quarter-hour prices
 # ---------------------------------------------------------------------------
 
+ENTSOE_SETTINGS_FILE = os.path.join(BASE_DIR, "entsoe_settings.json")
 ENTSOE_API_URL = "https://web-api.tp.entsoe.eu/api"
 ENTSOE_ZONES = {
     "BE": "10YBE----------2",
     "NL": "10YNL----------L",
 }
 _entsoe_cache: dict = {}
-_config = get_config()
 
 
 def _entsoe_settings() -> dict:
-    """Get ENTSO-E settings (backward compatibility wrapper)."""
-    return _config.get_entsoe_settings()
+    try:
+        if os.path.exists(ENTSOE_SETTINGS_FILE):
+            with open(ENTSOE_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as exc:
+        log.warning("_entsoe_settings: failed to load settings: %s", exc)
+    return {}
 
 
 def _parse_entsoe_xml(xml_text: str) -> list:
@@ -1772,11 +1776,15 @@ def set_entsoe_settings_route():
     except Exception:
         return jsonify({"error": f"Onbekende tijdzone: {timezone}"}), 400
 
-    final_key = key if "apiKey" in body else s.get("apiKey", "")
-    _config.set_entsoe_settings(final_key, country, timezone)
+    new_settings = {**s, "timezone": timezone, "country": country}
+    if "apiKey" in body:  # explicitly provided (even empty = clear)
+        new_settings["apiKey"] = key
+
+    with open(ENTSOE_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(new_settings, f, indent=2)
     _entsoe_cache.clear()
     log.info("ENTSO-E settings updated  timezone=%s  country=%s  key_set=%s",
-             timezone, country, bool(final_key))
+             timezone, country, bool(new_settings.get("apiKey")))
     return jsonify({"ok": True})
 
 
@@ -1824,12 +1832,15 @@ def get_entsoe_prices():
 # Home Assistant integration
 # ---------------------------------------------------------------------------
 
+HA_SETTINGS_FILE = os.path.join(BASE_DIR, "ha_settings.json")
 _ha_sensor_cache: dict = {"data": {}, "ts": 0}
 
 
 def _ha_settings() -> dict:
-    """Get HA settings (backward compatibility wrapper)."""
-    return _config.get_ha_settings()
+    if os.path.exists(HA_SETTINGS_FILE):
+        with open(HA_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
 
 
 def _ha_effective_settings() -> dict:
@@ -1892,8 +1903,9 @@ def post_ha_settings():
     token = body.get("token", "").strip()
 
     # URL is optional when running as a HA add-on (supervisor handles connection)
-    final_token = token if token else current.get("token", "")
-    _config.set_ha_settings(url, final_token)
+    s = {"url": url, "token": token if token else current.get("token", "")}
+    with open(HA_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(s, f, indent=2)
     _ha_sensor_cache["ts"] = 0
     return jsonify({"ok": True})
 
@@ -3282,9 +3294,14 @@ def get_forecast_prophet():
 # InfluxDB connection scanner  (v1 + v2)
 # ---------------------------------------------------------------------------
 
+INFLUX_CONN_FILE = os.path.join(BASE_DIR, "influx_connection.json")
+
 def _load_influx_conn() -> dict:
-    """Load InfluxDB connection settings (backward compatibility wrapper)."""
-    return _config.get_influx_settings()
+    try:
+        with open(INFLUX_CONN_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
 @app.route("/api/influx/connection", methods=["GET"])
@@ -3308,13 +3325,9 @@ def save_influx_connection():
         body["password"] = current.get("password", "")
     if body.get("token", "").startswith("…") or body.get("token", "").startswith("•"):
         body["token"] = current.get("token", "")
-    merged = {k: v for k, v in {**current, **body}.items() if v != ""}
-    _config.set_influx_settings(
-        merged.get("url", ""),
-        merged.get("version", "v1"),
-        merged.get("username", ""),
-        merged.get("password", ""),
-    )
+    current.update({k: v for k, v in body.items() if v != ""})
+    with open(INFLUX_CONN_FILE, "w", encoding="utf-8") as f:
+        json.dump(current, f, indent=2)
     return jsonify({"ok": True})
 
 
