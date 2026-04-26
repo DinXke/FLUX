@@ -178,13 +178,15 @@ def poll_diagnostics(host: str, port: int, unit_id: int) -> dict:
         ("wmax_lim_pct",    40235, 2, "U32",    1, 3),  # reg 40236 — WMaxLimPct
     ]
     PROBES_FC04 = [
-        ("e_total_wh",   30512, 4, "U64",    1, 4),  # reg 30513 — E-Total (Wh) U64
-        ("e_day_wh",     30516, 4, "U64",    1, 4),  # reg 30517 — E-Day (Wh) U64
-        ("freq_hz",      30802, 2, "U32",  100, 4),  # reg 30803 — Grid freq (0.01Hz)
-        ("op_time_s",    30540, 2, "U32",    1, 4),  # reg 30541 — Operating time (s)
-        ("dc_current_a", 30768, 2, "U32", 1000, 4),  # reg 30769 — DC current str1 (mA)
-        ("dc_voltage_v", 30770, 2, "U32",  100, 4),  # reg 30771 — DC voltage str1 (0.01V)
-        ("dc_power_w",   30772, 2, "S32",    1, 4),  # reg 30773 — DC power str1 (W)
+        ("e_total_wh",     30512, 4, "U64",    1, 4),  # reg 30513 — E-Total (Wh) U64 new map
+        ("e_day_wh",       30516, 4, "U64",    1, 4),  # reg 30517 — E-Day (Wh) U64 new map
+        ("alt_e_total_kwh",30530, 2, "U32",    1, 4),  # reg 30531 — E-Total (kWh) U32 alt map
+        ("alt_e_day_wh",   30534, 2, "U32",    1, 4),  # reg 30535 — E-Day (Wh) U32 alt map
+        ("freq_hz",        30802, 2, "U32",  100, 4),  # reg 30803 — Grid freq (0.01Hz)
+        ("op_time_s",      30540, 2, "U32",    1, 4),  # reg 30541 — Operating time (s)
+        ("dc_current_a",   30768, 2, "U32", 1000, 4),  # reg 30769 — DC current str1 (mA)
+        ("dc_voltage_v",   30770, 2, "U32",  100, 4),  # reg 30771 — DC voltage str1 (0.01V)
+        ("dc_power_w",     30772, 2, "S32",    1, 4),  # reg 30773 — DC power str1 (W)
     ]
 
     nan_count = 0
@@ -289,15 +291,26 @@ def _poll(host: str, port: int, unit_id: int) -> dict:
         if r is not None:
             data["pac_w"] = _to_s32(r, 0)
 
-        # E-Total — reg 30513, FC04, U64, Wh
+        # E-Total: try SB30-50-1AV-40 new map first (reg 30513, FC04, U64, Wh),
+        # then fall back to older SBx-1AV-40 map (reg 30531, FC04, U32, kWh).
         r = _read_input(client, 30512, 4, unit_id)
         if r is not None:
             data["e_total_wh"] = _to_u64(r, 0)
+        if data.get("e_total_wh") is None:
+            r = _read_input(client, 30530, 2, unit_id)
+            if r is not None:
+                v = _to_u32(r, 0)
+                data["e_total_wh"] = v * 1000 if v is not None else None  # kWh → Wh
 
-        # E-Day — reg 30517, FC04, U64, Wh
+        # E-Day: try new map first (reg 30517, FC04, U64, Wh),
+        # then older map (reg 30535, FC04, U32, Wh).
         r = _read_input(client, 30516, 4, unit_id)
         if r is not None:
             data["e_day_wh"] = _to_u64(r, 0)
+        if data.get("e_day_wh") is None:
+            r = _read_input(client, 30534, 2, unit_id)
+            if r is not None:
+                data["e_day_wh"] = _to_u32(r, 0)
 
         # Grid voltage L1 — reg 30783, FC03, U32, 0.01V
         r = _read_holding(client, 30782, 2, unit_id)
@@ -436,6 +449,10 @@ def _check_alerts(result: dict) -> None:
                 _alert_state["day_summary_sent_date"] = today
 
 
+_POLL_RETRY_DELAY = 2   # seconds between retry attempts when measurements missing
+_POLL_MAX_RETRIES = 2   # extra attempts if all measurements are None (connection conflict)
+
+
 def _reader_loop(get_settings_fn, interval: int) -> None:
     log.info("SMA Modbus reader gestart  interval=%ds", interval)
     while True:
@@ -450,12 +467,30 @@ def _reader_loop(get_settings_fn, interval: int) -> None:
             if not host:
                 time.sleep(interval)
                 continue
+
             result = _poll(host, port, unit_id)
+
+            # Retry when device is online but all measurements failed — typically a
+            # simultaneous Modbus TCP session held by another client (e.g. Loxone).
+            # A short pause lets the other client finish its cycle.
+            measurement_keys = ("pac_w", "e_day_wh", "e_total_wh", "grid_v", "freq_hz")
+            for attempt in range(_POLL_MAX_RETRIES):
+                has_data = any(result.get(k) is not None for k in measurement_keys)
+                if has_data or not result.get("online"):
+                    break
+                if result.get("night_mode"):
+                    break
+                log.debug("SMA meetregisters leeg, retry %d/%d na %ds",
+                          attempt + 1, _POLL_MAX_RETRIES, _POLL_RETRY_DELAY)
+                time.sleep(_POLL_RETRY_DELAY)
+                result = _poll(host, port, unit_id)
+
             _update_cache(result)
             _check_alerts(result)
             log.debug(
-                "SMA live  pac=%sW  e_day=%sWh  status=%s",
-                result.get("pac_w"), result.get("e_day_wh"), result.get("status"),
+                "SMA live  pac=%sW  e_day=%sWh  status=%s  night=%s",
+                result.get("pac_w"), result.get("e_day_wh"),
+                result.get("status"), result.get("night_mode"),
             )
         except Exception as exc:
             log.warning("SMA reader loop uitzondering: %s", exc)
@@ -503,10 +538,12 @@ _KNOWN_REGS: dict[int, str] = {
     40185: "Max schijnbaar vermogen (VA)",
     40236: "WMaxLimPct — vermogenslimiet (%)",
     42062: "WMaxLim — PV limiter absolute (W)",
-    # Alternate register addresses (older/different SMA models — discovered via scan)
+    # Alternate register addresses (SBx-1AV-40 older firmware — confirmed via Loxone config)
     30202: "Apparaatstatus hoog-word alt (ENUM, U32 hoog)",
     30203: "Apparaatstatus alt (ENUM, U32 laag of U16)",
     30205: "Nominaal AC-vermogen alt (W)",
+    30531: "E-Total alt — totaalopbrengst (kWh, U32)",
+    30535: "E-Day alt — dagopbrengst (Wh, U32)",
 }
 
 # SMA register ranges worth scanning (start_addr_0based, count, fc)
