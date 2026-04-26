@@ -211,6 +211,9 @@ def _resolve_slot(key: str, cfg: dict, esphome_map: dict,
         if v is not None:
             total = (total or 0.0) + (-v if invert else v)
             count += 1
+        elif source == "sma":
+            total = (total or 0.0) + 0.0
+            count += 1
 
     if total is None:
         return None

@@ -3113,9 +3113,17 @@ def debug_soc():
                     except Exception as ex:
                         ha_soc_data[eid] = {"error": str(ex)}
             result["flow_cfg_ha_data"] = ha_soc_data
+            sma_diag = None
+            try:
+                from sma_modbus import get_sma_live
+                sma = get_sma_live()
+                if sma and sma.get("online"):
+                    sma_diag = sma
+            except Exception:
+                pass
             val = _resolve_slot("bat_soc", live_cfg, esphome_map2, None,
                                 {k: {"value": float(v["value"])} for k, v in ha_soc_data.items()
-                                 if v.get("value") is not None})
+                                 if v.get("value") is not None}, sma_diag)
             result["flow_cfg_resolved"] = val
     except Exception as e:
         result["flow_cfg_slot"] = {"error": str(e)}
@@ -5119,7 +5127,7 @@ _AUTOMATION_MODES: dict[str, list] = {
 
 
 def _read_live_flow_slots(*slot_keys: str) -> dict[str, float | None]:
-    """Read one or more flow_cfg slots live (ESPHome + HA sources).
+    """Read one or more flow_cfg slots live (ESPHome + HA + SMA sources).
     Returns {slot_key: value_or_None}."""
     try:
         from influx_writer import _poll_esphome, _resolve_slot
@@ -5154,7 +5162,16 @@ def _read_live_flow_slots(*slot_keys: str) -> dict[str, float | None]:
                 except Exception:
                     pass
 
-        return {k: _resolve_slot(k, live_cfg, esphome_map, None, ha_data)
+        sma_data = None
+        try:
+            from sma_modbus import get_sma_live
+            sma = get_sma_live()
+            if sma and sma.get("online"):
+                sma_data = sma
+        except Exception:
+            pass
+
+        return {k: _resolve_slot(k, live_cfg, esphome_map, None, ha_data, sma_data)
                 for k in slot_keys}
     except Exception as exc:
         log.debug("_read_live_flow_slots failed: %s", exc)
