@@ -148,17 +148,14 @@ def _read_status(client, unit_id: int) -> Optional[int]:
     return None
 
 
-def poll_diagnostics(host: str, port: int, unit_id: int) -> dict:
+def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) -> dict:
     """
     Extended diagnostic poll: tries all key registers and returns raw values.
     Used by /api/sma/test.
     """
-    try:
-        from pymodbus.client import ModbusTcpClient
-    except ImportError:
+    client = _make_client(host, port, use_udp=use_udp)
+    if client is None:
         return {"online": False, "error": "pymodbus niet geïnstalleerd"}
-
-    client = ModbusTcpClient(host=host, port=port, timeout=5)
     if not client.connect():
         return {"online": False, "error": f"Kan niet verbinden met {host}:{port}"}
 
@@ -265,23 +262,35 @@ def poll_diagnostics(host: str, port: int, unit_id: int) -> dict:
 # Main poll
 # ---------------------------------------------------------------------------
 
-def _poll(host: str, port: int, unit_id: int) -> dict:
+def _make_client(host: str, port: int, use_udp: bool = False):
+    """Return a pymodbus TCP or UDP client based on the use_udp flag."""
+    try:
+        if use_udp:
+            from pymodbus.client import ModbusUdpClient
+            return ModbusUdpClient(host=host, port=port, timeout=5)
+        else:
+            from pymodbus.client import ModbusTcpClient
+            return ModbusTcpClient(host=host, port=port, timeout=5)
+    except ImportError:
+        return None
+
+
+def _poll(host: str, port: int, unit_id: int, use_udp: bool = False) -> dict:
     """
-    Open a Modbus TCP connection to the SMA inverter, read all registers,
+    Open a Modbus TCP (or UDP) connection to the SMA inverter, read all registers,
     and return a parsed dict. The connection is closed before returning.
 
-    Register map: SMA SB30-50-1AV-40 (SBn-n-1AV-40) official Modbus document.
+    Register map: supports both SB30-50-1AV-40 (new, U64 energy) and
+    SBx-1AV-40 older firmware (U32 energy at reg 30531/30535).
     pymodbus uses 0-based addresses → 1-based register number - 1.
     """
-    try:
-        from pymodbus.client import ModbusTcpClient
-    except ImportError:
+    client = _make_client(host, port, use_udp)
+    if client is None:
         log.error("pymodbus niet geïnstalleerd")
         return {"online": False}
 
-    client = ModbusTcpClient(host=host, port=port, timeout=5)
     if not client.connect():
-        log.warning("SMA Modbus: kan niet verbinden met %s:%d", host, port)
+        log.warning("SMA Modbus: kan niet verbinden met %s:%d (udp=%s)", host, port, use_udp)
         return {"online": False}
 
     data: dict = {"online": True}
@@ -464,15 +473,17 @@ def _reader_loop(get_settings_fn, interval: int) -> None:
             host    = (s.get("sma_reader_host") or "").strip()
             port    = int(s.get("sma_reader_port", 502))
             unit_id = int(s.get("sma_reader_unit_id", 3))
+            use_udp = bool(s.get("sma_reader_use_udp", False))
             if not host:
                 time.sleep(interval)
                 continue
 
-            result = _poll(host, port, unit_id)
+            result = _poll(host, port, unit_id, use_udp=use_udp)
 
             # Retry when device is online but all measurements failed — typically a
             # simultaneous Modbus TCP session held by another client (e.g. Loxone).
             # A short pause lets the other client finish its cycle.
+            # Not needed with UDP (connectionless), but harmless.
             measurement_keys = ("pac_w", "e_day_wh", "e_total_wh", "grid_v", "freq_hz")
             for attempt in range(_POLL_MAX_RETRIES):
                 has_data = any(result.get(k) is not None for k in measurement_keys)
@@ -483,7 +494,7 @@ def _reader_loop(get_settings_fn, interval: int) -> None:
                 log.debug("SMA meetregisters leeg, retry %d/%d na %ds",
                           attempt + 1, _POLL_MAX_RETRIES, _POLL_RETRY_DELAY)
                 time.sleep(_POLL_RETRY_DELAY)
-                result = _poll(host, port, unit_id)
+                result = _poll(host, port, unit_id, use_udp=use_udp)
 
             _update_cache(result)
             _check_alerts(result)
@@ -524,7 +535,6 @@ _KNOWN_REGS: dict[int, str] = {
     30513: "E-Total — totaalopbrengst (Wh, U64)",
     30517: "E-Day — dagopbrengst (Wh, U64)",
     30521: "E-Total alternatief (Wh, U64)",
-    30535: "E-Day alternatief (Wh, U32)",
     30541: "Bedrijfstijd (s, U32)",
     30769: "DC stroom string 1 (mA, U32)",
     30771: "DC spanning string 1 (0.01V, U32)",
@@ -559,7 +569,7 @@ _BLOCK = 10  # registers per read attempt
 
 
 def scan_registers(host: str, port: int, unit_id: int,
-                   progress_cb=None) -> list[dict]:
+                   progress_cb=None, use_udp: bool = False) -> list[dict]:
     """
     Scan all SMA register ranges via FC03 and FC04.
     Returns a list of dicts for every register address that returned a
@@ -567,13 +577,11 @@ def scan_registers(host: str, port: int, unit_id: int,
 
     progress_cb(done, total) is called after each block if provided.
     This call is synchronous and may take 30–90 seconds.
+    use_udp=True uses Modbus over UDP instead of TCP (connectionless, no session conflict).
     """
-    try:
-        from pymodbus.client import ModbusTcpClient
-    except ImportError:
+    client = _make_client(host, port, use_udp=use_udp)
+    if client is None:
         return []
-
-    client = ModbusTcpClient(host=host, port=port, timeout=3)
     if not client.connect():
         return []
 
