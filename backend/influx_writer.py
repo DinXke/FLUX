@@ -346,6 +346,72 @@ def _collect_and_write(app_context_fn):
     except Exception as exc:
         log.debug("InfluxDB SMA write skip: %s", exc)
 
+    # ── Strategy plan slots (48-hour forecast) ──────────────────────────────
+    try:
+        plan_slots = ctx.get("plan_slots", [])
+        if plan_slots:
+            from influxdb_client import Point  # type: ignore
+            written_count = 0
+            for slot in plan_slots:
+                try:
+                    slot_time = slot.get("time")
+                    if not slot_time:
+                        continue
+                    p = Point("strategy_slot")
+                    p = p.tag("action", slot.get("action", "UNKNOWN"))
+                    p = p.tag("is_peak", "true" if slot.get("is_peak") else "false")
+                    p = p.tag("is_past", "true" if slot.get("is_past") else "false")
+                    for k, v in [
+                        ("price_eur_kwh", slot.get("price_eur_kwh")),
+                        ("solar_wh", slot.get("solar_wh")),
+                        ("consumption_wh", slot.get("consumption_wh")),
+                        ("net_wh", slot.get("net_wh")),
+                        ("charge_kwh", slot.get("charge_kwh")),
+                        ("discharge_kwh", slot.get("discharge_kwh")),
+                        ("soc_start", slot.get("soc_start")),
+                        ("soc_end", slot.get("soc_end")),
+                        ("pv_limit_w", slot.get("pv_limit_w")),
+                    ]:
+                        if v is not None:
+                            p = p.field(k, float(v))
+                    from datetime import datetime as _dt
+                    p = p.time(_dt.fromisoformat(slot_time))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    written_count += 1
+                except Exception as e:
+                    log.debug("Strategy slot write error (hour %s): %s", slot.get("hour"), e)
+            if written_count > 0:
+                log.debug("InfluxDB strategy slots write OK  count=%d", written_count)
+    except Exception as exc:
+        log.debug("InfluxDB strategy slots write skip: %s", exc)
+
+    # ── Solar forecast (hourly prediction) ───────────────────────────────────
+    try:
+        forecast_data = ctx.get("solar_forecast", {})
+        if forecast_data:
+            from influxdb_client import Point  # type: ignore
+            from datetime import datetime as _dt
+            written_count = 0
+            for slot_time_str, wh in forecast_data.items():
+                try:
+                    if not wh:
+                        continue
+                    p = Point("solar_forecast")
+                    p = p.field("forecasted_wh", float(wh))
+                    slot_dt = _dt.fromisoformat(slot_time_str) if "T" in slot_time_str else _dt.fromisoformat(slot_time_str.replace(" ", "T"))
+                    if slot_dt.tzinfo is None:
+                        from zoneinfo import ZoneInfo
+                        slot_dt = slot_dt.replace(tzinfo=ZoneInfo("UTC"))
+                    p = p.time(slot_dt)
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    written_count += 1
+                except Exception as e:
+                    log.debug("Solar forecast write error (%s): %s", slot_time_str, e)
+            if written_count > 0:
+                log.debug("InfluxDB solar forecast write OK  count=%d", written_count)
+    except Exception as exc:
+        log.debug("InfluxDB solar forecast write skip: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # Background thread entry point

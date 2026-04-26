@@ -4533,7 +4533,17 @@ def _influx_context():
                     if val is not None:
                         ha_data[eid] = val
 
-    return {"devices": devices, "hw_data": hw_data, "ha_data": ha_data, "flow_cfg": flow_cfg}
+    plan_slots = _plan_cache.get("slots", [])
+    solar_forecast = {}
+    try:
+        forecast_data = _forecast_cache.get("data", {})
+        if forecast_data:
+            wh_period = forecast_data.get("watt_hours_period", {})
+            solar_forecast = wh_period if isinstance(wh_period, dict) else {}
+    except Exception:
+        pass
+
+    return {"devices": devices, "hw_data": hw_data, "ha_data": ha_data, "flow_cfg": flow_cfg, "plan_slots": plan_slots, "solar_forecast": solar_forecast}
 
 
 # ---------------------------------------------------------------------------
