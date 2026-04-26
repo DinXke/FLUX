@@ -89,6 +89,7 @@ export default function ForecastSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      if (r.status === 401) throw new Error("Sessie verlopen – herlaad de pagina en log opnieuw in.");
       if (!r.ok) throw new Error("Opslaan mislukt");
       if (apiKey.trim()) { setConfigured(true); setHint(`…${apiKey.trim().slice(-4)}`); setApiKey(""); }
       await apiFetch("api/forecast/actual-source", {

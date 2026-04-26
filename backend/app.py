@@ -2582,6 +2582,7 @@ def get_forecast_settings():
         "lat":    s.get("lat", ""),
         "lon":    s.get("lon", ""),
         "strings": s.get("strings", []),
+        "update_interval": s.get("update_interval", _FORECAST_TTL_DEFAULT),
     })
 
 @app.route("/api/forecast/settings", methods=["POST"])
@@ -2594,6 +2595,11 @@ def post_forecast_settings():
     if "lat" in body:    current["lat"]     = body["lat"]
     if "lon" in body:    current["lon"]     = body["lon"]
     if "strings" in body: current["strings"] = body["strings"]
+    if "update_interval" in body:
+        try:
+            current["update_interval"] = int(body["update_interval"])
+        except (TypeError, ValueError):
+            pass
     with open(FORECAST_SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(current, f)
     _forecast_cache["data"] = None  # invalidate
