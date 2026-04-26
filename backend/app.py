@@ -3204,6 +3204,42 @@ def test_sma_connection():
     return jsonify(result)
 
 
+@app.route("/api/sma/rawread", methods=["POST"])
+def sma_raw_read():
+    """Debug: raw Modbus read for SCH-775 register map investigation. Temporary endpoint."""
+    import sma_modbus as _sm
+    body    = request.get_json(force=True) or {}
+    s       = load_strategy_settings()
+    host    = body.get("host") or (s.get("sma_reader_host") or "").strip()
+    port    = int(body.get("port", s.get("sma_reader_port", 502)))
+    uid     = int(body.get("unit_id", s.get("sma_reader_unit_id", 3)))
+    fc      = int(body.get("fc", 3))
+    addr    = int(body.get("addr", 0))
+    count   = int(body.get("count", 2))
+    if not host:
+        return jsonify({"error": "host vereist"}), 400
+    client = _sm._make_client(host, port)
+    if client is None:
+        return jsonify({"error": "pymodbus niet beschikbaar"}), 500
+    if not client.connect():
+        return jsonify({"error": f"verbinding mislukt {host}:{port}"}), 503
+    try:
+        if fc == 3:
+            r = client.read_holding_registers(address=addr, count=count, device_id=uid)
+        else:
+            r = client.read_input_registers(address=addr, count=count, device_id=uid)
+        if hasattr(r, "isError") and r.isError():
+            return jsonify({"error": str(r), "exception": True})
+        return jsonify({
+            "fc": fc, "addr": addr, "reg": addr + 1,
+            "unit_id": uid,
+            "registers": list(r.registers),
+            "hex": [f"0x{x:04X}" for x in r.registers],
+        })
+    finally:
+        client.close()
+
+
 @app.route("/api/sma/register-map", methods=["GET"])
 def get_sma_register_map():
     """Return current register map (custom if set, else default)."""

@@ -218,12 +218,14 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
     result: dict = {"online": True, "raw": {}, "unit_id": unit_id}
 
     # (key, 0-based addr, count, dtype, scale, fc)
-    # Primary: SMA SB30-50-1AV-40 Modbus register map
-    # Alt_*: cross-FC fallbacks and alternate addresses — important for SB4.0/SB3.x-1AV-40
-    #        which may expose measurement registers under a different FC than SB30-50.
+    # Primary: SMA SB30-50-1AV-40 Modbus register map (high addresses, FC03/FC04)
+    # Low_*:  standard Modbus input register addressing: SMA reg 30775 = FC04 addr 774
+    #         (addr = reg - 30001). SB4.0-1AV-40 fw 1.3.36.R returns exception_code=2
+    #         for all high-address measurement registers — testing low-address fallback.
+    # Alt_*:  cross-FC and scan-found addresses (FC03 40000+ range from register scan)
     PROBES_FC03 = [
-        ("pac_w",            30774, 2, "S32",    1, 3),  # reg 30775 — Pac (W)
-        ("grid_v",           30782, 2, "U32",  100, 3),  # reg 30783 — Uac L1 (0.01V)
+        ("pac_w",            30774, 2, "S32",    1, 3),  # reg 30775 — Pac (W) high addr
+        ("grid_v",           30782, 2, "U32",  100, 3),  # reg 30783 — Uac L1 (0.01V) high addr
         ("temp_c",           30952, 2, "S32",   10, 3),  # reg 30953 — Internal temp (0.1°C)
         ("status_code",      30200, 2, "U32",    1, 3),  # reg 30201 — Device status (ENUM)
         ("alt_status_code",  30201, 2, "U32",    1, 3),  # reg 30202/30203 — Alt status addr
@@ -238,6 +240,24 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
         ("alt_op_time_fc3",    30540, 2, "U32",    1, 3),  # reg 30541 via FC03
         ("alt_e_total_fc3",    30530, 2, "U32",    1, 3),  # reg 30531 via FC03
         ("alt_e_day_fc3",      30534, 2, "U32",    1, 3),  # reg 30535 via FC03
+        # FC03 low-address probes: addr = SMA_reg - 30001 (standard Modbus holding reg)
+        ("low_pac_w_fc3",      774, 2, "S32",    1, 3),  # SMA reg 30775 at std addr
+        ("low_grid_v_fc3",     782, 2, "U32",  100, 3),  # SMA reg 30783 at std addr
+        ("low_freq_fc3",       802, 2, "U32",  100, 3),  # SMA reg 30803 at std addr
+        ("low_dc_cur_fc3",     768, 2, "U32", 1000, 3),  # SMA reg 30769 at std addr
+        ("low_dc_v_fc3",       770, 2, "U32",  100, 3),  # SMA reg 30771 at std addr
+        ("low_dc_pwr_fc3",     772, 2, "S32",    1, 3),  # SMA reg 30773 at std addr
+        ("low_temp_fc3",       952, 2, "S32",   10, 3),  # SMA reg 30953 at std addr
+        ("low_op_fc3",         540, 2, "U32",    1, 3),  # SMA reg 30541 at std addr
+        ("low_etot_fc3",       530, 2, "U32",    1, 3),  # SMA reg 30531 at std addr
+        ("low_eday_fc3",       534, 2, "U32",    1, 3),  # SMA reg 30535 at std addr
+        ("low_stat_fc3",       200, 2, "U32",    1, 3),  # SMA reg 30201 at std addr
+        ("low_etot64_fc3",     512, 4, "U64",    1, 3),  # SMA reg 30513 U64 at std addr
+        ("low_eday64_fc3",     516, 4, "U64",    1, 3),  # SMA reg 30517 U64 at std addr
+        # FC03 40000+ addresses found in register scan (possible alt measurement map)
+        ("scan_pac_w_40197",  40196, 2, "U32",    1, 3),  # scan found 4000 at reg 40197
+        ("scan_grid_v_40135", 40134, 2, "U32",    1, 3),  # scan found 230 at reg 40135
+        ("scan_freq_40137",   40136, 2, "U32",  100, 3),  # scan found 5000 at reg 40137
     ]
     PROBES_FC04 = [
         ("e_total_wh",      30512, 4, "U64",    1, 4),  # reg 30513 — E-Total (Wh) U64 new map
@@ -253,6 +273,20 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
         ("alt_pac_w_fc4",   30774, 2, "S32",    1, 4),  # reg 30775 via FC04
         ("alt_grid_v_fc4",  30782, 2, "U32",  100, 4),  # reg 30783 via FC04
         ("alt_temp_c_fc4",  30952, 2, "S32",   10, 4),  # reg 30953 via FC04
+        # FC04 low-address probes: addr = SMA_reg - 30001 (standard Modbus input reg)
+        ("low_pac_w_fc4",      774, 2, "S32",    1, 4),  # SMA reg 30775 at std FC04 addr
+        ("low_grid_v_fc4",     782, 2, "U32",  100, 4),  # SMA reg 30783 at std FC04 addr
+        ("low_freq_fc4",       802, 2, "U32",  100, 4),  # SMA reg 30803 at std FC04 addr
+        ("low_dc_cur_fc4",     768, 2, "U32", 1000, 4),  # SMA reg 30769 at std FC04 addr
+        ("low_dc_v_fc4",       770, 2, "U32",  100, 4),  # SMA reg 30771 at std FC04 addr
+        ("low_dc_pwr_fc4",     772, 2, "S32",    1, 4),  # SMA reg 30773 at std FC04 addr
+        ("low_temp_fc4",       952, 2, "S32",   10, 4),  # SMA reg 30953 at std FC04 addr
+        ("low_op_fc4",         540, 2, "U32",    1, 4),  # SMA reg 30541 at std FC04 addr
+        ("low_etot_fc4",       530, 2, "U32",    1, 4),  # SMA reg 30531 at std FC04 addr
+        ("low_eday_fc4",       534, 2, "U32",    1, 4),  # SMA reg 30535 at std FC04 addr
+        ("low_stat_fc4",       200, 2, "U32",    1, 4),  # SMA reg 30201 at std FC04 addr
+        ("low_etot64_fc4",     512, 4, "U64",    1, 4),  # SMA reg 30513 U64 at std addr
+        ("low_eday64_fc4",     516, 4, "U64",    1, 4),  # SMA reg 30517 U64 at std addr
     ]
 
     nan_count = 0
@@ -649,9 +683,18 @@ _KNOWN_REGS: dict[int, str] = {
 
 # SMA register ranges worth scanning (start_addr_0based, count, fc)
 _SCAN_RANGES = [
+    # Standard SMA SB30-50 / SunSpec measurement range
     (30000, 1000, 4),   # FC04: 30001–31000 — main measurement block
     (30000, 1000, 3),   # FC03: 30001–31000 — same range via holding
+    # Low-address range: standard Modbus input registers (SMA reg 30775 = FC04 addr 774)
+    (   0, 1000, 4),    # FC04:    1–1000  — standard input register addressing
+    (   0, 1000, 3),    # FC03:    1–1000  — standard holding register addressing
+    # Extended 31000-40000 gap (not in standard docs, may contain alt measurement map)
+    (31000, 2000, 4),   # FC04: 31001–33000 — extended FC04 range
+    (31000, 2000, 3),   # FC03: 31001–33000 — extended FC03 range
+    # Control registers
     (40000,  500, 3),   # FC03: 40001–40500 — control registers
+    (40000,  500, 4),   # FC04: 40001–40500 — same via input registers
     (40900,  200, 3),   # FC03: 40901–41100 — extended control
     (42000,  100, 3),   # FC03: 42001–42100 — WMaxLim area
 ]
