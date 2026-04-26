@@ -39,6 +39,62 @@ _SMA_S32_NAN: int = 0x8000_0000
 _SMA_U64_NAN: int = 0x8000_0000_0000_0000
 
 # ---------------------------------------------------------------------------
+# Configurable register map
+# ---------------------------------------------------------------------------
+# Each entry:
+#   key    – field name stored in the live-data dict
+#   label  – human-readable name shown in the UI
+#   reg    – 1-based register number (as in SMA docs and Loxone IO-adres)
+#   fc     – Modbus function code: 3 = holding (FC03), 4 = input (FC04)
+#   dtype  – "U32", "S32", or "U64"
+#   mult   – multiplier applied to the raw integer before storing
+#              (e.g. 0.01 for 0.01V→V, 1000.0 for kWh→Wh, 1.0 for direct)
+#   unit   – raw register unit label (informational)
+
+_DEFAULT_REGISTER_MAP: list[dict] = [
+    {"key": "pac_w",        "label": "AC-vermogen",       "reg": 30775, "fc": 3, "dtype": "S32", "mult": 1.0,    "unit": "W"},
+    {"key": "e_total_wh",   "label": "Totaalopbrengst",   "reg": 30531, "fc": 4, "dtype": "U32", "mult": 1000.0, "unit": "kWh"},
+    {"key": "e_day_wh",     "label": "Dagopbrengst",      "reg": 30535, "fc": 4, "dtype": "U32", "mult": 1.0,    "unit": "Wh"},
+    {"key": "grid_v",       "label": "Netspanning L1",    "reg": 30783, "fc": 3, "dtype": "U32", "mult": 0.01,   "unit": "0.01V"},
+    {"key": "freq_hz",      "label": "Netfrequentie",     "reg": 30803, "fc": 4, "dtype": "U32", "mult": 0.01,   "unit": "0.01Hz"},
+    {"key": "temp_c",       "label": "Interne temp.",     "reg": 30953, "fc": 3, "dtype": "S32", "mult": 0.1,    "unit": "0.1°C"},
+    {"key": "op_time_s",    "label": "Bedrijfstijd",      "reg": 30541, "fc": 4, "dtype": "U32", "mult": 1.0,    "unit": "s"},
+    {"key": "dc_current_a", "label": "DC stroom str1",    "reg": 30769, "fc": 4, "dtype": "U32", "mult": 0.001,  "unit": "mA"},
+    {"key": "dc_voltage_v", "label": "DC spanning str1",  "reg": 30771, "fc": 4, "dtype": "U32", "mult": 0.01,   "unit": "0.01V"},
+    {"key": "dc_power_w",   "label": "DC vermogen str1",  "reg": 30773, "fc": 4, "dtype": "S32", "mult": 1.0,    "unit": "W"},
+]
+
+
+def get_default_register_map() -> list[dict]:
+    """Return a deep copy of the default register map (safe for mutation)."""
+    return [dict(r) for r in _DEFAULT_REGISTER_MAP]
+
+
+def _poll_register(client, reg_conf: dict, unit_id: int) -> Optional[float]:
+    """Read one register entry and return the scaled value, or None on error/NaN."""
+    addr  = reg_conf["reg"] - 1          # 1-based → 0-based
+    fc    = reg_conf["fc"]
+    dtype = reg_conf["dtype"]
+    mult  = float(reg_conf.get("mult", 1.0))
+    count = 4 if dtype == "U64" else 2
+
+    r = _read_holding(client, addr, count, unit_id) if fc == 3 \
+        else _read_input(client, addr, count, unit_id)
+    if r is None:
+        return None
+
+    if dtype == "U32":
+        raw = _to_u32(r, 0)
+    elif dtype == "S32":
+        raw = _to_s32(r, 0)
+    else:
+        raw = _to_u64(r, 0)
+
+    if raw is None:
+        return None
+    return raw * mult if mult != 1.0 else raw
+
+# ---------------------------------------------------------------------------
 # In-memory cache  (ts=0.0 → never polled)
 # ---------------------------------------------------------------------------
 
@@ -275,15 +331,18 @@ def _make_client(host: str, port: int, use_udp: bool = False):
         return None
 
 
-def _poll(host: str, port: int, unit_id: int, use_udp: bool = False) -> dict:
+def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_map=None) -> dict:
     """
     Open a Modbus TCP (or UDP) connection to the SMA inverter, read all registers,
     and return a parsed dict. The connection is closed before returning.
 
-    Register map: supports both SB30-50-1AV-40 (new, U64 energy) and
-    SBx-1AV-40 older firmware (U32 energy at reg 30531/30535).
+    register_map: list of register config dicts (see _DEFAULT_REGISTER_MAP).
+    If None, uses _DEFAULT_REGISTER_MAP.
     pymodbus uses 0-based addresses → 1-based register number - 1.
     """
+    if register_map is None:
+        register_map = _DEFAULT_REGISTER_MAP
+
     client = _make_client(host, port, use_udp)
     if client is None:
         log.error("pymodbus niet geïnstalleerd")
@@ -295,71 +354,17 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False) -> dict:
 
     data: dict = {"online": True}
     try:
-        # Pac — reg 30775, FC03, S32, W
-        r = _read_holding(client, 30774, 2, unit_id)
-        if r is not None:
-            data["pac_w"] = _to_s32(r, 0)
-
-        # E-Total: try SB30-50-1AV-40 new map first (reg 30513, FC04, U64, Wh),
-        # then fall back to older SBx-1AV-40 map (reg 30531, FC04, U32, kWh).
-        r = _read_input(client, 30512, 4, unit_id)
-        if r is not None:
-            data["e_total_wh"] = _to_u64(r, 0)
-        if data.get("e_total_wh") is None:
-            r = _read_input(client, 30530, 2, unit_id)
-            if r is not None:
-                v = _to_u32(r, 0)
-                data["e_total_wh"] = v * 1000 if v is not None else None  # kWh → Wh
-
-        # E-Day: try new map first (reg 30517, FC04, U64, Wh),
-        # then older map (reg 30535, FC04, U32, Wh).
-        r = _read_input(client, 30516, 4, unit_id)
-        if r is not None:
-            data["e_day_wh"] = _to_u64(r, 0)
-        if data.get("e_day_wh") is None:
-            r = _read_input(client, 30534, 2, unit_id)
-            if r is not None:
-                data["e_day_wh"] = _to_u32(r, 0)
-
-        # Grid voltage L1 — reg 30783, FC03, U32, 0.01V
-        r = _read_holding(client, 30782, 2, unit_id)
-        if r is not None:
-            v = _to_u32(r, 0)
-            data["grid_v"] = round(v / 100, 2) if v is not None else None
-
-        # Grid frequency — reg 30803, FC04, U32, 0.01Hz
-        r = _read_input(client, 30802, 2, unit_id)
-        if r is not None:
-            f = _to_u32(r, 0)
-            data["freq_hz"] = round(f / 100, 2) if f is not None else None
-
-        # Internal temperature — reg 30953, FC03, S32, 0.1°C
-        r = _read_holding(client, 30952, 2, unit_id)
-        if r is not None:
-            t = _to_s32(r, 0)
-            data["temp_c"] = round(t / 10, 1) if t is not None else None
-
-        # Operating time — reg 30541, FC04, U32, s
-        r = _read_input(client, 30540, 2, unit_id)
-        if r is not None:
-            data["op_time_s"] = _to_u32(r, 0)
-
-        # DC current string 1 — reg 30769, FC04, U32, mA → A
-        r = _read_input(client, 30768, 2, unit_id)
-        if r is not None:
-            c = _to_u32(r, 0)
-            data["dc_current_a"] = round(c / 1000, 3) if c is not None else None
-
-        # DC voltage string 1 — reg 30771, FC04, U32, 0.01V
-        r = _read_input(client, 30770, 2, unit_id)
-        if r is not None:
-            v = _to_u32(r, 0)
-            data["dc_voltage_v"] = round(v / 100, 2) if v is not None else None
-
-        # DC power string 1 — reg 30773, FC04, S32, W
-        r = _read_input(client, 30772, 2, unit_id)
-        if r is not None:
-            data["dc_power_w"] = _to_s32(r, 0)
+        # Read all configured measurement registers
+        for reg_conf in register_map:
+            key = reg_conf["key"]
+            val = _poll_register(client, reg_conf, unit_id)
+            if val is not None:
+                mult = float(reg_conf.get("mult", 1.0))
+                # Round to sensible precision based on multiplier
+                if mult < 1.0:
+                    data[key] = round(val, max(1, len(str(mult).rstrip("0").split(".")[-1])))
+                else:
+                    data[key] = val
 
         # Device status — tries reg 30201 (addr 30200) and reg 30202/30203 (addr 30201)
         code = _read_status(client, unit_id)
@@ -470,15 +475,16 @@ def _reader_loop(get_settings_fn, interval: int) -> None:
             if not s.get("sma_reader_enabled"):
                 time.sleep(interval)
                 continue
-            host    = (s.get("sma_reader_host") or "").strip()
-            port    = int(s.get("sma_reader_port", 502))
-            unit_id = int(s.get("sma_reader_unit_id", 3))
-            use_udp = bool(s.get("sma_reader_use_udp", False))
+            host         = (s.get("sma_reader_host") or "").strip()
+            port         = int(s.get("sma_reader_port", 502))
+            unit_id      = int(s.get("sma_reader_unit_id", 3))
+            use_udp      = bool(s.get("sma_reader_use_udp", False))
+            register_map = s.get("sma_reader_registers") or None
             if not host:
                 time.sleep(interval)
                 continue
 
-            result = _poll(host, port, unit_id, use_udp=use_udp)
+            result = _poll(host, port, unit_id, use_udp=use_udp, register_map=register_map)
 
             # Retry when device is online but all measurements failed — typically a
             # simultaneous Modbus TCP session held by another client (e.g. Loxone).
@@ -494,7 +500,7 @@ def _reader_loop(get_settings_fn, interval: int) -> None:
                 log.debug("SMA meetregisters leeg, retry %d/%d na %ds",
                           attempt + 1, _POLL_MAX_RETRIES, _POLL_RETRY_DELAY)
                 time.sleep(_POLL_RETRY_DELAY)
-                result = _poll(host, port, unit_id, use_udp=use_udp)
+                result = _poll(host, port, unit_id, use_udp=use_udp, register_map=register_map)
 
             _update_cache(result)
             _check_alerts(result)

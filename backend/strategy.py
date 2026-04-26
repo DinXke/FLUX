@@ -96,8 +96,10 @@ DEFAULT_SETTINGS = {
     "sma_reader_host":       "",    # IP-adres omvormer (kan zelfde zijn als pv_limiter_modbus_host)
     "sma_reader_port":       502,
     "sma_reader_unit_id":    3,     # SMA default slave ID = 3
+    "sma_reader_use_udp":    False, # UDP i.p.v. TCP (verbindingsloos, geen sessieconflict)
     "sma_reader_interval_s": 10,    # pollinterval in seconden
     "sma_reader_max_w":      4000,  # nominaal max vermogen (W) — voor strategie-logica
+    "sma_reader_registers":  None,  # None = gebruik default registermap uit sma_modbus.py
     # Strategy engine: "rule_based" (default), "claude", or "auto"
     # "auto": picks rule_based on flat days, Claude on complex/negative-price days
     "strategy_mode":        "rule_based",

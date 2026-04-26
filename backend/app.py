@@ -3172,6 +3172,39 @@ def test_sma_connection():
     return jsonify(result)
 
 
+@app.route("/api/sma/register-map", methods=["GET"])
+def get_sma_register_map():
+    """Return current register map (custom if set, else default)."""
+    from sma_modbus import get_default_register_map
+    s   = load_strategy_settings()
+    regs = s.get("sma_reader_registers") or None
+    return jsonify({
+        "registers":  regs if regs else get_default_register_map(),
+        "is_default": not bool(regs),
+    })
+
+
+@app.route("/api/sma/register-map", methods=["PUT"])
+@require_admin
+def put_sma_register_map():
+    """Save a custom register map or reset to default (body: {registers: [...]} or {reset: true})."""
+    body = request.get_json(force=True) or {}
+    if body.get("reset"):
+        save_strategy_settings({"sma_reader_registers": None})
+        from sma_modbus import get_default_register_map
+        return jsonify({"registers": get_default_register_map(), "is_default": True})
+    regs = body.get("registers")
+    if not isinstance(regs, list) or not regs:
+        return jsonify({"error": "registers moet een niet-lege array zijn"}), 400
+    required = {"key", "label", "reg", "fc", "dtype", "mult"}
+    for i, r in enumerate(regs):
+        missing = required - set(r.keys())
+        if missing:
+            return jsonify({"error": f"Register {i}: ontbrekende velden {missing}"}), 400
+    save_strategy_settings({"sma_reader_registers": regs})
+    return jsonify({"registers": regs, "is_default": False})
+
+
 @app.route("/api/strategy/settings", methods=["GET"])
 def get_strategy_settings():
     return jsonify(load_strategy_settings())

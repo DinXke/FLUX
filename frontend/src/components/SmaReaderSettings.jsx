@@ -46,6 +46,7 @@ export default function SmaReaderSettings() {
           sma_reader_host:       d.sma_reader_host       ?? DEFAULTS.sma_reader_host,
           sma_reader_port:       d.sma_reader_port       ?? DEFAULTS.sma_reader_port,
           sma_reader_unit_id:    d.sma_reader_unit_id    ?? DEFAULTS.sma_reader_unit_id,
+          sma_reader_use_udp:    d.sma_reader_use_udp    ?? DEFAULTS.sma_reader_use_udp,
           sma_reader_interval_s: d.sma_reader_interval_s ?? DEFAULTS.sma_reader_interval_s,
           sma_reader_max_w:      d.sma_reader_max_w      ?? DEFAULTS.sma_reader_max_w,
         });
@@ -221,7 +222,189 @@ export default function SmaReaderSettings() {
         </div>
       )}
 
+      <SmaRegisterMapEditor />
       <SmaScanner host={vals.sma_reader_host} port={vals.sma_reader_port} unitId={vals.sma_reader_unit_id} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Register map editor
+// ---------------------------------------------------------------------------
+
+const DTYPES  = ["U32", "S32", "U64"];
+const FC_OPTS = [{ v: 3, l: "FC03 Holding" }, { v: 4, l: "FC04 Input" }];
+
+function SmaRegisterMapEditor() {
+  const [regs,      setRegs]      = useState(null);
+  const [isDefault, setIsDefault] = useState(true);
+  const [saving,    setSaving]    = useState(false);
+  const [error,     setError]     = useState(null);
+  const [success,   setSuccess]   = useState(false);
+  const [open,      setOpen]      = useState(false);
+
+  useEffect(() => {
+    fetch("api/sma/register-map")
+      .then((r) => r.json())
+      .then((d) => { setRegs(d.registers); setIsDefault(d.is_default); })
+      .catch(() => {});
+  }, []);
+
+  function updateRow(i, field, value) {
+    setRegs((prev) => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r));
+    setSuccess(false);
+  }
+
+  function deleteRow(i) {
+    setRegs((prev) => prev.filter((_, idx) => idx !== i));
+    setSuccess(false);
+  }
+
+  function addRow() {
+    setRegs((prev) => [...prev, { key: `custom_${prev.length}`, label: "Nieuw register", reg: 30001, fc: 3, dtype: "U32", mult: 1.0, unit: "" }]);
+    setSuccess(false);
+  }
+
+  async function save() {
+    setSaving(true); setError(null); setSuccess(false);
+    try {
+      const r = await fetch("api/sma/register-map", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registers: regs }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Fout bij opslaan");
+      setRegs(d.registers); setIsDefault(d.is_default);
+      setSuccess(true); setTimeout(() => setSuccess(false), 3000);
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  async function reset() {
+    setSaving(true); setError(null); setSuccess(false);
+    try {
+      const r = await fetch("api/sma/register-map", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reset: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Fout");
+      setRegs(d.registers); setIsDefault(true);
+      setSuccess(true); setTimeout(() => setSuccess(false), 3000);
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  if (!regs) return null;
+
+  return (
+    <div style={{
+      marginTop: 24, padding: "16px", borderRadius: 10,
+      border: "1px solid var(--border)", background: "var(--card)",
+    }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: "none", border: "none", cursor: "pointer", padding: 0,
+          display: "flex", alignItems: "center", gap: 8, width: "100%",
+        }}
+      >
+        <span style={{ fontWeight: 600, fontSize: 14 }}>⚙️ Registermap configureren</span>
+        <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>
+          {isDefault ? "standaard" : "aangepast"} · {regs.length} registers
+        </span>
+        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "12px 0", lineHeight: 1.5 }}>
+            Stel per meting in welk registeradres (1-based, zoals in SMA-docs en Loxone), FC03 of FC04,
+            datatype en vermenigvuldiger FLUX moet uitlezen.
+          </p>
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                  <th style={{ textAlign: "left", padding: "4px 6px", minWidth: 120 }}>Label</th>
+                  <th style={{ textAlign: "left", padding: "4px 6px", minWidth: 70  }}>Key</th>
+                  <th style={{ textAlign: "left", padding: "4px 6px", minWidth: 80  }}>Register</th>
+                  <th style={{ textAlign: "left", padding: "4px 6px", minWidth: 110 }}>FC</th>
+                  <th style={{ textAlign: "left", padding: "4px 6px", minWidth: 90  }}>Data type</th>
+                  <th style={{ textAlign: "left", padding: "4px 6px", minWidth: 80  }}>Mult.</th>
+                  <th style={{ textAlign: "left", padding: "4px 6px", minWidth: 60  }}>Eenheid</th>
+                  <th style={{ padding: "4px 6px" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {regs.map((r, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "3px 4px" }}>
+                      <input className="form-input" style={{ width: "100%", minWidth: 110, fontSize: 12 }}
+                        value={r.label} onChange={(e) => updateRow(i, "label", e.target.value)} />
+                    </td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <input className="form-input" style={{ width: "100%", minWidth: 80, fontSize: 12 }}
+                        value={r.key} onChange={(e) => updateRow(i, "key", e.target.value)} />
+                    </td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <input className="form-input" style={{ width: 72, fontSize: 12 }}
+                        type="number" min={1} max={65535}
+                        value={r.reg} onChange={(e) => updateRow(i, "reg", Number(e.target.value))} />
+                    </td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <select className="form-input" style={{ fontSize: 12, padding: "2px 4px" }}
+                        value={r.fc} onChange={(e) => updateRow(i, "fc", Number(e.target.value))}>
+                        {FC_OPTS.map(({ v, l }) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <select className="form-input" style={{ fontSize: 12, padding: "2px 4px" }}
+                        value={r.dtype} onChange={(e) => updateRow(i, "dtype", e.target.value)}>
+                        {DTYPES.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <input className="form-input" style={{ width: 72, fontSize: 12 }}
+                        type="number" step="any"
+                        value={r.mult} onChange={(e) => updateRow(i, "mult", parseFloat(e.target.value) || 1)} />
+                    </td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <input className="form-input" style={{ width: 56, fontSize: 12 }}
+                        value={r.unit || ""} onChange={(e) => updateRow(i, "unit", e.target.value)} />
+                    </td>
+                    <td style={{ padding: "3px 4px" }}>
+                      <button type="button" onClick={() => deleteRow(i)}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "var(--danger)", fontSize: 14, padding: "0 4px" }}
+                        title="Verwijder">&times;</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <button className="btn btn-secondary" type="button" onClick={addRow} style={{ fontSize: 12 }}>
+              + Regel toevoegen
+            </button>
+            <button className="btn btn-primary" type="button" onClick={save} disabled={saving} style={{ fontSize: 12 }}>
+              {saving ? "Opslaan…" : "Registermap opslaan"}
+            </button>
+            {!isDefault && (
+              <button className="btn btn-secondary" type="button" onClick={reset} disabled={saving} style={{ fontSize: 12 }}>
+                Terugzetten naar standaard
+              </button>
+            )}
+            {success && <span style={{ color: "var(--success)", fontSize: 12 }}>✓ Opgeslagen</span>}
+            {error   && <span style={{ color: "var(--danger)",  fontSize: 12 }}>{error}</span>}
+          </div>
+        </>
+      )}
     </div>
   );
 }
