@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 # SmartMarstek Standalone Docker Entrypoint
@@ -13,7 +13,7 @@ echo "[smartmarstek] Data directory: $DATA_DIR"
 echo "[smartmarstek] Frontend dist: $FRONTEND_DIST"
 
 # Apply config from /data/options.json (if present)
-if [[ -f "$DATA_DIR/options.json" ]]; then
+if [ -f "$DATA_DIR/options.json" ]; then
     echo "[smartmarstek] Applying configuration from options.json..."
     python3 /app/setup_config.py
 else
