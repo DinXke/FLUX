@@ -54,6 +54,7 @@ _sma_live: dict = {
     "status":       None,
     "status_code":  None,
     "online":       False,
+    "night_mode":   False,
 }
 _sma_lock = threading.Lock()
 
@@ -301,6 +302,13 @@ def _poll(host: str, port: int, unit_id: int) -> dict:
             if code is not None:
                 data["status_code"] = code
                 data["status"] = _STATUS_LABELS.get(code, f"Code {code}")
+
+        # Night/standby mode: TCP connected but all measurement registers return
+        # Modbus exceptions. This is normal SMA behavior during darkness/standby.
+        measurement_keys = ("pac_w", "e_day_wh", "e_total_wh", "grid_v",
+                            "freq_hz", "temp_c", "dc_power_w", "dc_voltage_v", "dc_current_a")
+        has_values = any(data.get(k) is not None for k in measurement_keys)
+        data["night_mode"] = not has_values
 
     finally:
         client.close()
