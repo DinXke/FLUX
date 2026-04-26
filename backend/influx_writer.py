@@ -142,25 +142,36 @@ def _poll_esphome(devices: dict) -> dict:
         vals: dict = {}
         try:
             with _r.Session() as sess:
-                resp = sess.get(
-                    f"http://{ip}:{port}/api/states",
+                with sess.get(
+                    f"http://{ip}:{port}/events",
+                    stream=True,
                     timeout=(10, 15),
-                    headers={"Accept": "application/json"},
-                )
-                resp.raise_for_status()
-                for entity in resp.json():
-                    key = _map_name(entity.get("id", ""))
-                    if key:
-                        v = entity.get("value")
-                        if v is None:
+                    headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
+                ) as resp:
+                    resp.raise_for_status()
+                    current_event = None
+                    for raw_line in resp.iter_lines(decode_unicode=True):
+                        if raw_line.startswith("event:"):
+                            current_event = raw_line[6:].strip()
+                            if current_event == "ping":
+                                break   # initial state burst complete
+                        elif raw_line.startswith("data:") and current_event == "state":
                             try:
-                                v = float(str(entity.get("state", "")).split()[0])
+                                data = _json.loads(raw_line[5:].strip())
+                                key  = _map_name(data.get("id", ""))
+                                if key:
+                                    v = data.get("value")
+                                    if v is None:
+                                        try:
+                                            v = float(str(data.get("state", "")).split()[0])
+                                        except Exception:
+                                            pass
+                                    if v is not None:
+                                        vals[key] = float(v)
                             except Exception:
                                 pass
-                        if v is not None:
-                            vals[key] = float(v)
         except Exception as exc:
-            log.debug("ESPHome /api/states poll failed  dev=%s  err=%s", dev_id, exc)
+            log.debug("ESPHome SSE poll failed  dev=%s  err=%s", dev_id, exc)
         if vals:
             result[dev_id] = vals
             log.debug("ESPHome SSE  dev=%s  fields=%s", dev_id, list(vals.keys()))
