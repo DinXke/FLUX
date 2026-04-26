@@ -6,7 +6,7 @@ via get_sma_live(). Starts a background thread via start_sma_reader().
 
 SMA register addressing (SB30-50-1AV-40 / SBn-n-1AV-40):
   - 3xxxx registers → FC04 input registers OR FC03 holding registers
-  - pymodbus uses 0-based addressing → 1-based register number - 1
+  - SMA uses 1-based Modbus addressing: register number == pymodbus address (no -1)
   - NaN sentinels: U32=0xFFFFFFFF, S32=0x80000000, U64=0x8000000000000000
 """
 
@@ -72,7 +72,7 @@ def get_default_register_map() -> list[dict]:
 
 def _poll_register(client, reg_conf: dict, unit_id: int) -> Optional[float]:
     """Read one register entry and return the scaled value, or None on error/NaN."""
-    addr  = reg_conf["reg"] - 1          # 1-based → 0-based
+    addr  = reg_conf["reg"]              # SMA uses 1-based Modbus addressing
     fc    = reg_conf["fc"]
     dtype = reg_conf["dtype"]
     mult  = float(reg_conf.get("mult", 1.0))
@@ -188,13 +188,12 @@ def _read_holding(client, address: int, count: int, unit_id: int) -> Optional[li
 
 def _read_status(client, unit_id: int) -> Optional[int]:
     """
-    Read device status ENUM, trying both known register layouts.
-
-    Standard SB30-50-1AV-40: U32 at addr 30200 (reg 30201/30202).
-    Older/alternate models: U32 at addr 30201 (reg 30202=0, reg 30203=status_code).
+    Read device status ENUM. SMA uses 1-based Modbus addressing, so SMA register
+    30201 (Condition) is read at pymodbus address 30201.
+    Try both 30201 (1-based, correct) and 30200 (0-based, legacy fallback).
     Returns the raw status code integer or None.
     """
-    for addr in (30200, 30201):
+    for addr in (30201, 30200):
         r = _read_holding(client, addr, 2, unit_id)
         if r is not None:
             code = _to_u32(r, 0)
@@ -217,29 +216,27 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
 
     result: dict = {"online": True, "raw": {}, "unit_id": unit_id}
 
-    # (key, 0-based addr, count, dtype, scale, fc)
+    # (key, 1-based SMA addr == Modbus addr, count, dtype, scale, fc)
     # Primary: SMA SB30-50-1AV-40 Modbus register map (high addresses, FC03/FC04)
-    # Low_*:  standard Modbus input register addressing: SMA reg 30775 = FC04 addr 774
-    #         (addr = reg - 30001). SB4.0-1AV-40 fw 1.3.36.R returns exception_code=2
-    #         for all high-address measurement registers — testing low-address fallback.
-    # Alt_*:  cross-FC and scan-found addresses (FC03 40000+ range from register scan)
+    # Low_*:  alternative addressing: addr = SMA_reg - 30001 (kept for diagnostic reference)
+    # Alt_*:  cross-FC probes and scan-found addresses
     PROBES_FC03 = [
-        ("pac_w",            30774, 2, "S32",    1, 3),  # reg 30775 — Pac (W) high addr
-        ("grid_v",           30782, 2, "U32",  100, 3),  # reg 30783 — Uac L1 (0.01V) high addr
-        ("temp_c",           30952, 2, "S32",   10, 3),  # reg 30953 — Internal temp (0.1°C)
-        ("status_code",      30200, 2, "U32",    1, 3),  # reg 30201 — Device status (ENUM)
-        ("alt_status_code",  30201, 2, "U32",    1, 3),  # reg 30202/30203 — Alt status addr
-        ("alt_nominal_w",    30204, 2, "U32",    1, 3),  # reg 30205 — Nominal AC power (W)
-        ("wmax_lim_w",       42061, 2, "U32",    1, 3),  # reg 42062 — WMaxLim (PV limiter)
-        ("wmax_lim_pct",     40235, 2, "U32",    1, 3),  # reg 40236 — WMaxLimPct
+        ("pac_w",            30775, 2, "S32",    1, 3),  # SMA reg 30775 — Pac (W)
+        ("grid_v",           30783, 2, "U32",  100, 3),  # SMA reg 30783 — Uac L1 (0.01V)
+        ("temp_c",           30953, 2, "S32",   10, 3),  # SMA reg 30953 — Internal temp (0.1°C)
+        ("status_code",      30201, 2, "U32",    1, 3),  # SMA reg 30201 — Device status (ENUM)
+        ("alt_status_code",  30201, 2, "U32",    1, 3),  # same addr, kept for compat
+        ("alt_nominal_w",    30205, 2, "U32",    1, 3),  # SMA reg 30205 — Nominal AC power (W)
+        ("wmax_lim_w",       42062, 2, "U32",    1, 3),  # SMA reg 42062 — WMaxLim (PV limiter)
+        ("wmax_lim_pct",     40236, 2, "U32",    1, 3),  # SMA reg 40236 — WMaxLimPct
         # Cross-FC: registers normally FC04 — check if SB4.x responds via FC03 instead
-        ("alt_dc_current_fc3", 30768, 2, "U32", 1000, 3),  # reg 30769 via FC03
-        ("alt_dc_voltage_fc3", 30770, 2, "U32",  100, 3),  # reg 30771 via FC03
-        ("alt_dc_power_fc3",   30772, 2, "S32",    1, 3),  # reg 30773 via FC03
-        ("alt_freq_fc3",       30802, 2, "U32",  100, 3),  # reg 30803 via FC03
-        ("alt_op_time_fc3",    30540, 2, "U32",    1, 3),  # reg 30541 via FC03
-        ("alt_e_total_fc3",    30530, 2, "U32",    1, 3),  # reg 30531 via FC03
-        ("alt_e_day_fc3",      30534, 2, "U32",    1, 3),  # reg 30535 via FC03
+        ("alt_dc_current_fc3", 30769, 2, "U32", 1000, 3),  # SMA reg 30769 via FC03
+        ("alt_dc_voltage_fc3", 30771, 2, "U32",  100, 3),  # SMA reg 30771 via FC03
+        ("alt_dc_power_fc3",   30773, 2, "S32",    1, 3),  # SMA reg 30773 via FC03
+        ("alt_freq_fc3",       30803, 2, "U32",  100, 3),  # SMA reg 30803 via FC03
+        ("alt_op_time_fc3",    30541, 2, "U32",    1, 3),  # SMA reg 30541 via FC03
+        ("alt_e_total_fc3",    30531, 2, "U32",    1, 3),  # SMA reg 30531 via FC03
+        ("alt_e_day_fc3",      30535, 2, "U32",    1, 3),  # SMA reg 30535 via FC03
         # FC03 low-address probes: addr = SMA_reg - 30001 (standard Modbus holding reg)
         ("low_pac_w_fc3",      774, 2, "S32",    1, 3),  # SMA reg 30775 at std addr
         ("low_grid_v_fc3",     782, 2, "U32",  100, 3),  # SMA reg 30783 at std addr
@@ -260,19 +257,19 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
         ("scan_freq_40137",   40136, 2, "U32",  100, 3),  # scan found 5000 at reg 40137
     ]
     PROBES_FC04 = [
-        ("e_total_wh",      30512, 4, "U64",    1, 4),  # reg 30513 — E-Total (Wh) U64 new map
-        ("e_day_wh",        30516, 4, "U64",    1, 4),  # reg 30517 — E-Day (Wh) U64 new map
-        ("alt_e_total_kwh", 30530, 2, "U32",    1, 4),  # reg 30531 — E-Total (kWh) U32 alt map
-        ("alt_e_day_wh",    30534, 2, "U32",    1, 4),  # reg 30535 — E-Day (Wh) U32 alt map
-        ("freq_hz",         30802, 2, "U32",  100, 4),  # reg 30803 — Grid freq (0.01Hz)
-        ("op_time_s",       30540, 2, "U32",    1, 4),  # reg 30541 — Operating time (s)
-        ("dc_current_a",    30768, 2, "U32", 1000, 4),  # reg 30769 — DC current str1 (mA)
-        ("dc_voltage_v",    30770, 2, "U32",  100, 4),  # reg 30771 — DC voltage str1 (0.01V)
-        ("dc_power_w",      30772, 2, "S32",    1, 4),  # reg 30773 — DC power str1 (W)
+        ("e_total_wh",      30513, 4, "U64",    1, 4),  # SMA reg 30513 — E-Total (Wh) U64
+        ("e_day_wh",        30517, 4, "U64",    1, 4),  # SMA reg 30517 — E-Day (Wh) U64
+        ("alt_e_total_kwh", 30531, 2, "U32",    1, 4),  # SMA reg 30531 — E-Total (kWh) U32
+        ("alt_e_day_wh",    30535, 2, "U32",    1, 4),  # SMA reg 30535 — E-Day (Wh) U32
+        ("freq_hz",         30803, 2, "U32",  100, 4),  # SMA reg 30803 — Grid freq (0.01Hz)
+        ("op_time_s",       30541, 2, "U32",    1, 4),  # SMA reg 30541 — Operating time (s)
+        ("dc_current_a",    30769, 2, "U32", 1000, 4),  # SMA reg 30769 — DC current str1 (mA)
+        ("dc_voltage_v",    30771, 2, "U32",  100, 4),  # SMA reg 30771 — DC voltage str1 (0.01V)
+        ("dc_power_w",      30773, 2, "S32",    1, 4),  # SMA reg 30773 — DC power str1 (W)
         # Cross-FC: registers normally FC03 — check if SB4.x responds via FC04 instead
-        ("alt_pac_w_fc4",   30774, 2, "S32",    1, 4),  # reg 30775 via FC04
-        ("alt_grid_v_fc4",  30782, 2, "U32",  100, 4),  # reg 30783 via FC04
-        ("alt_temp_c_fc4",  30952, 2, "S32",   10, 4),  # reg 30953 via FC04
+        ("alt_pac_w_fc4",   30775, 2, "S32",    1, 4),  # SMA reg 30775 via FC04
+        ("alt_grid_v_fc4",  30783, 2, "U32",  100, 4),  # SMA reg 30783 via FC04
+        ("alt_temp_c_fc4",  30953, 2, "S32",   10, 4),  # SMA reg 30953 via FC04
         # FC04 low-address probes: addr = SMA_reg - 30001 (standard Modbus input reg)
         ("low_pac_w_fc4",      774, 2, "S32",    1, 4),  # SMA reg 30775 at std FC04 addr
         ("low_grid_v_fc4",     782, 2, "U32",  100, 4),  # SMA reg 30783 at std FC04 addr
@@ -393,7 +390,7 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
     def _word_count(dtype: str) -> int:
         return 4 if dtype == "U64" else 2
 
-    # Sort by FC then by 0-based address so consecutive registers are adjacent
+    # Sort by FC then by address so consecutive registers are adjacent
     sorted_regs = sorted(register_map, key=lambda r: (r["fc"], r["reg"]))
 
     # Build batches: list of [reg_conf, ...]
@@ -404,8 +401,8 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
             current = [reg_conf]
             continue
         prev = current[-1]
-        prev_end = (prev["reg"] - 1) + _word_count(prev.get("dtype", "U32"))
-        this_start = reg_conf["reg"] - 1
+        prev_end = prev["reg"] + _word_count(prev.get("dtype", "U32"))
+        this_start = reg_conf["reg"]
         if reg_conf["fc"] == prev["fc"] and (this_start - prev_end) <= MAX_GAP:
             current.append(reg_conf)
         else:
@@ -418,9 +415,9 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
 
     for batch in batches:
         fc = batch[0]["fc"]
-        first_addr = batch[0]["reg"] - 1
+        first_addr = batch[0]["reg"]
         last_conf = batch[-1]
-        last_addr = last_conf["reg"] - 1
+        last_addr = last_conf["reg"]
         total_count = last_addr + _word_count(last_conf.get("dtype", "U32")) - first_addr
 
         regs = _read_holding(client, first_addr, total_count, unit_id) if fc == 3 \
@@ -431,7 +428,7 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
             if regs is None:
                 results[key] = None
                 continue
-            offset = (reg_conf["reg"] - 1) - first_addr
+            offset = reg_conf["reg"] - first_addr
             dtype  = reg_conf.get("dtype", "U32")
             if dtype == "U32":
                 raw = _to_u32(regs, offset)
@@ -461,7 +458,7 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
 
     register_map: list of register config dicts (see _DEFAULT_REGISTER_MAP).
     If None, uses _DEFAULT_REGISTER_MAP.
-    pymodbus uses 0-based addresses → 1-based register number - 1.
+    SMA uses 1-based Modbus addressing: register number == Modbus address.
     """
     if register_map is None:
         register_map = _DEFAULT_REGISTER_MAP
