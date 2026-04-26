@@ -58,7 +58,7 @@ services:
       - influxdb_config:/etc/influxdb2
 
   grafana:
-    image: grafana/grafana:11.0
+    image: grafana/grafana:latest
     container_name: smartmarstek-grafana
     restart: unless-stopped
     ports:
