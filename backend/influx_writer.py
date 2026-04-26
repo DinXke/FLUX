@@ -31,8 +31,8 @@ log = logging.getLogger("influx_writer")
 # ---------------------------------------------------------------------------
 
 INFLUX_URL    = os.environ.get("INFLUX_URL",    "http://localhost:8086")
-INFLUX_TOKEN  = os.environ.get("INFLUX_TOKEN",  "marstek-influx-token-local")
-INFLUX_ORG    = os.environ.get("INFLUX_ORG",    "marstek")
+INFLUX_TOKEN  = os.environ.get("INFLUX_TOKEN",  "")
+INFLUX_ORG    = os.environ.get("INFLUX_ORG",    "flux")
 INFLUX_BUCKET = os.environ.get("INFLUX_BUCKET", "energy")
 
 WRITE_INTERVAL = 30   # seconds between writes
