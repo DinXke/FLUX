@@ -6,7 +6,7 @@ via get_sma_live(). Starts a background thread via start_sma_reader().
 
 SMA register addressing (SB30-50-1AV-40 / SBn-n-1AV-40):
   - 3xxxx registers → FC04 input registers OR FC03 holding registers
-  - pymodbus uses 0-based addressing → 1-based register number - 1
+  - SMA uses 1-based Modbus addressing: register number == pymodbus address (no -1)
   - NaN sentinels: U32=0xFFFFFFFF, S32=0x80000000, U64=0x8000000000000000
 """
 
@@ -72,7 +72,7 @@ def get_default_register_map() -> list[dict]:
 
 def _poll_register(client, reg_conf: dict, unit_id: int) -> Optional[float]:
     """Read one register entry and return the scaled value, or None on error/NaN."""
-    addr  = reg_conf["reg"] - 1          # 1-based → 0-based
+    addr  = reg_conf["reg"]              # SMA uses 1-based Modbus addressing
     fc    = reg_conf["fc"]
     dtype = reg_conf["dtype"]
     mult  = float(reg_conf.get("mult", 1.0))
@@ -188,13 +188,11 @@ def _read_holding(client, address: int, count: int, unit_id: int) -> Optional[li
 
 def _read_status(client, unit_id: int) -> Optional[int]:
     """
-    Read device status ENUM, trying both known register layouts.
-
-    Standard SB30-50-1AV-40: U32 at addr 30200 (reg 30201/30202).
-    Older/alternate models: U32 at addr 30201 (reg 30202=0, reg 30203=status_code).
+    Read device status ENUM. SMA uses 1-based addressing: reg 30201 = addr 30201.
+    Tries addr 30201 (1-based, correct) then 30200 (0-based, legacy fallback).
     Returns the raw status code integer or None.
     """
-    for addr in (30200, 30201):
+    for addr in (30201, 30200):
         r = _read_holding(client, addr, 2, unit_id)
         if r is not None:
             code = _to_u32(r, 0)
