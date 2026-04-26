@@ -225,7 +225,158 @@ export default function SmaReaderSettings() {
       )}
 
       <SmaRegisterMapEditor />
+      <SmaDebugLog />
       <SmaScanner host={vals.sma_reader_host} port={vals.sma_reader_port} unitId={vals.sma_reader_unit_id} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live debug log
+// ---------------------------------------------------------------------------
+
+const DEBUG_FIELDS = [
+  { key: "online",       label: "Online",          fmt: v => v ? "ja" : "nee" },
+  { key: "night_mode",   label: "Nachtmodus",       fmt: v => v ? "ja" : "nee" },
+  { key: "status",       label: "Status",           fmt: v => v ?? "—" },
+  { key: "status_code",  label: "Status code",      fmt: v => v ?? "—" },
+  { key: "pac_w",        label: "AC-vermogen",      fmt: v => v != null ? `${v} W` : "null" },
+  { key: "e_day_wh",     label: "Dagopbrengst",     fmt: v => v != null ? `${v} Wh` : "null" },
+  { key: "e_total_wh",   label: "Totaalopbrengst",  fmt: v => v != null ? `${(v/1000).toFixed(2)} kWh` : "null" },
+  { key: "grid_v",       label: "Netspanning L1",   fmt: v => v != null ? `${v} V` : "null" },
+  { key: "freq_hz",      label: "Netfrequentie",    fmt: v => v != null ? `${v} Hz` : "null" },
+  { key: "temp_c",       label: "Interne temp.",    fmt: v => v != null ? `${v} °C` : "null" },
+  { key: "op_time_s",    label: "Bedrijfstijd",     fmt: v => v != null ? `${v} s` : "null" },
+  { key: "dc_current_a", label: "DC stroom str1",   fmt: v => v != null ? `${v} A` : "null" },
+  { key: "dc_voltage_v", label: "DC spanning str1", fmt: v => v != null ? `${v} V` : "null" },
+  { key: "dc_power_w",   label: "DC vermogen str1", fmt: v => v != null ? `${v} W` : "null" },
+  { key: "age_s",        label: "Leeftijd data",    fmt: v => v != null ? `${v} s geleden` : "—" },
+];
+
+function SmaDebugLog() {
+  const [open,    setOpen]    = useState(false);
+  const [entries, setEntries] = useState([]);  // [{ts, data}]
+  const [error,   setError]   = useState(null);
+  const timerRef = useRef(null);
+
+  function poll() {
+    fetch("api/sma/live")
+      .then((r) => r.json())
+      .then((d) => {
+        setError(null);
+        setEntries((prev) => [
+          { ts: new Date(), data: d },
+          ...prev.slice(0, 9),  // keep last 10
+        ]);
+      })
+      .catch((e) => setError(e.message));
+  }
+
+  useEffect(() => {
+    if (!open) {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      return;
+    }
+    poll();
+    timerRef.current = setInterval(poll, 10000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [open]);
+
+  function timeStr(d) {
+    return d.toTimeString().slice(0, 8);
+  }
+
+  return (
+    <div style={{
+      marginTop: 24, padding: "16px", borderRadius: 10,
+      border: "1px solid var(--border)", background: "var(--card)",
+    }}>
+      <button type="button" onClick={() => setOpen((v) => !v)}
+        style={{ background: "none", border: "none", cursor: "pointer", padding: 0,
+          display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>📋 Debug log — live omvormer data</span>
+        <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: "auto" }}>
+          {open ? `${entries.length} poll(s) · elke 10s` : "inactief"}
+        </span>
+        <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "10px 0 12px", lineHeight: 1.5 }}>
+            Toont alles wat de achtergrond-poller van de omvormer terugkrijgt.
+            Vernieuwd elke 10 seconden automatisch.
+          </p>
+
+          {error && (
+            <div style={{ color: "var(--danger)", fontSize: 13, marginBottom: 8 }}>Fout: {error}</div>
+          )}
+
+          {entries.length === 0 && !error && (
+            <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Wachten op eerste poll…</div>
+          )}
+
+          {entries.map((e, i) => (
+            <details key={i} open={i === 0}
+              style={{ marginBottom: 8, border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+              <summary style={{
+                cursor: "pointer", padding: "6px 10px", fontSize: 12,
+                background: e.data.online
+                  ? e.data.night_mode ? "rgba(255,214,0,.07)" : "rgba(0,210,90,.07)"
+                  : "rgba(255,80,80,.07)",
+                display: "flex", gap: 8, alignItems: "center",
+              }}>
+                <span style={{ fontFamily: "monospace", color: "var(--text-muted)" }}>{timeStr(e.ts)}</span>
+                <span style={{ fontWeight: 600,
+                  color: e.data.online
+                    ? e.data.night_mode ? "#ffd600" : "var(--success)"
+                    : "var(--danger)" }}>
+                  {e.data.online
+                    ? e.data.night_mode ? "🌙 nacht" : "✓ online"
+                    : "✗ offline"}
+                </span>
+                {e.data.status && <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{e.data.status}</span>}
+                {e.data.pac_w != null && <span style={{ marginLeft: "auto", color: "var(--text-muted)", fontSize: 11 }}>{e.data.pac_w} W</span>}
+              </summary>
+              <div style={{
+                display: "grid", gridTemplateColumns: "1fr 1fr",
+                gap: "2px 16px", padding: "10px 12px",
+                fontFamily: "monospace", fontSize: 12,
+              }}>
+                {DEBUG_FIELDS.map(({ key, label, fmt }) => {
+                  const val = e.data[key];
+                  const isNull = val == null || val === false && key !== "night_mode";
+                  return (
+                    <div key={key} style={{ display: "contents" }}>
+                      <span style={{ color: "var(--text-muted)" }}>{label}</span>
+                      <span style={{ color: val == null ? "#64748b" : "var(--text)", fontWeight: val != null ? 500 : 400 }}>
+                        {fmt(val)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <details style={{ borderTop: "1px solid var(--border)" }}>
+                <summary style={{ fontSize: 11, color: "var(--text-muted)", padding: "4px 12px", cursor: "pointer" }}>
+                  Raw JSON
+                </summary>
+                <pre style={{
+                  margin: 0, padding: "8px 12px", fontSize: 11,
+                  background: "var(--bg)", overflowX: "auto",
+                  color: "#94a3b8",
+                }}>
+                  {JSON.stringify(e.data, null, 2)}
+                </pre>
+              </details>
+            </details>
+          ))}
+
+          <button className="btn btn-secondary" type="button" onClick={poll}
+            style={{ fontSize: 12, marginTop: 4 }}>
+            Nu vernieuwen
+          </button>
+        </>
+      )}
     </div>
   );
 }
