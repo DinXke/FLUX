@@ -157,10 +157,24 @@ function ThemeToggle() {
 export default function App() {
   const { t } = useTranslation();
 
-  // Auth state: 'checking' | 'login' | 'app'
-  const [authState, setAuthState] = useState("checking");
+  // ── Auth state (must come before ALL other hooks) ──
+  // Start as "app" immediately so the UI never blocks. Auth check runs in
+  // the background and only flips to "login" when the server requires it.
+  const [authState, setAuthState] = useState("app");
   const [currentUser, setCurrentUser] = useState(null);
 
+  // ── All page/device state (hooks must be declared before any early return) ──
+  const [page, setPage]       = useState("batteries");
+  const [devices, setDevices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [powerMap, setPowerMap] = useState({});
+  const [energyMapExpanded, setEnergyMapExpanded] = useState(() => {
+    const saved = localStorage.getItem("marstek_energymap_expanded");
+    return saved !== null ? saved === "true" : null;
+  });
+
+  // ── Background auth probe ──
   useEffect(() => {
     async function checkAuth() {
       const token = getToken();
@@ -170,27 +184,62 @@ export default function App() {
           if (res.ok) {
             const user = await res.json();
             setCurrentUser({ email: user.email, role: user.role });
-            setAuthState("app");
             return;
           }
-        } catch { /* network error, fall through */ }
+        } catch { /* network error — skip */ }
         clearToken();
       }
-      // Probe whether auth is enabled (no token)
       try {
-        const probe = await fetch("/api/users", { headers: {} });
-        if (probe.status === 401) {
-          setAuthState("login");
-        } else {
-          setAuthState("app"); // AUTH_ENABLED=false — open access
-        }
-      } catch {
-        setAuthState("app");
-      }
+        const probe = await fetch("/api/users");
+        if (probe.status === 401) setAuthState("login");
+      } catch { /* unreachable server — stay on app */ }
     }
     checkAuth();
   }, []);
 
+  // ── Apply saved theme/view/ui on mount ──
+  useEffect(() => {
+    const theme = localStorage.getItem("marstek_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+    const view = localStorage.getItem("marstek_view") || "desktop";
+    document.documentElement.setAttribute("data-view", view);
+    const ui = localStorage.getItem("marstek_ui") || "old";
+    document.documentElement.setAttribute("data-ui", ui);
+    const uiMode = localStorage.getItem("marstek_ui_mode") || "classic";
+    document.documentElement.setAttribute("data-ui-mode", uiMode);
+  }, []);
+
+  const fetchDevices = useCallback(async () => {
+    try {
+      const res = await fetch("api/devices");
+      if (res.ok) setDevices(await res.json());
+    } catch { /* keep existing list */ }
+    finally   { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchDevices(); }, [fetchDevices]);
+
+  // Once devices load for the first time, set default based on count if no saved preference
+  useEffect(() => {
+    if (!loading && energyMapExpanded === null) {
+      const defaultExpanded = devices.length >= 2;
+      localStorage.setItem("marstek_energymap_expanded", String(defaultExpanded));
+      setEnergyMapExpanded(defaultExpanded);
+    }
+  }, [loading, devices.length, energyMapExpanded]);
+
+  const handlePowerUpdate = useCallback((deviceId, data) => {
+    setPowerMap((prev) => {
+      const cur = prev[deviceId];
+      if (cur &&
+          cur.acPower === data.acPower &&
+          cur.batPower === data.batPower &&
+          cur.acVoltage === data.acVoltage) return prev;
+      return { ...prev, [deviceId]: data };
+    });
+  }, []);
+
+  // ── Auth handlers ──
   function handleLogin(user) {
     setCurrentUser(user);
     setAuthState("app");
@@ -201,6 +250,14 @@ export default function App() {
     setCurrentUser(null);
     setAuthState("login");
   }
+
+  // ── Device handlers ──
+  const handleDeviceAdded   = (device)  => { setDevices((p) => [...p, device]); };
+  const handleDeviceEdited  = (updated) => { setDevices((p) => p.map((d) => d.id === updated.id ? updated : d)); };
+  const handleDeviceDeleted = (id)      => {
+    setDevices((p) => p.filter((d) => d.id !== id));
+    setPowerMap((p) => { const n = { ...p }; delete n[id]; return n; });
+  };
 
   const isAdmin = currentUser?.role === "admin";
 
@@ -215,65 +272,6 @@ export default function App() {
     ...(isAdmin ? [{ id: "users", icon: "👥", label: t('nav.users') }] : []),
   ];
 
-  // Apply saved theme + view mode + ui version immediately on mount
-  useEffect(() => {
-    const theme = localStorage.getItem("marstek_theme") || "dark";
-    document.documentElement.setAttribute("data-theme", theme);
-    const view = localStorage.getItem("marstek_view") || "desktop";
-    document.documentElement.setAttribute("data-view", view);
-    const ui = localStorage.getItem("marstek_ui") || "old";
-    document.documentElement.setAttribute("data-ui", ui);
-    const uiMode = localStorage.getItem("marstek_ui_mode") || "classic";
-    document.documentElement.setAttribute("data-ui-mode", uiMode);
-  }, []);
-
-  if (authState === "checking") {
-    return (
-      <div className="loading-overlay" style={{ height: "100vh" }}>
-        <div className="loading-spinner" />
-      </div>
-    );
-  }
-
-  if (authState === "login") {
-    return <LoginPage onLogin={handleLogin} />;
-  }
-  const [page, setPage]       = useState("batteries");
-  const [devices, setDevices] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  // Aggregated power from all devices: { [deviceId]: { acPower, batPower, acVoltage, phaseVoltages } }
-  const [powerMap, setPowerMap] = useState({});
-
-  const fetchDevices = useCallback(async () => {
-    try {
-      const res = await fetch("api/devices");
-      if (res.ok) setDevices(await res.json());
-    } catch { /* keep existing list */ }
-    finally   { setLoading(false); }
-  }, []);
-
-  useEffect(() => { fetchDevices(); }, [fetchDevices]);
-
-  const handleDeviceAdded   = (device)  => { setDevices((p) => [...p, device]); };
-  const handleDeviceEdited  = (updated) => { setDevices((p) => p.map((d) => d.id === updated.id ? updated : d)); };
-  const handleDeviceDeleted = (id)      => {
-    setDevices((p) => p.filter((d) => d.id !== id));
-    setPowerMap((p) => { const n = { ...p }; delete n[id]; return n; });
-  };
-
-  const handlePowerUpdate = useCallback((deviceId, data) => {
-    setPowerMap((prev) => {
-      const cur = prev[deviceId];
-      // Avoid re-render if values haven't changed
-      if (cur &&
-          cur.acPower === data.acPower &&
-          cur.batPower === data.batPower &&
-          cur.acVoltage === data.acVoltage) return prev;
-      return { ...prev, [deviceId]: data };
-    });
-  }, []);
-
   // Build batteries array for HomeFlow
   const homeFlowBatteries = devices.map((d) => ({
     id: d.id,
@@ -281,24 +279,8 @@ export default function App() {
     ...(powerMap[d.id] ?? {}),
   }));
 
-  // Use first available phase voltages / acVoltage for the home flow
   const firstWithPhase = Object.values(powerMap).find((p) => p.phaseVoltages);
   const firstWithVolt  = Object.values(powerMap).find((p) => p.acVoltage != null);
-
-  // EnergyMap collapsible state: null = not yet initialised (show expanded during load)
-  const [energyMapExpanded, setEnergyMapExpanded] = useState(() => {
-    const saved = localStorage.getItem("marstek_energymap_expanded");
-    return saved !== null ? saved === "true" : null;
-  });
-
-  // Once devices load for the first time, set default based on count if no saved preference
-  useEffect(() => {
-    if (!loading && energyMapExpanded === null) {
-      const defaultExpanded = devices.length >= 2;
-      localStorage.setItem("marstek_energymap_expanded", String(defaultExpanded));
-      setEnergyMapExpanded(defaultExpanded);
-    }
-  }, [loading, devices.length, energyMapExpanded]);
 
   const toggleEnergyMap = () => {
     setEnergyMapExpanded((prev) => {
@@ -309,6 +291,11 @@ export default function App() {
   };
 
   const energyMapVisible = energyMapExpanded ?? true;
+
+  // ── Login screen (after ALL hooks) ──
+  if (authState === "login") {
+    return <LoginPage onLogin={handleLogin} />;
+  }
 
   return (
     <>
