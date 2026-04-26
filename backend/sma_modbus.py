@@ -331,6 +331,82 @@ def _make_client(host: str, port: int, use_udp: bool = False):
         return None
 
 
+def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
+    """
+    Read all registers in register_map using the fewest possible Modbus requests.
+
+    Registers are sorted by (fc, address) and grouped into batches when consecutive
+    registers of the same FC are within MAX_GAP words of each other. Each batch is
+    read in a single FC03/FC04 request; individual values are extracted by offset.
+
+    Returns {key: scaled_value_or_None} for every entry in register_map.
+    """
+    MAX_GAP = 4  # max gap in register words allowed inside a single batch request
+
+    def _word_count(dtype: str) -> int:
+        return 4 if dtype == "U64" else 2
+
+    # Sort by FC then by 0-based address so consecutive registers are adjacent
+    sorted_regs = sorted(register_map, key=lambda r: (r["fc"], r["reg"]))
+
+    # Build batches: list of [reg_conf, ...]
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    for reg_conf in sorted_regs:
+        if not current:
+            current = [reg_conf]
+            continue
+        prev = current[-1]
+        prev_end = (prev["reg"] - 1) + _word_count(prev.get("dtype", "U32"))
+        this_start = reg_conf["reg"] - 1
+        if reg_conf["fc"] == prev["fc"] and (this_start - prev_end) <= MAX_GAP:
+            current.append(reg_conf)
+        else:
+            batches.append(current)
+            current = [reg_conf]
+    if current:
+        batches.append(current)
+
+    results: dict = {}
+
+    for batch in batches:
+        fc = batch[0]["fc"]
+        first_addr = batch[0]["reg"] - 1
+        last_conf = batch[-1]
+        last_addr = last_conf["reg"] - 1
+        total_count = last_addr + _word_count(last_conf.get("dtype", "U32")) - first_addr
+
+        regs = _read_holding(client, first_addr, total_count, unit_id) if fc == 3 \
+               else _read_input(client, first_addr, total_count, unit_id)
+
+        for reg_conf in batch:
+            key = reg_conf["key"]
+            if regs is None:
+                results[key] = None
+                continue
+            offset = (reg_conf["reg"] - 1) - first_addr
+            dtype  = reg_conf.get("dtype", "U32")
+            if dtype == "U32":
+                raw = _to_u32(regs, offset)
+            elif dtype == "S32":
+                raw = _to_s32(regs, offset)
+            else:
+                raw = _to_u64(regs, offset)
+            if raw is None:
+                results[key] = None
+            else:
+                mult = float(reg_conf.get("mult", 1.0))
+                if mult < 1.0:
+                    results[key] = round(
+                        raw * mult,
+                        max(1, len(str(mult).rstrip("0").split(".")[-1])),
+                    )
+                else:
+                    results[key] = raw * mult if mult != 1.0 else raw
+
+    return results
+
+
 def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_map=None) -> dict:
     """
     Open a Modbus TCP (or UDP) connection to the SMA inverter, read all registers,
@@ -354,19 +430,12 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
 
     data: dict = {"online": True}
     try:
-        # Read all configured measurement registers — always write every key (None on failure)
-        # so the cache merge never retains stale values from a previous poll.
-        for reg_conf in register_map:
-            key = reg_conf["key"]
-            val = _poll_register(client, reg_conf, unit_id)
-            if val is not None:
-                mult = float(reg_conf.get("mult", 1.0))
-                if mult < 1.0:
-                    data[key] = round(val, max(1, len(str(mult).rstrip("0").split(".")[-1])))
-                else:
-                    data[key] = val
-            else:
-                data[key] = None
+        # Read all configured measurement registers in batches to minimise the number
+        # of Modbus round trips (and therefore the TCP session hold time, which matters
+        # when another client such as Loxone also polls the same inverter).
+        # Always write every key (None on failure) so the cache merge never retains
+        # stale values from a previous poll.
+        data.update(_batch_read_registers(client, register_map, unit_id))
 
         # Device status — always set (None if unreadable) so cache never shows a stale
         # status_code from a prior poll alongside a contradictory night_mode from this one.
