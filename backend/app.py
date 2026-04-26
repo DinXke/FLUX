@@ -4543,7 +4543,15 @@ def _influx_context():
     except Exception:
         pass
 
-    return {"devices": devices, "hw_data": hw_data, "ha_data": ha_data, "flow_cfg": flow_cfg, "plan_slots": plan_slots, "solar_forecast": solar_forecast}
+    # Load latest anomaly detection results
+    anomalies = {}
+    try:
+        from anomaly_detector import load_anomalies
+        anomalies = load_anomalies()
+    except Exception:
+        pass
+
+    return {"devices": devices, "hw_data": hw_data, "ha_data": ha_data, "flow_cfg": flow_cfg, "plan_slots": plan_slots, "solar_forecast": solar_forecast, "anomalies": anomalies}
 
 
 # ---------------------------------------------------------------------------

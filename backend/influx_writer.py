@@ -412,6 +412,58 @@ def _collect_and_write(app_context_fn):
     except Exception as exc:
         log.debug("InfluxDB solar forecast write skip: %s", exc)
 
+    # ── Anomaly alerts ──────────────────────────────────────────────────────
+    try:
+        anomalies = ctx.get("anomalies", {})
+        if anomalies:
+            from influxdb_client import Point  # type: ignore
+            from datetime import datetime as _dt
+            alert_count = 0
+
+            stale_sensors = anomalies.get("stale_sensors", {})
+            for sensor_name, last_update_ts in stale_sensors.items():
+                try:
+                    p = Point("anomaly_alert")
+                    p = p.tag("type", "stale_sensor")
+                    p = p.tag("sensor", sensor_name)
+                    p = p.field("description", f"No data for {stale_sensors[sensor_name]} seconds")
+                    p = p.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    alert_count += 1
+                except Exception as e:
+                    log.debug("Stale sensor alert write error: %s", e)
+
+            unusual_peaks = anomalies.get("unusual_peaks", {})
+            for sensor_name, peak_info in unusual_peaks.items():
+                try:
+                    p = Point("anomaly_alert")
+                    p = p.tag("type", "power_spike")
+                    p = p.tag("sensor", sensor_name)
+                    p = p.field("description", f"Unusual power spike detected")
+                    p = p.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    alert_count += 1
+                except Exception as e:
+                    log.debug("Peak alert write error: %s", e)
+
+            inverter_faults = anomalies.get("inverter_faults", {})
+            for inv_name, fault_info in inverter_faults.items():
+                try:
+                    p = Point("anomaly_alert")
+                    p = p.tag("type", "inverter_fault")
+                    p = p.tag("inverter", inv_name)
+                    p = p.field("description", fault_info.get("status", "Unknown fault"))
+                    p = p.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    alert_count += 1
+                except Exception as e:
+                    log.debug("Inverter fault alert write error: %s", e)
+
+            if alert_count > 0:
+                log.debug("InfluxDB anomaly alerts write OK  count=%d", alert_count)
+    except Exception as exc:
+        log.debug("InfluxDB anomaly alerts write skip: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # Background thread entry point
