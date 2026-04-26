@@ -2,16 +2,16 @@ import { apiFetch } from "../auth.js";
 import { useState, useEffect, useCallback } from "react";
 import { loadFlowCfg } from "./FlowSourcesSettings.jsx";
 
-// ── Color palette ─────────────────────────────────────────────────────────────
+// ── Palette ──────────────────────────────────────────────────────────────────
 const C = {
-  house:   "#00e5ff",
-  solar:   "#ffd600",
-  grid:    "#e040fb",
-  battery: "#00e676",
-  ev:      "#4488ff",
+  house:   "#22d3ee",
+  solar:   "#fbbf24",
+  grid:    "#c084fc",
+  battery: "#34d399",
+  ev:      "#60a5fa",
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Formatters ────────────────────────────────────────────────────────────────
 function fmt(w, sign = false) {
   if (w == null) return "—";
   const abs = Math.abs(w);
@@ -29,7 +29,7 @@ function flowSpeed(power) {
 }
 
 // ── Data resolution ───────────────────────────────────────────────────────────
-function resolveOne(sc, batteries, hwData, haData) {
+function resolveOne(sc, batteries, hwData, haData, influxLive) {
   if (sc.source === "esphome") {
     const b = batteries.find((x) => x.id === sc.device_id);
     const v = b?.[sc.sensor];
@@ -44,98 +44,126 @@ function resolveOne(sc, batteries, hwData, haData) {
     const e = haData?.[sc.sensor];
     return e?.value == null ? null : sc.invert ? -e.value : e.value;
   }
+  if (sc.source === "influx") {
+    const v = influxLive?.[sc.sensor];
+    return v == null ? null : sc.invert ? -v : v;
+  }
   return null;
 }
-function resolveSlot(key, cfg, batteries, hwData, haData) {
+
+function resolveSlot(key, cfg, batteries, hwData, haData, influxLive) {
   let sc = cfg?.[key];
   if (!sc) return null;
   if (!Array.isArray(sc)) sc = [sc];
   const isAvg = key === "bat_soc";
   let total = null, count = 0;
   for (const s of sc) {
-    const v = resolveOne(s, batteries, hwData, haData);
+    const v = resolveOne(s, batteries, hwData, haData, influxLive);
     if (v != null) { total = (total ?? 0) + v; count++; }
   }
   if (total == null) return null;
   return isAvg && count > 0 ? total / count : total;
 }
 
-// ── SOC progress ring ─────────────────────────────────────────────────────────
-function SocRing({ cx, cy, r, soc }) {
-  const innerR = r - 5;
-  const circ = 2 * Math.PI * innerR;
-  const filled = Math.max(0, Math.min(1, soc / 100)) * circ;
-  const color = soc < 20 ? "#ef4444" : soc < 50 ? "#f59e0b" : "#22c55e";
-  return (
-    <circle cx={cx} cy={cy} r={innerR} fill="none"
-      stroke={color} strokeWidth={4}
-      strokeDasharray={`${filled} ${circ - filled}`}
-      strokeLinecap="round" opacity={0.9}
-      transform={`rotate(-90 ${cx} ${cy})`} />
-  );
-}
+// ── Node card (rounded rectangle) ─────────────────────────────────────────────
+function NodeCard({ cx, cy, w, h, icon, label, power, color, active, soc, socColor, detail, detailColor }) {
+  const x = cx - w / 2, y = cy - h / 2;
+  const hasSoc = soc != null;
+  const powerFrac = hasSoc ? 0.37 : 0.44;
 
-// ── Circular flow node ────────────────────────────────────────────────────────
-function FlowNode({ cx, cy, r, icon, label, power, color, sublabel, sublabelColor, active, soc }) {
-  const bg  = color + "15";
-  const str = active ? color : color + "60";
   return (
     <g>
+      {/* Glow halo */}
       {active && (
-        <circle cx={cx} cy={cy} r={r + 5} fill="none" stroke={color}
-          strokeWidth={8} opacity={0.1} filter="url(#em2-glow)" />
+        <rect x={x - 4} y={y - 4} width={w + 8} height={h + 8} rx={16}
+          fill="none" stroke={color} strokeWidth={10}
+          opacity={0.12} filter="url(#em-glow)" />
       )}
-      <circle cx={cx} cy={cy} r={r} fill={bg} stroke={str}
-        strokeWidth={active ? 2.5 : 1.5} />
-      {soc != null && <SocRing cx={cx} cy={cy} r={r} soc={soc} />}
-      <text x={cx} y={cy - 10} textAnchor="middle" dominantBaseline="middle"
-        fontSize={r >= 60 ? 30 : 24} style={{ userSelect: "none" }}>{icon}</text>
-      <text x={cx} y={cy + 15} textAnchor="middle" dominantBaseline="middle"
-        fill={active ? color : "#64748b"} fontSize={15} fontWeight="700"
+      {/* Card background */}
+      <rect x={x} y={y} width={w} height={h} rx={13}
+        fill={active ? color + "12" : "#141e30"}
+        stroke={active ? color : "#283850"}
+        strokeWidth={active ? 2 : 1.2} />
+
+      {/* Icon */}
+      <text x={cx} y={y + h * 0.22} textAnchor="middle" dominantBaseline="middle"
+        fontSize={h >= 130 ? 26 : 22} style={{ userSelect: "none" }}>{icon}</text>
+
+      {/* Power — dominant */}
+      <text x={cx} y={y + h * powerFrac} textAnchor="middle" dominantBaseline="middle"
+        fill={active ? color : "#4a5568"}
+        fontSize={h >= 130 ? 22 : 19}
+        fontWeight="800"
         fontFamily="'Courier New',Courier,monospace">
         {fmt(power)}
       </text>
-      <text x={cx} y={cy + r + 16} textAnchor="middle" dominantBaseline="middle"
-        fill="#94a3b8" fontSize={10} letterSpacing="0.8"
-        fontFamily="Inter,system-ui,sans-serif">{label}</text>
-      {sublabel && (
-        <text x={cx} y={cy + r + 29} textAnchor="middle" dominantBaseline="middle"
-          fill={sublabelColor || "#64748b"} fontSize={10}
-          fontFamily="Inter,system-ui,sans-serif">{sublabel}</text>
+
+      {/* SOC bar (battery only) */}
+      {hasSoc && (() => {
+        const bw = w - 28, bh = 5;
+        const bx = x + 14, by = y + h * 0.54;
+        const filled = Math.max(0, Math.min(1, soc / 100)) * bw;
+        return (
+          <g>
+            <rect x={bx} y={by} width={bw} height={bh} rx={2.5}
+              fill="rgba(0,0,0,0.45)" />
+            <rect x={bx} y={by} width={filled} height={bh} rx={2.5}
+              fill={socColor} filter="url(#em-glow)" />
+            <text x={cx} y={y + h * 0.67} textAnchor="middle" dominantBaseline="middle"
+              fill={socColor} fontSize={11} fontWeight="700"
+              fontFamily="Inter,system-ui,sans-serif">{fmtPct(soc)}</text>
+          </g>
+        );
+      })()}
+
+      {/* Detail label */}
+      {detail && (
+        <text x={cx} y={y + h * 0.82} textAnchor="middle" dominantBaseline="middle"
+          fill={detailColor || "#536680"} fontSize={9.5}
+          fontFamily="Inter,system-ui,sans-serif">{detail}</text>
       )}
+
+      {/* Bottom label */}
+      <text x={cx} y={y + h * 0.93} textAnchor="middle" dominantBaseline="middle"
+        fill="#415167" fontSize={8.5} letterSpacing="1.5"
+        fontFamily="Inter,system-ui,sans-serif">{label}</text>
     </g>
   );
 }
 
-// ── Animated connection line with power pill ──────────────────────────────────
-function FlowLine({ x1, y1, x2, y2, color, active, reverse, power }) {
+// ── Animated connection line ───────────────────────────────────────────────────
+function ConnLine({ x1, y1, x2, y2, color, active, reverse, power }) {
   const dur = flowSpeed(power);
+  const horiz = Math.abs(x2 - x1) > Math.abs(y2 - y1);
   const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-  const isHoriz = Math.abs(x2 - x1) > Math.abs(y2 - y1);
-  const px = isHoriz ? mx        : mx + 36;
-  const py = isHoriz ? my - 16   : my;
+  const lx = horiz ? mx : mx + 46;
+  const ly = horiz ? my - 20 : my;
   const label = active && power != null ? fmt(Math.abs(power)) : null;
-  const tw = label ? Math.max(label.length * 7.5 + 16, 48) : 0;
+  const tw = label ? Math.max(label.length * 8.5 + 16, 52) : 0;
 
   return (
     <g>
+      {/* Track */}
       <line x1={x1} y1={y1} x2={x2} y2={y2}
-        stroke="rgba(100,116,139,0.18)" strokeWidth={4.5} strokeLinecap="round" />
+        stroke="rgba(40,56,80,0.8)" strokeWidth={6} strokeLinecap="round" />
+      {/* Animated dots */}
       {active && (
         <line x1={x1} y1={y1} x2={x2} y2={y2}
-          stroke={color} strokeWidth={4} strokeDasharray="10 8"
-          strokeLinecap="round" opacity={0.88} filter="url(#em2-glow)">
+          stroke={color} strokeWidth={3.5}
+          strokeDasharray="12 9" strokeLinecap="round"
+          opacity={0.88} filter="url(#em-glow)">
           <animate attributeName="stroke-dashoffset"
-            from={reverse ? "0" : "72"} to={reverse ? "72" : "0"}
+            from={reverse ? "0" : "84"} to={reverse ? "84" : "0"}
             dur={dur} repeatCount="indefinite" />
         </line>
       )}
+      {/* Power pill */}
       {label && (
         <g>
-          <rect x={px - tw / 2} y={py - 11} width={tw} height={22}
-            fill="var(--bg-card, #0f172a)" stroke={color} strokeWidth={1.2} rx={11} />
-          <text x={px} y={py} textAnchor="middle" dominantBaseline="middle"
-            fill={color} fontSize={11} fontWeight="700"
+          <rect x={lx - tw / 2} y={ly - 11} width={tw} height={22}
+            fill="#0d1525" stroke={color} strokeWidth={1.3} rx={11} />
+          <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
+            fill={color} fontSize={11.5} fontWeight="700"
             fontFamily="'Courier New',Courier,monospace">{label}</text>
         </g>
       )}
@@ -145,9 +173,10 @@ function FlowLine({ x1, y1, x2, y2, color, active, reverse, power }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) {
-  const [hwData, setHwData] = useState(null);
-  const [haData, setHaData] = useState({});
-  const [cfg,    setCfg]    = useState(() => loadFlowCfg());
+  const [hwData,     setHwData]     = useState(null);
+  const [haData,     setHaData]     = useState({});
+  const [influxLive, setInfluxLive] = useState({});
+  const [cfg,        setCfg]        = useState(() => loadFlowCfg());
 
   useEffect(() => {
     const refresh = () => setCfg(loadFlowCfg());
@@ -181,11 +210,20 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
     } catch {}
   }, []);
 
+  const pollInflux = useCallback(async (currentCfg) => {
+    const hasInflux = Object.values(currentCfg).flat().some((sc) => sc?.source === "influx");
+    if (!hasInflux) return;
+    try {
+      const r = await apiFetch("api/influx/live-slots");
+      if (r.ok) setInfluxLive(await r.json());
+    } catch {}
+  }, []);
+
   useEffect(() => {
-    pollHw(); pollHa(cfg);
-    const id = setInterval(() => { pollHw(); pollHa(cfg); }, 10000);
+    pollHw(); pollHa(cfg); pollInflux(cfg);
+    const id = setInterval(() => { pollHw(); pollHa(cfg); pollInflux(cfg); }, 10000);
     return () => clearInterval(id);
-  }, [pollHw, pollHa, cfg]);
+  }, [pollHw, pollHa, pollInflux, cfg]);
 
   // ── ESPHome aggregates ─────────────────────────────────────────────────────
   let totalAc = null, totalBat = null;
@@ -198,25 +236,29 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
     ? socsWithData.reduce((a, v) => a + v, 0) / socsWithData.length : null;
 
   // ── Slot resolution ────────────────────────────────────────────────────────
-  const solarPower  = resolveSlot("solar_power", cfg, batteries, hwData, haData);
-  const netPowerRaw = resolveSlot("net_power",   cfg, batteries, hwData, haData);
-  const batPowerRaw = resolveSlot("bat_power",   cfg, batteries, hwData, haData);
-  const batSoc      = resolveSlot("bat_soc",     cfg, batteries, hwData, haData) ?? avgSoc;
-  const evPower     = resolveSlot("ev_power",    cfg, batteries, hwData, haData);
+  const solarPower  = resolveSlot("solar_power", cfg, batteries, hwData, haData, influxLive);
+  const netPowerRaw = resolveSlot("net_power",   cfg, batteries, hwData, haData, influxLive);
+  const batPowerRaw = resolveSlot("bat_power",   cfg, batteries, hwData, haData, influxLive);
+  const batSoc      = resolveSlot("bat_soc",     cfg, batteries, hwData, haData, influxLive) ?? avgSoc;
+  const evPower     = resolveSlot("ev_power",    cfg, batteries, hwData, haData, influxLive);
+  const v1 = resolveSlot("voltage_l1", cfg, batteries, hwData, haData, influxLive);
+  const v2 = resolveSlot("voltage_l2", cfg, batteries, hwData, haData, influxLive);
+  const v3 = resolveSlot("voltage_l3", cfg, batteries, hwData, haData, influxLive);
 
+  // ── Sign convention ────────────────────────────────────────────────────────
   // netDisplayPower: positive = export to grid
   const netDisplayPower = netPowerRaw != null ? -netPowerRaw : totalAc;
+  // batDisplayPower: positive = discharging
   const batDisplayPower = batPowerRaw ?? totalBat;
   const housePower = (netDisplayPower != null || batDisplayPower != null || solarPower != null)
-    ? (batDisplayPower ?? 0) - (netDisplayPower ?? 0)
-      + (solarPower ?? 0) - (evPower ?? 0)
+    ? (batDisplayPower ?? 0) - (netDisplayPower ?? 0) + (solarPower ?? 0) - (evPower ?? 0)
     : null;
 
   const showSolar = !!(Array.isArray(cfg.solar_power) ? cfg.solar_power.length > 0 : cfg.solar_power)
     || solarPower != null;
-  const showEv    = Array.isArray(cfg.ev_power) ? cfg.ev_power.length > 0 : !!cfg.ev_power;
+  const showEv = Array.isArray(cfg.ev_power) ? cfg.ev_power.length > 0 : !!cfg.ev_power;
 
-  // ── Flow state ─────────────────────────────────────────────────────────────
+  // ── Flow states ────────────────────────────────────────────────────────────
   const netActive   = netDisplayPower != null && Math.abs(netDisplayPower) > 5;
   const netToGrid   = (netDisplayPower ?? 0) > 0;
   const netColor    = netActive ? (netToGrid ? "#22c55e" : "#ef4444") : "#334155";
@@ -231,97 +273,116 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
   const socColor    = batSoc == null ? "#475569"
     : batSoc < 20 ? "#ef4444" : batSoc < 50 ? "#f59e0b" : "#22c55e";
 
-  const phaseStr = phaseVoltages
+  // ── Phase voltages ─────────────────────────────────────────────────────────
+  const ePV = (v1 != null || v2 != null || v3 != null)
+    ? { L1: v1 ?? phaseVoltages?.L1, L2: v2 ?? phaseVoltages?.L2, L3: v3 ?? phaseVoltages?.L3 }
+    : phaseVoltages;
+  const phaseStr = ePV
     ? [
-        phaseVoltages.L1 != null ? `L1:${phaseVoltages.L1.toFixed(0)}V` : null,
-        phaseVoltages.L2 != null ? `L2:${phaseVoltages.L2.toFixed(0)}V` : null,
-        phaseVoltages.L3 != null ? `L3:${phaseVoltages.L3.toFixed(0)}V` : null,
+        ePV.L1 != null ? `L1:${ePV.L1.toFixed(0)}V` : null,
+        ePV.L2 != null ? `L2:${ePV.L2.toFixed(0)}V` : null,
+        ePV.L3 != null ? `L3:${ePV.L3.toFixed(0)}V` : null,
       ].filter(Boolean).join("  ")
     : acVoltage != null ? `${acVoltage.toFixed(1)} V` : null;
 
   // ── Layout ─────────────────────────────────────────────────────────────────
-  const W = 600, H = 460;
-  const rHub = 64, rMid = 52, rSol = 50, rEv = 46;
+  const W = 860;
+  const H = showEv ? 520 : 440;
+  const hubCY = showEv ? 250 : 230;
 
-  const HUB  = { cx: 300, cy: 240 };
-  const GRID = { cx: 76,  cy: 240 };
-  const BAT  = { cx: 524, cy: 240 };
-  const SOL  = { cx: 300, cy: 66  };
-  const EV   = { cx: 300, cy: 410 };
+  const cHUB  = { cx: 430, cy: hubCY };
+  const cGRID = { cx: 95,  cy: hubCY };
+  const cBAT  = { cx: 765, cy: hubCY };
+  const cSOL  = { cx: 430, cy: 68 };
+  const cEV   = { cx: 430, cy: showEv ? H - 68 : 0 };
 
-  const netLine = { x1: GRID.cx + rMid, y1: GRID.cy, x2: HUB.cx - rHub, y2: HUB.cy };
-  const batLine = { x1: HUB.cx + rHub,  y1: HUB.cy,  x2: BAT.cx - rMid, y2: BAT.cy };
-  const solLine = { x1: SOL.cx, y1: SOL.cy + rSol, x2: HUB.cx, y2: HUB.cy - rHub };
-  const evLine  = { x1: HUB.cx, y1: HUB.cy + rHub, x2: EV.cx,  y2: EV.cy  - rEv  };
+  const wHub = 168, hHub = 136;
+  const wSat = 150, hSat = 124;
+  const wSol = 148, hSol = 114;
+  const wEv  = 142, hEv  = 114;
+
+  // Connection endpoints (node edge → node edge)
+  const gridLine = {
+    x1: cGRID.cx + wSat / 2, y1: cGRID.cy,
+    x2: cHUB.cx  - wHub / 2, y2: cHUB.cy,
+  };
+  const batLine = {
+    x1: cHUB.cx  + wHub / 2, y1: cHUB.cy,
+    x2: cBAT.cx  - wSat / 2, y2: cBAT.cy,
+  };
+  const solLine = {
+    x1: cSOL.cx, y1: cSOL.cy + hSol / 2,
+    x2: cHUB.cx, y2: cHUB.cy - hHub / 2,
+  };
+  const evLine = {
+    x1: cHUB.cx, y1: cHUB.cy + hHub / 2,
+    x2: cEV.cx,  y2: cEV.cy  - hEv  / 2,
+  };
 
   return (
     <div className="energy-map-wrap">
       <svg viewBox={`0 0 ${W} ${H}`} className="energy-map-svg"
         aria-label="Energie stroomoverzicht">
         <defs>
-          <filter id="em2-glow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="4.5" result="blur" />
+          <filter id="em-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-          <radialGradient id="em2-bg" cx="50%" cy="50%" r="70%">
-            <stop offset="0%"   stopColor="rgba(15,23,42,0)"   />
-            <stop offset="100%" stopColor="rgba(15,23,42,0.5)" />
+          <radialGradient id="em-bg" cx="50%" cy="50%" r="65%">
+            <stop offset="0%"   stopColor="rgba(20,30,48,0)" />
+            <stop offset="100%" stopColor="rgba(8,12,24,0.6)" />
           </radialGradient>
         </defs>
 
-        <rect width={W} height={H} fill="var(--bg-card, #0f172a)" rx={12} />
-        <rect width={W} height={H} fill="url(#em2-bg)" rx={12} />
+        <rect width={W} height={H} fill="#0d1525" rx={14} />
+        <rect width={W} height={H} fill="url(#em-bg)" rx={14} />
 
-        {/* ── Connections (behind nodes) ── */}
-        <FlowLine {...netLine} color={netColor} active={netActive}
+        {/* Connections (behind nodes) */}
+        <ConnLine {...gridLine} color={netColor} active={netActive}
           reverse={netToGrid} power={netDisplayPower} />
-
-        <FlowLine {...batLine} color={batColor} active={batActive}
+        <ConnLine {...batLine} color={batColor} active={batActive}
           reverse={batDisch} power={batDisplayPower} />
-
         {showSolar && (
-          <FlowLine {...solLine} color={C.solar} active={solarActive}
+          <ConnLine {...solLine} color={C.solar} active={solarActive}
             reverse={false} power={solarPower} />
         )}
-
         {showEv && (
-          <FlowLine {...evLine} color={C.ev} active={evActive}
+          <ConnLine {...evLine} color={C.ev} active={evActive}
             reverse={false} power={evPower} />
         )}
 
-        {/* ── Nodes ── */}
-
+        {/* Nodes */}
         {showSolar && (
-          <FlowNode cx={SOL.cx} cy={SOL.cy} r={rSol}
+          <NodeCard cx={cSOL.cx} cy={cSOL.cy} w={wSol} h={hSol}
             icon="☀️" label="SOLAR"
             power={solarPower} color={C.solar} active={solarActive} />
         )}
 
-        <FlowNode cx={GRID.cx} cy={GRID.cy} r={rMid}
+        <NodeCard cx={cGRID.cx} cy={cGRID.cy} w={wSat} h={hSat}
           icon="⚡" label="NET"
           power={netPowerRaw ?? (netDisplayPower != null ? -netDisplayPower : null)}
           color={C.grid} active={netActive}
-          sublabel={netActive ? (netToGrid ? "↑ teruglevering" : "↓ afname") : null}
-          sublabelColor={netColor} />
+          detail={netActive ? (netToGrid ? "↑ teruglevering" : "↓ afname") : null}
+          detailColor={netColor} />
 
-        <FlowNode cx={HUB.cx} cy={HUB.cy} r={rHub}
+        <NodeCard cx={cHUB.cx} cy={cHUB.cy} w={wHub} h={hHub}
           icon="🏠" label="WONING"
           power={housePower} color={C.house}
           active={housePower != null && housePower > 10}
-          sublabel={phaseStr} sublabelColor="#64748b" />
+          detail={phaseStr} detailColor="#536680" />
 
-        <FlowNode cx={BAT.cx} cy={BAT.cy} r={rMid}
+        <NodeCard cx={cBAT.cx} cy={cBAT.cy} w={wSat} h={hSat}
           icon="🔋" label="BATTERIJ"
           power={batDisplayPower} color={C.battery} active={batActive}
-          soc={batSoc}
-          sublabel={batSoc != null ? fmtPct(batSoc) : null}
-          sublabelColor={socColor} />
+          soc={batSoc} socColor={socColor}
+          detail={batActive ? (batDisch ? "↑ ontladen" : "↓ laden") : null}
+          detailColor={batColor} />
 
         {showEv && (
-          <FlowNode cx={EV.cx} cy={EV.cy} r={rEv}
+          <NodeCard cx={cEV.cx} cy={cEV.cy} w={wEv} h={hEv}
             icon="🚗" label="EV LADER"
             power={evPower} color={C.ev} active={evActive} />
         )}
