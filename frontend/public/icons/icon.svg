@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#1e3a5f"/>
+  <!-- Battery body -->
+  <rect x="72" y="168" width="336" height="192" rx="24" fill="none" stroke="#4ade80" stroke-width="22"/>
+  <!-- Battery terminal -->
+  <rect x="408" y="210" width="44" height="108" rx="10" fill="#4ade80"/>
+  <!-- Battery fill -->
+  <rect x="93" y="189" width="192" height="150" rx="12" fill="#4ade80" opacity="0.25"/>
+  <rect x="93" y="189" width="100" height="150" rx="12" fill="#4ade80"/>
+  <!-- Lightning bolt -->
+  <path d="M286 164 L232 274 H272 L238 368 L342 240 H298 L330 164 Z" fill="#fbbf24"/>
+</svg>
