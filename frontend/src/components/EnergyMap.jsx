@@ -119,13 +119,13 @@ function NodeCard({ cx, cy, w, h, icon, label, power, color, active, soc, socCol
       {/* Detail label */}
       {detail && (
         <text x={cx} y={y + h * 0.82} textAnchor="middle" dominantBaseline="middle"
-          fill={detailColor || "#536680"} fontSize={9.5}
+          fill={detailColor || "#536680"} fontSize={10}
           fontFamily="Inter,system-ui,sans-serif">{detail}</text>
       )}
 
       {/* Bottom label */}
       <text x={cx} y={y + h * 0.93} textAnchor="middle" dominantBaseline="middle"
-        fill="#415167" fontSize={8.5} letterSpacing="1.5"
+        fill="#415167" fontSize={10} letterSpacing="1.5"
         fontFamily="Inter,system-ui,sans-serif">{label}</text>
     </g>
   );
