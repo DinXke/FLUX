@@ -1,8 +1,8 @@
 import { apiFetch } from "../auth.js";
 /**
- * ForecastPage – Zonneopbrengst voorspelling via forecast.solar
- * Toont vandaag en morgen als staafdiagram (15-minuten intervallen).
- * Navigeer terug voor historische werkelijke opbrengst.
+ * ForecastPage – Zonneopbrengst voorspelling via forecast.solar + consumptie via Prophet ML
+ * Toont vandaag en morgen als staafdiagram (15-minuten intervallen voor generatie).
+ * Consumptie forecast is uurlijks met 95% betrouwbaarheidsbanden.
  */
 import { useState, useEffect, useCallback } from "react";
 import { loadFlowCfg } from "./FlowSourcesSettings.jsx";
@@ -109,6 +109,128 @@ function BarChart({ slots, color, unit, maxVal, actuals }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Consumption forecast panel ────────────────────────────────────────────────
+
+function ConsumptionForecastPanel({ prophetData }) {
+  if (!prophetData || !prophetData.data || prophetData.data.length === 0) {
+    return null;
+  }
+
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const tomorrowStr = new Date(now.getTime() + 24*3600*1000).toISOString().slice(0, 10);
+
+  // Split forecast by day
+  const todayForecast = prophetData.data.filter(d => d.timestamp.startsWith(todayStr));
+  const tomorrowForecast = prophetData.data.filter(d => d.timestamp.startsWith(tomorrowStr));
+  const otherDaysForecast = prophetData.data.filter(d => !d.timestamp.startsWith(todayStr) && !d.timestamp.startsWith(tomorrowStr));
+
+  const renderForecastDay = (title, dayData) => {
+    if (!dayData || dayData.length === 0) return null;
+
+    const totalKwh = dayData.reduce((s, d) => s + (d.forecast || 0), 0);
+    const avgKwh = totalKwh / dayData.length;
+    const maxKwh = Math.max(...dayData.map(d => d.upper || d.forecast || 0));
+
+    return (
+      <div className="forecast-day-panel" style={{ marginBottom: 12 }}>
+        <div className="forecast-day-header">
+          <span className="forecast-day-title">{title} (Consumptievoorspelling)</span>
+          <div className="forecast-day-stats">
+            <span className="forecast-stat">
+              <span className="forecast-stat-label">Verwacht totaal</span>
+              <span className="forecast-stat-value" style={{ color: "#f97316" }}>{fmtKwh(totalKwh * 1000)}</span>
+            </span>
+            <span className="forecast-stat">
+              <span className="forecast-stat-label">Gemiddelde/uur</span>
+              <span className="forecast-stat-value" style={{ color: "#f97316" }}>{fmtKwh(avgKwh * 1000)}</span>
+            </span>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6, display: "flex", gap: 16 }}>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, background: "rgba(249,115,22,0.85)", borderRadius: 2, marginRight: 4 }} />Voorspelling</span>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, background: "rgba(249,115,22,0.25)", borderRadius: 2, marginRight: 4 }} />95% CI</span>
+        </div>
+
+        <div className="forecast-chart-label">Energieverbruik per uur (kWh)</div>
+        <div className="forecast-chart" style={{ height: 120 }}>
+          {dayData.map((d, i) => {
+            const h = d.timestamp.slice(11, 16);
+            const pct = Math.round((d.forecast / maxKwh) * 100);
+            const upperPct = Math.round(((d.upper || d.forecast) / maxKwh) * 100);
+            const lowerPct = Math.round(((d.lower || 0) / maxKwh) * 100);
+            const showLabel = i % 4 === 0 || i === dayData.length - 1;
+
+            return (
+              <div key={`${d.timestamp}`} className="forecast-bar-col"
+                title={`${h}  ${fmtKwh(d.forecast * 1000)}  (95% CI: ${fmtKwh(d.lower * 1000)} - ${fmtKwh(d.upper * 1000)})`}>
+                <div className="forecast-bar-track" style={{ position: "relative" }}>
+                  {/* 95% CI band */}
+                  <div style={{
+                    position: "absolute", bottom: 0, left: "10%", right: "10%",
+                    height: `${upperPct}%`,
+                    background: "rgba(249,115,22,0.15)",
+                    pointerEvents: "none",
+                  }} />
+                  {/* Forecast bar */}
+                  <div
+                    className="forecast-bar-fill"
+                    style={{
+                      height: `${pct}%`,
+                      background: "rgba(249,115,22,0.85)",
+                      boxShadow: "0 0 6px rgba(249,115,22,0.5)",
+                    }}
+                  />
+                </div>
+                {showLabel && (
+                  <div className="forecast-bar-label">{h}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+      <div style={{ marginBottom: 16 }}>
+        <div className="forecast-title" style={{ fontSize: 16, marginBottom: 4 }}>💡 Consumptievoorspelling</div>
+        <div className="forecast-subtitle" style={{ fontSize: 12 }}>
+          7-daags uurlijks verbruik gebaseerd op ML-model (Prophet)
+          {prophetData.trained_on_days && <span style={{ marginLeft: 8 }}>· getraind op {Math.round(prophetData.trained_on_days)}d</span>}
+        </div>
+      </div>
+
+      {renderForecastDay("Vandaag", todayForecast)}
+      {renderForecastDay("Morgen", tomorrowForecast)}
+
+      {otherDaysForecast.length > 0 && (
+        <details style={{ marginTop: 12 }}>
+          <summary style={{ cursor: "pointer", color: "var(--text-muted)", fontSize: 12, padding: 8 }}>
+            Volgende dagen ({otherDaysForecast.length / 24 | 0} dagen)
+          </summary>
+          <div style={{ marginTop: 8 }}>
+            {(() => {
+              const byDay = {};
+              otherDaysForecast.forEach(d => {
+                const day = d.timestamp.slice(0, 10);
+                if (!byDay[day]) byDay[day] = [];
+                byDay[day].push(d);
+              });
+              return Object.entries(byDay).map(([day, dayData]) =>
+                renderForecastDay(day, dayData)
+              );
+            })()}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -260,6 +382,10 @@ export default function ForecastPage() {
   const [histDate,    setHistDate]    = useState(null);
   const [histWatts,   setHistWatts]   = useState(null);
   const [histLoading, setHistLoading] = useState(false);
+  // Prophet consumption forecast
+  const [prophetData, setProphetData] = useState(null);
+  const [prophetLoading, setProphetLoading] = useState(false);
+  const [prophetError, setProphetError] = useState(null);
 
   const todayStr    = today();
   const tomorrowStr = tomorrow();
@@ -295,6 +421,33 @@ export default function ForecastPage() {
     finally { setHistLoading(false); }
   }, []);
 
+  const loadProphet = useCallback(async () => {
+    setProphetLoading(true);
+    setProphetError(null);
+    try {
+      const r = await apiFetch("api/forecast/prophet");
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setProphetError(d.error || `HTTP ${r.status}`);
+        setProphetData(null);
+      } else {
+        const d = await r.json();
+        if (d.status === "success") {
+          setProphetData(d);
+          setProphetError(null);
+        } else {
+          setProphetError(d.error || d.message || "Prophet forecast unavailable");
+          setProphetData(null);
+        }
+      }
+    } catch (e) {
+      setProphetError(e.message);
+      setProphetData(null);
+    } finally {
+      setProphetLoading(false);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
@@ -310,7 +463,10 @@ export default function ForecastPage() {
     finally     { setLoading(false); }
   }, [loadActuals, todayStr]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    loadProphet();
+  }, [load, loadProphet]);
 
   const goBack = () => {
     const base = histDate ?? todayStr;
@@ -427,6 +583,22 @@ export default function ForecastPage() {
             whDay={data.watt_hours_day}
             isToday={false}
           />
+
+          {/* Prophet consumption forecast */}
+          {prophetLoading && (
+            <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--border)", fontSize: 12, color: "var(--text-muted)", padding: "16px 0", textAlign: "center" }}>
+              Consumptievoorspelling ophalen…
+            </div>
+          )}
+          {prophetError && (
+            <div style={{ marginTop: 24, fontSize: 11, color: "var(--text-muted)", padding: "8px 12px",
+              background: "rgba(249,115,22,0.08)", borderRadius: 6, border: "1px solid rgba(249,115,22,0.2)" }}>
+              ℹ Consumptievoorspelling: {prophetError}
+            </div>
+          )}
+          {prophetData && !prophetError && (
+            <ConsumptionForecastPanel prophetData={prophetData} />
+          )}
         </>
       )}
     </div>
