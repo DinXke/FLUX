@@ -31,6 +31,48 @@ if not client.connect():
 
 print(f"Verbonden met {HOST}:{PORT}  unit_id={UNIT}\n")
 
+# ─── Unit ID scan: probeer status + pac_w op alle gangbare unit IDs ───────────
+print("══ UNIT-ID SCAN (welk unit_id geeft meetwaarden?) ═══════════════════════")
+for uid in (1, 2, 3, 4, 126, 255):
+    regs3 = None
+    try:
+        r = client.read_holding_registers(address=30200, count=2, device_id=uid)
+        if not (hasattr(r, "isError") and r.isError()): regs3 = r.registers
+    except Exception: pass
+
+    pac3 = None
+    try:
+        r = client.read_holding_registers(address=30774, count=2, device_id=uid)
+        if not (hasattr(r, "isError") and r.isError()):
+            v = (r.registers[0] << 16) | r.registers[1]
+            if v != 0x80000000: pac3 = struct.unpack(">i", struct.pack(">I", v))[0]
+    except Exception: pass
+
+    pac4 = None
+    try:
+        r = client.read_input_registers(address=30774, count=2, device_id=uid)
+        if not (hasattr(r, "isError") and r.isError()):
+            v = (r.registers[0] << 16) | r.registers[1]
+            if v != 0x80000000: pac4 = struct.unpack(">i", struct.pack(">I", v))[0]
+    except Exception: pass
+
+    status_raw = None
+    if regs3:
+        v = (regs3[0] << 16) | regs3[1]
+        status_raw = v if v != 0xFFFFFFFF else None
+
+    ok = status_raw is not None or pac3 is not None or pac4 is not None
+    flag = " ← WERKT" if ok else ""
+    print(f"  uid={uid:3d}  status={status_raw!s:>6}  pac_w FC03={pac3!s:>8}  pac_w FC04={pac4!s:>8}{flag}")
+
+client.close()
+print()
+
+# Herverbinden met geconfigureerde unit_id voor de rest van de tests
+client = ModbusTcpClient(host=HOST, port=PORT, timeout=TIMEOUT)
+if not client.connect():
+    print("Herverbinding mislukt"); sys.exit(1)
+
 def _r(fc: int, addr: int, count: int = 2) -> Optional[list]:
     fn = client.read_holding_registers if fc == 3 else client.read_input_registers
     try:
