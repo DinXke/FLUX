@@ -146,8 +146,7 @@ def _poll_esphome(devices: dict) -> dict:
                     f"http://{ip}:{port}/events",
                     stream=True,
                     timeout=(10, 15),  # 10s connect (high-latency WiFi), 15s read
-                    headers={"Accept": "text/event-stream", "Cache-Control": "no-cache",
-                             "Connection": "close"},
+                    headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
                 ) as resp:
                     resp.raise_for_status()
                     current_event = None
