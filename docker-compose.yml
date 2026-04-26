@@ -74,8 +74,8 @@ services:
       GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
-      # Zet GRAFANA_EXTERNAL_URL in .env als Grafana via cloudflared/eigen domein bereikbaar is.
-      # Zonder die var valt Grafana terug op de /grafana/ subpath via nginx.
+      # Zet GRAFANA_EXTERNAL_URL in .env met trailing slash, bv: https://10.10.30.112/grafana/
+      # Zonder die var gebruikt Grafana hostname detectie (werkt alleen lokaal).
       GF_SERVER_ROOT_URL: "${GRAFANA_EXTERNAL_URL:-%(protocol)s://%(domain)s/grafana/}"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_INSTALL_PLUGINS:
