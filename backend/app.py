@@ -4408,14 +4408,16 @@ def get_grafana_url():
     """Return the Grafana base URL for iframe embedding.
 
     Resolves in order:
-      1. GRAFANA_EXTERNAL_URL env var (explicit override)
-      2. Same hostname as the request, port 3000 (default Docker Compose setup)
+      1. GRAFANA_EXTERNAL_URL env var (explicit override, e.g. cloudflared)
+      2. /grafana subpath via nginx (same origin — avoids mixed-content on HTTPS)
     """
     explicit = os.environ.get("GRAFANA_EXTERNAL_URL", "").strip()
     if explicit:
         return jsonify({"url": explicit.rstrip("/")})
-    hostname = request.host.split(":")[0]
-    return jsonify({"url": f"http://{hostname}:3000"})
+    # Use nginx subpath so protocol/host always match the parent page.
+    # Direct port-3000 URLs break on HTTPS (mixed content) and require open firewall.
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    return jsonify({"url": f"{scheme}://{request.host}/grafana"})
 
 
 # ---------------------------------------------------------------------------
