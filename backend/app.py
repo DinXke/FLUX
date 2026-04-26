@@ -21,7 +21,12 @@ from strategy import (load_strategy_settings, save_strategy_settings,
                       build_plan, split_days, read_soc_cache)
 from telegram import notify_event as _tg_notify, resolve_approval, get_pending_approvals
 from anomaly_detector import run_anomaly_detection, get_anomaly_summary
-from prophet_forecast import get_prophet_forecast
+try:
+    from prophet_forecast import get_prophet_forecast
+    _PROPHET_AVAILABLE = True
+except ImportError:
+    _PROPHET_AVAILABLE = False
+    get_prophet_forecast = None
 from config import get_config
 from auth import init_auth, get_auth_manager, require_auth, require_admin, get_current_user
 import daikin_onecta
@@ -3755,6 +3760,8 @@ def get_forecast_prophet():
         ]
       }
     """
+    if not _PROPHET_AVAILABLE:
+        return jsonify({"status": "error", "error": "prophet not installed (Phase 3 feature)"}), 503
     use_cache = request.args.get("refresh", "0") != "1"
     forecast = get_prophet_forecast(use_cache=use_cache)
     return jsonify(forecast)
