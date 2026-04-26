@@ -5593,6 +5593,7 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
     unit_id  = int(s.get("pv_limiter_modbus_unit_id", 3))
     reg_raw  = int(s.get("pv_limiter_modbus_register", 42062))
     val_mode = (s.get("pv_limiter_modbus_value_mode") or "W").upper()
+    dtype    = (s.get("pv_limiter_modbus_dtype") or "U32").upper()
     max_w    = int(s.get("pv_limiter_max_w", 4000))
 
     if not host:
@@ -5615,12 +5616,18 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
             log.warning("Modbus PV-limiter: kan niet verbinden met %s:%d", host, port)
             return False
         try:
-            result = client.write_registers(address=addr, values=[value], device_id=unit_id)
+            # U32: write as 2 registers [high_word, low_word] via FC16
+            # U16: write as 1 register [value & 0xFFFF] via FC16
+            if dtype == "U32":
+                words = [value >> 16, value & 0xFFFF]
+            else:
+                words = [value & 0xFFFF]
+            result = client.write_registers(address=addr, values=words, device_id=unit_id)
             if hasattr(result, "isError") and result.isError():
                 log.warning("Modbus PV-limiter: write_registers fout: %s", result)
                 return False
-            log.debug("Modbus PV-limiter: %dW → %s:%d reg %d (addr=%d) unit=%d val=%d",
-                      target_w, host, port, reg_raw, addr, unit_id, value)
+            log.debug("Modbus PV-limiter: %dW → %s:%d reg %d (addr=%d) unit=%d dtype=%s words=%s",
+                      target_w, host, port, reg_raw, addr, unit_id, dtype, words)
             return True
         finally:
             client.close()

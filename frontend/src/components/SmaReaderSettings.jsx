@@ -486,8 +486,8 @@ function SmaScanner({ host }) {
                 className="btn btn-secondary"
                 style={{ fontSize: 11, padding: "2px 8px" }}
                 onClick={() => {
-                  const header = "Reg,FC,Raw waarde,Hex,Bekende naam";
-                  const rows = results.map(r => `${r.reg},FC0${r.fc},${r.raw},${r.hex},"${r.label || ""}"`);
+                  const header = "Reg,FC,Raw (16-bit),Hex,U32,S32,Bekende naam";
+                  const rows = results.map(r => `${r.reg},FC0${r.fc},${r.raw},${r.hex},${r.u32 ?? ""},${r.s32 ?? ""},"${r.label || ""}"`);
                   const csv = [header, ...rows].join("\n");
                   const blob = new Blob([csv], { type: "text/csv" });
                   const url = URL.createObjectURL(blob);
@@ -507,8 +507,10 @@ function SmaScanner({ host }) {
                   <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)" }}>
                     <th style={{ textAlign: "left", padding: "4px 8px" }}>Reg</th>
                     <th style={{ textAlign: "left", padding: "4px 8px" }}>FC</th>
-                    <th style={{ textAlign: "left", padding: "4px 8px" }}>Raw waarde</th>
+                    <th style={{ textAlign: "left", padding: "4px 8px" }}>Raw (16-bit)</th>
                     <th style={{ textAlign: "left", padding: "4px 8px" }}>Hex</th>
+                    <th style={{ textAlign: "right", padding: "4px 8px" }}>U32</th>
+                    <th style={{ textAlign: "right", padding: "4px 8px" }}>S32</th>
                     <th style={{ textAlign: "left", padding: "4px 8px" }}>Bekende naam</th>
                   </tr>
                 </thead>
@@ -519,6 +521,8 @@ function SmaScanner({ host }) {
                       <td style={{ padding: "3px 8px", color: "var(--text-muted)" }}>FC0{r.fc}</td>
                       <td style={{ padding: "3px 8px" }}>{r.raw}</td>
                       <td style={{ padding: "3px 8px", color: "var(--text-muted)" }}>{r.hex}</td>
+                      <td style={{ padding: "3px 8px", textAlign: "right", color: r.u32 != null ? "var(--text)" : "var(--text-muted)" }}>{r.u32 ?? "—"}</td>
+                      <td style={{ padding: "3px 8px", textAlign: "right", color: r.s32 != null ? (r.s32 < 0 ? "#f06" : "var(--text)") : "var(--text-muted)" }}>{r.s32 ?? "—"}</td>
                       <td style={{ padding: "3px 8px", color: r.label ? "#ffd600" : "var(--text-muted)" }}>{r.label || "—"}</td>
                     </tr>
                   ))}
