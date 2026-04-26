@@ -31,6 +31,9 @@ _STATUS_LABELS: dict[int, str] = {
     1392: "Fout",
 }
 
+# Status codes that indicate the device is actively running (not standby/night)
+_RUNNING_STATUS_CODES: frozenset[int] = frozenset({307, 308, 455})
+
 _SMA_U32_NAN: int = 0xFFFF_FFFF
 _SMA_S32_NAN: int = 0x8000_0000
 _SMA_U64_NAN: int = 0x8000_0000_0000_0000
@@ -127,6 +130,24 @@ def _read_holding(client, address: int, count: int, unit_id: int) -> Optional[li
         return None
 
 
+def _read_status(client, unit_id: int) -> Optional[int]:
+    """
+    Read device status ENUM, trying both known register layouts.
+
+    Standard SB30-50-1AV-40: U32 at addr 30200 (reg 30201/30202).
+    Older/alternate models: U32 at addr 30201 (reg 30202=0, reg 30203=status_code).
+    Returns the raw status code integer or None.
+    """
+    for addr in (30200, 30201):
+        r = _read_holding(client, addr, 2, unit_id)
+        if r is not None:
+            code = _to_u32(r, 0)
+            if code is not None and code != 0:
+                log.debug("SMA status found at addr=%d  code=%d", addr, code)
+                return code
+    return None
+
+
 def poll_diagnostics(host: str, port: int, unit_id: int) -> dict:
     """
     Extended diagnostic poll: tries all key registers and returns raw values.
@@ -144,14 +165,17 @@ def poll_diagnostics(host: str, port: int, unit_id: int) -> dict:
     result: dict = {"online": True, "raw": {}, "unit_id": unit_id}
 
     # (key, 0-based addr, count, dtype, scale, fc)
-    # All from official SMA SB30-50-1AV-40 Modbus register map
+    # Primary: SMA SB30-50-1AV-40 Modbus register map
+    # Alt_*: fallback addresses found via scan on older/alternate models
     PROBES_FC03 = [
-        ("pac_w",        30774, 2, "S32",    1, 3),  # reg 30775 — Pac (W)
-        ("grid_v",       30782, 2, "U32",  100, 3),  # reg 30783 — Uac L1 (0.01V)
-        ("temp_c",       30952, 2, "S32",   10, 3),  # reg 30953 — Internal temp (0.1°C)
-        ("status_code",  30200, 2, "U32",    1, 3),  # reg 30201 — Device status (ENUM)
-        ("wmax_lim_w",   42061, 2, "U32",    1, 3),  # reg 42062 — WMaxLim (PV limiter)
-        ("wmax_lim_pct", 40235, 2, "U32",    1, 3),  # reg 40236 — WMaxLimPct
+        ("pac_w",           30774, 2, "S32",    1, 3),  # reg 30775 — Pac (W)
+        ("grid_v",          30782, 2, "U32",  100, 3),  # reg 30783 — Uac L1 (0.01V)
+        ("temp_c",          30952, 2, "S32",   10, 3),  # reg 30953 — Internal temp (0.1°C)
+        ("status_code",     30200, 2, "U32",    1, 3),  # reg 30201 — Device status (ENUM)
+        ("alt_status_code", 30201, 2, "U32",    1, 3),  # reg 30202/30203 — Alt status addr
+        ("alt_nominal_w",   30204, 2, "U32",    1, 3),  # reg 30205 — Nominal AC power (W)
+        ("wmax_lim_w",      42061, 2, "U32",    1, 3),  # reg 42062 — WMaxLim (PV limiter)
+        ("wmax_lim_pct",    40235, 2, "U32",    1, 3),  # reg 40236 — WMaxLimPct
     ]
     PROBES_FC04 = [
         ("e_total_wh",   30512, 4, "U64",    1, 4),  # reg 30513 — E-Total (Wh) U64
@@ -195,19 +219,39 @@ def poll_diagnostics(host: str, port: int, unit_id: int) -> dict:
         for key, addr, cnt, dtype, scale, fc in PROBES_FC04:
             _probe(key, addr, cnt, dtype, scale, fc)
 
+        # Prefer alt_status_code if primary status_code not found
+        if "status_code" not in result and "alt_status_code" in result:
+            result["status_code"] = result["alt_status_code"]
+        if "alt_status_code" in result:
+            del result["alt_status_code"]
+
         # Decode status code to label
         if "status_code" in result:
             result["status"] = _STATUS_LABELS.get(int(result["status_code"]), f"Code {result['status_code']}")
 
         # Night mode: connection OK but no measurement values returned
         # Covers both NaN returns and full READ ERROR situations (Modbus exceptions in standby)
-        if val_count == 0 and result.get("online"):
-            result["night_mode"] = True
-            result["night_mode_msg"] = (
-                "Omvormer bereikbaar maar alle meetregisters zijn niet beschikbaar. "
-                "Dit is normaal gedrag van SMA-omvormers in nacht/standby-modus. "
-                "Overdag worden hier live waarden getoond."
-            )
+        # Exception: if status indicates device is actively running, measurements are
+        # unavailable due to register map mismatch (device model differs from expected).
+        measurement_val_keys = {"pac_w", "e_total_wh", "e_day_wh", "grid_v",
+                                "freq_hz", "temp_c", "dc_power_w", "dc_voltage_v", "dc_current_a"}
+        has_measurements = any(k in result for k in measurement_val_keys)
+        status_running = result.get("status_code") in _RUNNING_STATUS_CODES
+        if not has_measurements and result.get("online"):
+            if status_running:
+                result["measurements_unavailable"] = True
+                result["measurements_unavailable_msg"] = (
+                    f"Omvormer actief ({result.get('status', '?')}) maar meetregisters "
+                    "reageren niet. Mogelijk een ander apparaattype dan SB30-50-1AV-40. "
+                    "Controleer het exacte SMA-model en het bijbehorende Modbus-registermap."
+                )
+            else:
+                result["night_mode"] = True
+                result["night_mode_msg"] = (
+                    "Omvormer bereikbaar maar alle meetregisters zijn niet beschikbaar. "
+                    "Dit is normaal gedrag van SMA-omvormers in nacht/standby-modus. "
+                    "Overdag worden hier live waarden getoond."
+                )
 
     finally:
         client.close()
@@ -295,20 +339,28 @@ def _poll(host: str, port: int, unit_id: int) -> dict:
         if r is not None:
             data["dc_power_w"] = _to_s32(r, 0)
 
-        # Device status — reg 30201, FC03, U32 (ENUM)
-        r = _read_holding(client, 30200, 2, unit_id)
-        if r is not None:
-            code = _to_u32(r, 0)
-            if code is not None:
-                data["status_code"] = code
-                data["status"] = _STATUS_LABELS.get(code, f"Code {code}")
+        # Device status — tries reg 30201 (addr 30200) and reg 30202/30203 (addr 30201)
+        code = _read_status(client, unit_id)
+        if code is not None:
+            data["status_code"] = code
+            data["status"] = _STATUS_LABELS.get(code, f"Code {code}")
 
         # Night/standby mode: TCP connected but all measurement registers return
-        # Modbus exceptions. This is normal SMA behavior during darkness/standby.
+        # Modbus exceptions. Normal SMA behavior during darkness/standby.
+        # Exception: if status says device is actively running, it's a register map
+        # mismatch — measurements are unavailable but device is not in night mode.
         measurement_keys = ("pac_w", "e_day_wh", "e_total_wh", "grid_v",
                             "freq_hz", "temp_c", "dc_power_w", "dc_voltage_v", "dc_current_a")
         has_values = any(data.get(k) is not None for k in measurement_keys)
-        data["night_mode"] = not has_values
+        status_running = data.get("status_code") in _RUNNING_STATUS_CODES
+        data["night_mode"] = not has_values and not status_running
+        if not has_values and status_running:
+            data["measurements_unavailable"] = True
+            log.warning(
+                "SMA status=%s maar meetregisters reageren niet — "
+                "controleer of het apparaattype overeenkomt met het registermap",
+                data.get("status"),
+            )
 
     finally:
         client.close()
@@ -431,6 +483,7 @@ def start_sma_reader(get_settings_fn, interval: int = 10) -> threading.Thread:
 
 # Well-known SMA register labels (1-based) — SB30-50-1AV-40 register map
 _KNOWN_REGS: dict[int, str] = {
+    # SMA SB30-50-1AV-40 register map (primary)
     30201: "Apparaatstatus (ENUM)",
     30233: "Foutcode (ENUM)",
     30513: "E-Total — totaalopbrengst (Wh, U64)",
@@ -450,6 +503,10 @@ _KNOWN_REGS: dict[int, str] = {
     40185: "Max schijnbaar vermogen (VA)",
     40236: "WMaxLimPct — vermogenslimiet (%)",
     42062: "WMaxLim — PV limiter absolute (W)",
+    # Alternate register addresses (older/different SMA models — discovered via scan)
+    30202: "Apparaatstatus hoog-word alt (ENUM, U32 hoog)",
+    30203: "Apparaatstatus alt (ENUM, U32 laag of U16)",
+    30205: "Nominaal AC-vermogen alt (W)",
 }
 
 # SMA register ranges worth scanning (start_addr_0based, count, fc)
