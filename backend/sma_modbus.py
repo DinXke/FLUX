@@ -616,12 +616,21 @@ def scan_registers(host: str, port: int, unit_id: int,
                             reg_1based = addr + i + 1
                             if raw in (0xFFFF, 0x8000, 0xFFFFFFFF, 0x80000000):
                                 continue  # NaN sentinel
+                            # Compute U32/S32 from this word + the next word in the block
+                            u32 = s32 = None
+                            if i + 1 < len(regs):
+                                combined = (raw << 16) | regs[i + 1]
+                                if combined not in (_SMA_U32_NAN, _SMA_S32_NAN):
+                                    u32 = combined
+                                    s32 = struct.unpack(">i", struct.pack(">I", combined))[0]
                             found.append({
                                 "reg":   reg_1based,
                                 "addr":  addr + i,
                                 "fc":    fc,
                                 "raw":   raw,
                                 "hex":   f"0x{raw:04X}",
+                                "u32":   u32,
+                                "s32":   s32,
                                 "label": _KNOWN_REGS.get(reg_1based, ""),
                             })
                 except Exception:

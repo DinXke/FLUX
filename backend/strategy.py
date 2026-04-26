@@ -91,6 +91,7 @@ DEFAULT_SETTINGS = {
     "pv_limiter_modbus_unit_id":     3,    # SMA default = 3
     "pv_limiter_modbus_register":    42062, # SMA Sunny Boy W-limiet: 42062 (1-based); WMaxLimPct (%): 40236
     "pv_limiter_modbus_value_mode":  "W",  # "W" = absolute watts, "pct" = 0–100 %
+    "pv_limiter_modbus_dtype":       "U32", # "U16" = FC16 1-register (16-bit), "U32" = FC16 2-registers (32-bit)
     # SMA Modbus reader — uitlezen van omvormerdata (Fase 1 SCH-737)
     "sma_reader_enabled":    False,
     "sma_reader_host":       "",    # IP-adres omvormer (kan zelfde zijn als pv_limiter_modbus_host)

@@ -96,11 +96,12 @@ export default function PvLimiterSettings() {
   const [paramVal,      setParamVal]      = useState("");
   const [svcEntity,     setSvcEntity]     = useState("");
   // Modbus TCP/IP mode
-  const [modbusHost,    setModbusHost]    = useState("");
-  const [modbusPort,    setModbusPort]    = useState(502);
-  const [modbusUnitId,  setModbusUnitId]  = useState(3);
-  const [modbusReg,     setModbusReg]     = useState(42062);
-  const [modbusValMode, setModbusValMode] = useState("W");
+  const [modbusHost,     setModbusHost]     = useState("");
+  const [modbusPort,     setModbusPort]     = useState(502);
+  const [modbusUnitId,   setModbusUnitId]   = useState(3);
+  const [modbusReg,      setModbusReg]      = useState(42062);
+  const [modbusValMode,  setModbusValMode]  = useState("W");
+  const [modbusDataType, setModbusDataType] = useState("U32");
   // Shared
   const [minW,            setMinW]            = useState(0);
   const [maxW,            setMaxW]            = useState(4000);
@@ -143,6 +144,7 @@ export default function PvLimiterSettings() {
         setModbusUnitId(d.pv_limiter_modbus_unit_id ?? 3);
         setModbusReg(d.pv_limiter_modbus_register ?? 42062);
         setModbusValMode(d.pv_limiter_modbus_value_mode ?? "W");
+        setModbusDataType(d.pv_limiter_modbus_dtype ?? "U32");
         setMinW(d.pv_limiter_min_w ?? 0);
         setMaxW(d.pv_limiter_max_w ?? 4000);
         setThresholdCt(d.pv_limiter_threshold_ct ?? 0);
@@ -199,6 +201,7 @@ export default function PvLimiterSettings() {
           pv_limiter_modbus_unit_id:    Number(modbusUnitId),
           pv_limiter_modbus_register:   Number(modbusReg),
           pv_limiter_modbus_value_mode: modbusValMode,
+          pv_limiter_modbus_dtype:      modbusDataType,
           pv_limiter_min_w:             Number(minW),
           pv_limiter_max_w:             Number(maxW),
           pv_limiter_threshold_ct:      Number(thresholdCt),
@@ -389,6 +392,30 @@ export default function PvLimiterSettings() {
 
           <div className="settings-row">
             <div>
+              <div className="settings-row-label">Data type</div>
+              <div className="settings-row-desc">
+                <strong>U32</strong>: schrijf als 32-bit unsigned integer (2 registers, FC16) — standaard voor SMA WMaxLim.<br />
+                <strong>U16</strong>: schrijf als 16-bit unsigned integer (1 register, FC16) — voor registers die een enkel 16-bit woord verwachten.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 4, background: "var(--bg)", borderRadius: 8,
+              padding: 3, border: "1px solid var(--border)" }}>
+              {["U32", "U16"].map((v) => (
+                <button key={v} type="button" onClick={() => setModbusDataType(v)}
+                  style={{
+                    padding: "4px 14px", borderRadius: 6, border: "none", fontSize: 12,
+                    fontWeight: 500, cursor: "pointer", transition: "all .15s",
+                    background: modbusDataType === v ? "var(--accent, #C17A3A)" : "transparent",
+                    color: modbusDataType === v ? "#fff" : "var(--text-muted)",
+                  }}>
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="settings-row">
+            <div>
               <div className="settings-row-label">Waarde-modus</div>
               <div className="settings-row-desc">
                 <strong>W</strong>: schrijf absolute watts (bijv. 2000).<br />
@@ -417,7 +444,8 @@ export default function PvLimiterSettings() {
             <div style={{ color: "#64748b", marginBottom: 2 }}>Modbus schrijf-opdracht:</div>
             <div>host: <span style={{ color: "#7dd3fc" }}>{modbusHost || "‹ip›"}</span>:{modbusPort}</div>
             <div>unit: <span style={{ color: "#fcd34d" }}>{modbusUnitId}</span></div>
-            <div>register: <span style={{ color: "#fcd34d" }}>{modbusReg}</span> (addr {Math.max(0, Number(modbusReg) - 40001)})</div>
+            <div>register: <span style={{ color: "#fcd34d" }}>{modbusReg}</span> (addr {Math.max(0, Number(modbusReg) - 1)})</div>
+            <div>dtype: <span style={{ color: "#c4b5fd" }}>{modbusDataType}</span>{modbusDataType === "U32" ? " → [high_word, low_word]" : " → [value & 0xFFFF]"}</div>
             <div>value: <span style={{ color: "#86efac" }}>
               {modbusValMode === "pct"
                 ? `‹target_W / ${maxW}W × 100›`
