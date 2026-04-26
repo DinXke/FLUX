@@ -231,6 +231,9 @@ def auth_logout():
 def auth_me():
     """Get current authenticated user."""
     user = get_current_user()
+    if not user:
+        return jsonify({"error": "Not authenticated"}), 401
+
     manager = get_auth_manager()
     full_user = manager.get_user(user["user_id"])
 
