@@ -1,6 +1,6 @@
-# SmartMarstek — Agent protocol
+# FLUX — Agent protocol
 
-Dit is een Home Assistant add-on. De add-on versie komt uit `config.yaml` (`version:`), niet uit de git tag. De HA Supervisor vergelijkt die string met de geïnstalleerde versie. Een tag zonder `config.yaml`-bump is een dode release.
+FLUX is een standalone energiestuurapplicatie (Docker). De versie staat in `config.yaml` (`version:`). SmartMarstek is de parallelle HA addon variant — blijf daar af.
 
 ## Release protocol (verplicht bij elke user-visible change)
 
