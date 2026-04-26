@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# SmartMarstek Standalone Docker Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/DinXke/FLUX/main/install.sh | bash
+# FLUX Standalone Docker Installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/DinXke/FLUX/main/install.sh | sudo bash
 #
 
 set -euo pipefail
@@ -22,6 +22,14 @@ log_err()   { echo -e "${RED}[✗]${RESET} $*" >&2; }
 log_title() { echo -e "\n${BOLD}${CYAN}$*${RESET}"; }
 
 # ─────────────────────────────────────────────────────────────────────────
+# Require root (needed for /flux and system package installs)
+# ─────────────────────────────────────────────────────────────────────────
+if [[ $EUID -ne 0 ]]; then
+    log_err "This installer must be run as root: sudo bash install.sh"
+    exit 1
+fi
+
+# ─────────────────────────────────────────────────────────────────────────
 # Detect System
 # ─────────────────────────────────────────────────────────────────────────
 if [[ ! -f /etc/os-release ]]; then
@@ -37,15 +45,47 @@ fi
 # ─────────────────────────────────────────────────────────────────────────
 # Install Directory
 # ─────────────────────────────────────────────────────────────────────────
-INSTALL_DIR="${INSTALL_DIR:-$HOME/smartmarstek}"
+INSTALL_DIR="${INSTALL_DIR:-/flux}"
 REPO_URL="https://github.com/DinXke/FLUX.git"
 REPO_BRANCH="main"
 
-log_title "SmartMarstek Standalone Docker Installer"
+log_title "FLUX Standalone Docker Installer"
 echo "Installing to: $INSTALL_DIR"
 
 # ─────────────────────────────────────────────────────────────────────────
-# Step 1: Check/Install Docker
+# Step 1: Install System Prerequisites
+# ─────────────────────────────────────────────────────────────────────────
+log_title "Installing system prerequisites..."
+
+apt-get update -qq
+
+PREREQS=(
+    git
+    curl
+    openssl
+    ca-certificates
+    gnupg
+    lsb-release
+    apt-transport-https
+)
+
+MISSING=()
+for pkg in "${PREREQS[@]}"; do
+    if ! dpkg -s "$pkg" &>/dev/null; then
+        MISSING+=("$pkg")
+    fi
+done
+
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+    log_warn "Installing missing packages: ${MISSING[*]}"
+    apt-get install -y "${MISSING[@]}"
+    log_info "Prerequisites installed"
+else
+    log_info "All prerequisites already present"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────
+# Step 2: Check/Install Docker
 # ─────────────────────────────────────────────────────────────────────────
 log_title "Checking Docker..."
 
@@ -56,16 +96,13 @@ else
     log_warn "Docker not found. Installing..."
 
     if [[ "$OS_ID" == "ubuntu" ]] || [[ "$OS_ID" == "debian" ]] || [[ "$OS_ID" == "raspbian" ]]; then
-        sudo apt-get update
-        sudo apt-get install -y docker.io docker-compose-plugin
+        apt-get install -y docker.io docker-compose-plugin
 
-        # Add current user to docker group (requires re-login or use `newgrp`)
-        if ! id -nG "$USER" | grep -qw docker; then
-            log_warn "Adding $USER to docker group (will require re-login)"
-            sudo usermod -aG docker "$USER"
-            newgrp docker < /dev/null || true
-        fi
-        log_info "Docker installed successfully"
+        # Enable and start Docker service
+        systemctl enable docker
+        systemctl start docker
+
+        log_info "Docker installed and started"
     else
         log_err "Unsupported OS for automatic Docker install: $OS_ID"
         log_err "Install Docker manually: https://docs.docker.com/engine/install/"
@@ -83,12 +120,12 @@ elif command -v docker-compose &>/dev/null; then
     log_info "docker-compose binary available: v$COMPOSE_VER"
     COMPOSE_CMD="docker-compose"
 else
-    log_err "docker-compose not found. Install with: sudo apt-get install docker-compose-plugin"
+    log_err "docker-compose not found. Install with: apt-get install docker-compose-plugin"
     exit 1
 fi
 
 # ─────────────────────────────────────────────────────────────────────────
-# Step 2: Clone Repository
+# Step 3: Clone Repository
 # ─────────────────────────────────────────────────────────────────────────
 log_title "Cloning repository..."
 
@@ -101,13 +138,13 @@ if [[ -d "$INSTALL_DIR" ]]; then
     fi
 else
     git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
-    log_info "Repository cloned"
+    log_info "Repository cloned to $INSTALL_DIR"
 fi
 
 cd "$INSTALL_DIR"
 
 # ─────────────────────────────────────────────────────────────────────────
-# Step 3: Create .env file
+# Step 4: Create .env file
 # ─────────────────────────────────────────────────────────────────────────
 log_title "Configuring environment..."
 
@@ -149,7 +186,7 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────
-# Step 4: Create data directory
+# Step 5: Create data directories
 # ─────────────────────────────────────────────────────────────────────────
 log_title "Preparing data directories..."
 
@@ -158,7 +195,7 @@ mkdir -p data grafana/provisioning/{dashboards,datasources} nginx/ssl
 log_info "Directories created"
 
 # ─────────────────────────────────────────────────────────────────────────
-# Step 5: Start Services
+# Step 6: Start Services
 # ─────────────────────────────────────────────────────────────────────────
 log_title "Starting services..."
 
@@ -169,30 +206,26 @@ $COMPOSE_CMD up -d                      # Start services
 log_info "Services starting (this may take 1-2 minutes)..."
 
 # ─────────────────────────────────────────────────────────────────────────
-# Step 6: Wait for Services
+# Step 7: Wait for Services
 # ─────────────────────────────────────────────────────────────────────────
 log_title "Waiting for services to be ready..."
 
 WAIT_TIME=0
-MAX_WAIT=180  # Increased to 3 minutes for production startup
+MAX_WAIT=180
 
-# Check all critical services
 check_services() {
     local flask_ok=false
     local influx_ok=false
     local nginx_ok=false
 
-    # Check Flask backend
     if curl -sf http://localhost:5000/api/status >/dev/null 2>&1; then
         flask_ok=true
     fi
 
-    # Check InfluxDB
     if curl -sf http://localhost:8086/health >/dev/null 2>&1; then
         influx_ok=true
     fi
 
-    # Check Nginx reverse proxy
     if curl -sf http://localhost/health >/dev/null 2>&1; then
         nginx_ok=true
     fi
@@ -220,23 +253,25 @@ if [[ $WAIT_TIME -ge $MAX_WAIT ]]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────
-# Step 7: Show Access URLs
+# Step 8: Show Access URLs
 # ─────────────────────────────────────────────────────────────────────────
+SERVER_IP=$(hostname -I | awk '{print $1}')
+
 log_title "Installation Complete!"
 echo ""
-echo "Access SmartMarstek:"
-echo "  ${BOLD}Web Interface:${RESET}  http://localhost:5000"
-echo "  ${BOLD}Grafana:${RESET}         http://localhost:3000"
-echo "  ${BOLD}InfluxDB:${RESET}        http://localhost:8086"
+echo "Access FLUX:"
+echo "  ${BOLD}Web Interface:${RESET}  http://$SERVER_IP"
+echo "  ${BOLD}Grafana:${RESET}        http://$SERVER_IP:3000"
+echo "  ${BOLD}InfluxDB:${RESET}       http://$SERVER_IP:8086"
 echo ""
 echo "Default credentials (change in .env and restart):"
-echo "  ${BOLD}Grafana:${RESET}         admin / (check .env)"
-echo "  ${BOLD}InfluxDB:${RESET}        marstek / (check .env)"
+echo "  ${BOLD}Grafana:${RESET}        admin / (check .env)"
+echo "  ${BOLD}InfluxDB:${RESET}       flux / (check .env)"
 echo ""
 echo "Useful commands:"
-echo "  ${BOLD}View logs:${RESET}       cd $INSTALL_DIR && $COMPOSE_CMD logs -f smartmarstek"
+echo "  ${BOLD}View logs:${RESET}       cd $INSTALL_DIR && $COMPOSE_CMD logs -f flux"
 echo "  ${BOLD}Stop services:${RESET}   cd $INSTALL_DIR && $COMPOSE_CMD stop"
-echo "  ${BOLD}Restart services:${RESET} cd $INSTALL_DIR && $COMPOSE_CMD restart"
+echo "  ${BOLD}Restart:${RESET}         cd $INSTALL_DIR && $COMPOSE_CMD restart"
 echo "  ${BOLD}Remove all:${RESET}      cd $INSTALL_DIR && $COMPOSE_CMD down -v"
 echo ""
 echo "Documentation: https://github.com/DinXke/FLUX"
