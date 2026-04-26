@@ -17,7 +17,13 @@ export function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export function apiFetch(url, opts = {}) {
+export async function apiFetch(url, opts = {}) {
+  const hadToken = !!getToken();
   const headers = { ...authHeaders(), ...(opts.headers || {}) };
-  return fetch(url, { ...opts, headers });
+  const res = await fetch(url, { ...opts, headers });
+  if (res.status === 401 && hadToken) {
+    clearToken();
+    window.dispatchEvent(new CustomEvent('auth:expired'));
+  }
+  return res;
 }

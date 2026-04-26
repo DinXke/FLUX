@@ -197,6 +197,16 @@ export default function App() {
     checkAuth();
   }, []);
 
+  // ── Redirect to login when any apiFetch detects an expired token ──
+  useEffect(() => {
+    function onAuthExpired() {
+      setCurrentUser(null);
+      setAuthState("login");
+    }
+    window.addEventListener('auth:expired', onAuthExpired);
+    return () => window.removeEventListener('auth:expired', onAuthExpired);
+  }, []);
+
   // ── Apply saved theme/view/ui on mount ──
   useEffect(() => {
     const theme = localStorage.getItem("marstek_theme") || "dark";
