@@ -10,7 +10,8 @@
     "strategy": "Strategie",
     "profit": "Winst",
     "history": "Prijshistorie",
-    "settings": "Instellingen"
+    "settings": "Instellingen",
+    "users": "Gebruikers"
   },
   "buttons": {
     "add": "+ Toevoegen",
@@ -51,5 +52,38 @@
     "nl": "Nederlands",
     "en": "English",
     "select": "Taal"
+  },
+  "auth": {
+    "login": "Inloggen",
+    "loggingIn": "Inloggen…",
+    "logout": "Uitloggen",
+    "email": "E-mailadres",
+    "emailPlaceholder": "admin@flux.local",
+    "password": "Wachtwoord",
+    "subtitle": "Energiebeheer dashboard",
+    "loginFailed": "Ongeldig e-mailadres of wachtwoord",
+    "networkError": "Verbindingsfout. Probeer opnieuw."
+  },
+  "users": {
+    "title": "Gebruikersbeheer",
+    "loading": "Gebruikers laden…",
+    "empty": "Geen gebruikers gevonden.",
+    "addUser": "Gebruiker toevoegen",
+    "addButton": "+ Toevoegen",
+    "emailPlaceholder": "gebruiker@flux.local",
+    "passwordPlaceholder": "Wachtwoord (min. 6 tekens)",
+    "newPasswordPlaceholder": "Nieuw wachtwoord (leeg = ongewijzigd)",
+    "edit": "Bewerken",
+    "save": "Opslaan",
+    "cancel": "Annuleren",
+    "delete": "Verwijderen",
+    "confirmDelete": "Gebruiker {{email}} verwijderen?",
+    "loadError": "Gebruikers konden niet worden geladen.",
+    "saveError": "Opslaan mislukt.",
+    "networkError": "Verbindingsfout. Probeer opnieuw.",
+    "role": {
+      "admin": "Admin",
+      "readonly": "Alleen-lezen"
+    }
   }
 }

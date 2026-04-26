@@ -2711,3 +2711,81 @@ html, body {
   margin-left: auto;
   font-size: 11px;
 }
+
+/* ── Login page ── */
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 16px;
+}
+.login-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 40px 36px;
+  width: 100%;
+  max-width: 380px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.24);
+}
+.login-logo { font-size: 40px; margin-bottom: 8px; }
+.login-title { font-size: 22px; font-weight: 700; color: var(--text); margin: 0 0 4px; }
+.login-subtitle { font-size: 13px; color: var(--text-muted); margin: 0 0 28px; }
+.login-form { display: flex; flex-direction: column; gap: 14px; text-align: left; }
+.login-field { display: flex; flex-direction: column; gap: 5px; }
+.login-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.login-input { width: 100%; }
+.login-error { color: var(--danger, #f56565); font-size: 13px; text-align: center; margin: 0; }
+.login-btn { width: 100%; margin-top: 4px; }
+
+/* ── User management ── */
+.user-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+.user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-card-inner);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.user-row-info { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.user-email { font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-role-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.user-role-badge--admin { background: var(--primary-muted, rgba(99,102,241,0.15)); color: var(--primary, #6366f1); }
+.user-role-badge--readonly { background: var(--bg-card); color: var(--text-muted); border: 1px solid var(--border); }
+.user-row-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1; }
+.user-role-select { width: 130px; }
+.user-password-input { width: 180px; }
+.user-row-actions { display: flex; gap: 6px; }
+.user-row-error { font-size: 12px; color: var(--danger, #f56565); width: 100%; }
+.btn-danger {
+  background: var(--danger, #f56565);
+  color: #fff;
+  border: none;
+}
+.btn-danger:hover { opacity: 0.85; }
+.add-user-form {
+  padding: 16px;
+  background: var(--bg-card-inner);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  margin-top: 8px;
+}
+.add-user-title { font-size: 13px; font-weight: 600; color: var(--text); margin: 0 0 12px; }
+.add-user-fields { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.add-user-fields .form-input { flex: 1; min-width: 160px; }
+.text-muted { color: var(--text-muted); font-size: 13px; }
+.text-error { color: var(--danger, #f56565); font-size: 13px; }

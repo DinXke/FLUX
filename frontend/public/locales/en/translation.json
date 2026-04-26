@@ -10,7 +10,8 @@
     "strategy": "Strategy",
     "profit": "Profit",
     "history": "Price History",
-    "settings": "Settings"
+    "settings": "Settings",
+    "users": "Users"
   },
   "buttons": {
     "add": "+ Add",
@@ -51,5 +52,38 @@
     "nl": "Nederlands",
     "en": "English",
     "select": "Language"
+  },
+  "auth": {
+    "login": "Log in",
+    "loggingIn": "Logging in…",
+    "logout": "Log out",
+    "email": "Email address",
+    "emailPlaceholder": "admin@flux.local",
+    "password": "Password",
+    "subtitle": "Energy management dashboard",
+    "loginFailed": "Invalid email or password",
+    "networkError": "Connection error. Please try again."
+  },
+  "users": {
+    "title": "User Management",
+    "loading": "Loading users…",
+    "empty": "No users found.",
+    "addUser": "Add user",
+    "addButton": "+ Add",
+    "emailPlaceholder": "user@flux.local",
+    "passwordPlaceholder": "Password (min. 6 characters)",
+    "newPasswordPlaceholder": "New password (empty = unchanged)",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "confirmDelete": "Delete user {{email}}?",
+    "loadError": "Could not load users.",
+    "saveError": "Save failed.",
+    "networkError": "Connection error. Please try again.",
+    "role": {
+      "admin": "Admin",
+      "readonly": "Read-only"
+    }
   }
 }

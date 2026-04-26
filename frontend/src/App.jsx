@@ -12,6 +12,9 @@ import EnergyMap from "./components/EnergyMap.jsx";
 import HomeWizardPanel from "./components/HomeWizardPanel.jsx";
 import SmaInverterPanel from "./components/SmaInverterPanel.jsx";
 import LanguageSwitcher from "./components/LanguageSwitcher.jsx";
+import LoginPage from "./components/LoginPage.jsx";
+import UserManagementPage from "./components/UserManagementPage.jsx";
+import { getToken, clearToken, authHeaders } from "./auth.js";
 
 const THEMES = [
   { id: "dark",   icon: "🌙", label: "Dark"   },
@@ -154,6 +157,53 @@ function ThemeToggle() {
 export default function App() {
   const { t } = useTranslation();
 
+  // Auth state: 'checking' | 'login' | 'app'
+  const [authState, setAuthState] = useState("checking");
+  const [currentUser, setCurrentUser] = useState(null);
+
+  useEffect(() => {
+    async function checkAuth() {
+      const token = getToken();
+      if (token) {
+        try {
+          const res = await fetch("/api/auth/me", { headers: authHeaders() });
+          if (res.ok) {
+            const user = await res.json();
+            setCurrentUser({ email: user.email, role: user.role });
+            setAuthState("app");
+            return;
+          }
+        } catch { /* network error, fall through */ }
+        clearToken();
+      }
+      // Probe whether auth is enabled (no token)
+      try {
+        const probe = await fetch("/api/users", { headers: {} });
+        if (probe.status === 401) {
+          setAuthState("login");
+        } else {
+          setAuthState("app"); // AUTH_ENABLED=false — open access
+        }
+      } catch {
+        setAuthState("app");
+      }
+    }
+    checkAuth();
+  }, []);
+
+  function handleLogin(user) {
+    setCurrentUser(user);
+    setAuthState("app");
+  }
+
+  function handleLogout() {
+    clearToken();
+    setCurrentUser(null);
+    setAuthState("login");
+  }
+
+  const isAdmin = currentUser?.role === "admin";
+
   const NAV_ITEMS = [
     { id: "batteries", icon: "🔋", label: t('nav.batteries') },
     { id: "prices",    icon: "⚡", label: t('nav.prices') },
@@ -162,7 +212,9 @@ export default function App() {
     { id: "profit",    icon: "💰", label: t('nav.profit') },
     { id: "frank",     icon: "📊", label: t('nav.history') },
     { id: "settings",  icon: "⚙️", label: t('nav.settings') },
+    ...(isAdmin ? [{ id: "users", icon: "👥", label: t('nav.users') }] : []),
   ];
+
   // Apply saved theme + view mode + ui version immediately on mount
   useEffect(() => {
     const theme = localStorage.getItem("marstek_theme") || "dark";
@@ -174,6 +226,18 @@ export default function App() {
     const uiMode = localStorage.getItem("marstek_ui_mode") || "classic";
     document.documentElement.setAttribute("data-ui-mode", uiMode);
   }, []);
+
+  if (authState === "checking") {
+    return (
+      <div className="loading-overlay" style={{ height: "100vh" }}>
+        <div className="loading-spinner" />
+      </div>
+    );
+  }
+
+  if (authState === "login") {
+    return <LoginPage onLogin={handleLogin} />;
+  }
   const [page, setPage]       = useState("batteries");
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -282,6 +346,16 @@ export default function App() {
               {t('buttons.addDesktop')}
             </button>
           )}
+          {currentUser && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={handleLogout}
+              title={`${currentUser.email} — ${t('auth.logout')}`}
+              style={{ fontSize: 12 }}
+            >
+              🔓 {t('auth.logout')}
+            </button>
+          )}
         </div>
       </header>
 
@@ -376,6 +450,8 @@ export default function App() {
             onDeviceDeleted={handleDeviceDeleted}
           />
         )}
+
+        {page === "users" && isAdmin && <UserManagementPage />}
       </main>
 
       {/* Mobile FAB for adding devices */}

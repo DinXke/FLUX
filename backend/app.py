@@ -194,6 +194,11 @@ def send_esphome_command(ip: str, port: int, domain: str, name: str, value: str)
 # API routes – authentication
 # ---------------------------------------------------------------------------
 
+@app.route("/api/status", methods=["GET"])
+def api_status():
+    return jsonify({"ok": True, "service": "flux", "status": "running"})
+
+
 @app.route("/api/auth/login", methods=["POST"])
 def auth_login():
     """Login with email/password, return JWT token."""
