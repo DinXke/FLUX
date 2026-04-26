@@ -478,6 +478,11 @@ html, body {
 
 .battery-gauge-svg {
   display: block;
+  width: clamp(120px, 20vw, 160px);
+  height: auto;
+}
+[data-view="mobile"] .battery-gauge-svg {
+  width: clamp(100px, 18vw, 140px);
 }
 
 .battery-gauge-label {
@@ -1383,7 +1388,7 @@ html, body {
 }
 
 .home-flow-body--open {
-  max-height: 800px;
+  max-height: 1000px;
 }
 
 .home-flow-wrap { width: 100%; }
@@ -1398,10 +1403,23 @@ html, body {
 
 .energy-map-wrap { width: 100%; }
 
+.batteries-page {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
 .energy-map-svg {
   width: 100%;
+  max-width: 860px;
   height: auto;
   display: block;
+  margin: 0 auto;
+}
+[data-view="mobile"] .energy-map-svg {
+  max-width: 480px;
+}
+[data-view="mobile"] .home-flow-card {
+  padding: 10px 12px 8px;
 }
 
 /* Per-battery breakdown strip */

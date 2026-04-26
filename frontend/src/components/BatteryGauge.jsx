@@ -39,8 +39,6 @@ export default function BatteryGauge({ soc, remaining, total }) {
     <div className="battery-gauge">
       <svg
         className="battery-gauge-svg"
-        width={size}
-        height={size}
         viewBox={`0 0 ${size} ${size}`}
         aria-label={`Battery: ${displaySoc}`}
       >

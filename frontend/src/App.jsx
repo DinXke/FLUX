@@ -380,7 +380,7 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <>
+            <div className="batteries-page">
               {/* ── Aggregated home flow ── */}
               <div className="home-flow-card">
                 <button
@@ -418,7 +418,7 @@ export default function App() {
                   />
                 ))}
               </div>
-            </>
+            </div>
           )
         )}
 
