@@ -154,6 +154,14 @@ fi
 cd "$INSTALL_DIR"
 
 # ─────────────────────────────────────────────────────────────────────────
+# Detect Server IP (needed for GRAFANA_EXTERNAL_URL)
+# ─────────────────────────────────────────────────────────────────────────
+SERVER_IP=$(hostname -I | awk '{print $1}')
+if [[ -z "$SERVER_IP" ]]; then
+    log_warn "Could not detect server IP automatically, will prompt"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────
 # Step 4: Create .env file
 # ─────────────────────────────────────────────────────────────────────────
 log_title "Configuring environment..."
@@ -170,7 +178,7 @@ else
 
     # Vraag admin wachtwoord (interactief)
     ADMIN_PASS=""
-    while [[ -z "$ADMIN_PASS" ]]; do
+    while [[ -z "$ADMIN_PASS" ]]; then
         echo -en "${BOLD}Admin wachtwoord voor FLUX (verplicht):${RESET} "
         read -rs ADMIN_PASS
         echo ""
@@ -190,6 +198,12 @@ else
     sed -i "s|FLASK_SECRET_KEY=.*|FLASK_SECRET_KEY=$FLASK_SECRET|g" .env
     sed -i "s|FLUX_ADMIN_PASSWORD=.*|FLUX_ADMIN_PASSWORD=$ADMIN_PASS|g" .env
 
+    # Set GRAFANA_EXTERNAL_URL to server IP
+    if [[ -n "$SERVER_IP" ]]; then
+        sed -i "s|GRAFANA_EXTERNAL_URL=.*|GRAFANA_EXTERNAL_URL=http://$SERVER_IP:3000|g" .env
+        log_info "GRAFANA_EXTERNAL_URL set to http://$SERVER_IP:3000"
+    fi
+
     chmod 600 .env
     log_info ".env gegenereerd met veilige secrets (chmod 600)"
     log_warn "Bewaar $INSTALL_DIR/.env veilig — bevat wachtwoorden."
@@ -204,13 +218,12 @@ mkdir -p data grafana/provisioning/{dashboards,datasources} nginx/ssl
 
 # Generate self-signed SSL certificate if not already present
 if [[ ! -f nginx/ssl/cert.pem ]]; then
-    SERVER_IP_CERT=$(hostname -I | awk '{print $1}')
     openssl req -x509 -nodes -days 3650 \
         -newkey rsa:2048 \
         -keyout nginx/ssl/key.pem \
         -out nginx/ssl/cert.pem \
         -subj "/C=BE/O=FLUX/CN=flux.local" \
-        -addext "subjectAltName=IP:${SERVER_IP_CERT},DNS:flux.local,DNS:localhost" \
+        -addext "subjectAltName=IP:${SERVER_IP},DNS:flux.local,DNS:localhost" \
         2>/dev/null
     chmod 600 nginx/ssl/key.pem
     log_info "Zelf-gesigneerd SSL-certificaat aangemaakt (geldig 10 jaar)"
@@ -281,7 +294,6 @@ fi
 # ─────────────────────────────────────────────────────────────────────────
 # Step 8: Show Access URLs
 # ─────────────────────────────────────────────────────────────────────────
-SERVER_IP=$(hostname -I | awk '{print $1}')
 
 log_title "Installation Complete!"
 echo ""
