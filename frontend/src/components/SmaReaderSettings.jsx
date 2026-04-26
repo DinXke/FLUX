@@ -5,6 +5,7 @@ const DEFAULTS = {
   sma_reader_host:       "",
   sma_reader_port:       502,
   sma_reader_unit_id:    3,
+  sma_reader_use_udp:    false,
   sma_reader_interval_s: 10,
   sma_reader_max_w:      4000,
 };
@@ -124,6 +125,10 @@ export default function SmaReaderSettings() {
         <input className="form-input" style={{ width: 80 }} type="number" min={1} max={247}
           value={vals.sma_reader_unit_id}
           onChange={(e) => patch("sma_reader_unit_id", Number(e.target.value))} />
+      </Row>
+
+      <Row label="Modbus UDP" desc="Gebruik UDP i.p.v. TCP — verbindingsloos, voorkomt sessieconflict met andere Modbus-clients (bv. Loxone)">
+        <Toggle on={!!vals.sma_reader_use_udp} onChange={(v) => patch("sma_reader_use_udp", v)} />
       </Row>
 
       <Row label="Pollinterval (seconden)" desc="Hoe vaak data wordt uitgelezen (5–60 s)">
