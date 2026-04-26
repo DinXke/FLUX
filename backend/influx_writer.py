@@ -136,7 +136,7 @@ def _poll_esphome(devices: dict) -> dict:
 
     result = {}
     for dev_id, dev in devices.items():
-        ip, port = dev.get("ip"), dev.get("port", 6052)
+        ip, port = dev.get("ip"), dev.get("port", 80)
         if not ip:
             continue
         vals: dict = {}
@@ -145,9 +145,8 @@ def _poll_esphome(devices: dict) -> dict:
                 with sess.get(
                     f"http://{ip}:{port}/events",
                     stream=True,
-                    timeout=(10, 15),  # 10s connect (high-latency WiFi), 15s read
-                    headers={"Accept": "text/event-stream", "Cache-Control": "no-cache",
-                             "Connection": "close"},
+                    timeout=(10, 15),
+                    headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
                 ) as resp:
                     resp.raise_for_status()
                     current_event = None
@@ -163,7 +162,6 @@ def _poll_esphome(devices: dict) -> dict:
                                 if key:
                                     v = data.get("value")
                                     if v is None:
-                                        # parse numeric prefix from "100.0 %" etc.
                                         try:
                                             v = float(str(data.get("state", "")).split()[0])
                                         except Exception:
