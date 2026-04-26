@@ -4626,6 +4626,32 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
     tz_name   = es.get("timezone", "Europe/Brussels")
     today_str = date.today().isoformat()
 
+    # ── Prophet adapter: convert Prophet forecast to consumption_by_hour format ─
+    def _prophet_to_consumption_by_hour(prophet_result: dict) -> list[dict]:
+        """Convert Prophet forecast {timestamp, forecast, upper, lower} → [{weekday, hour, avg_wh}, ...]."""
+        if prophet_result.get("status") != "success":
+            return []
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+        by_wd_hour: dict[tuple, list] = {}
+        for point in prophet_result.get("data", []):
+            ts_str = point.get("timestamp")
+            forecast_kw = point.get("forecast")
+            if not ts_str or forecast_kw is None:
+                continue
+            try:
+                dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                dt_local = dt.astimezone(tz)
+                wh = max(0, forecast_kw * 1000)  # Convert kW to Wh
+                key = (dt_local.weekday(), dt_local.hour)
+                by_wd_hour.setdefault(key, []).append(wh)
+            except Exception:
+                continue
+        result = []
+        for (wd, h), vals in sorted(by_wd_hour.items()):
+            result.append({"weekday": wd, "hour": h, "avg_wh": round(sum(vals) / len(vals), 1)})
+        return result
+
     # ── Parallel fetch: prices, solar, consumption, SoC ──────────────────
     # All four are independent I/O operations — run them concurrently.
 
@@ -4722,7 +4748,21 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
                 log.warning("_compute_forward_plan: HA consumption error: %s", _exc)
             return [], ""
 
-        if cons_source_pref == "external_influx":
+        def _try_prophet():
+            try:
+                if get_prophet_forecast is None:
+                    return [], ""
+                prophet_result = get_prophet_forecast(use_cache=True)
+                data = _prophet_to_consumption_by_hour(prophet_result)
+                if len(data) >= 18:  # Require reasonable coverage
+                    return data, "prophet"
+            except Exception as _exc:
+                log.warning("_compute_forward_plan: prophet consumption error: %s", _exc)
+            return [], ""
+
+        if cons_source_pref == "prophet":
+            d, src = _try_prophet()
+        elif cons_source_pref == "external_influx":
             d, src = _try_external()
         elif cons_source_pref == "local_influx":
             d, src = _try_local()
@@ -4730,7 +4770,7 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
             d, src = _try_ha()
         else:
             d, src = [], ""
-            for _fn in (_try_external, _try_local, _try_ha):
+            for _fn in (_try_prophet, _try_external, _try_local, _try_ha):
                 d, src = _fn()
                 if d:
                     break

@@ -55,8 +55,9 @@ DEFAULT_SETTINGS = {
     #   Set grid_markup_eur_kwh to only network/distribution fee (~0.05–0.07).
     # When "entsoe": uses ENTSO-E wholesale prices + grid_markup_eur_kwh.
     "price_source":         "entsoe",
-    # Consumption profile source: "auto" | "local_influx" | "external_influx" | "ha_history"
-    # "auto": tries external_influx → local_influx → ha_history (fallback chain).
+    # Consumption profile source: "auto" | "prophet" | "local_influx" | "external_influx" | "ha_history"
+    # "auto": tries prophet → external_influx → local_influx → ha_history (fallback chain).
+    # "prophet": uses ML forecast from 32d InfluxDB history (when sufficient data available).
     "consumption_source":   "auto",
     # Standby/parasitic consumption in Watt (always-on appliances, fridges, …).
     # 0 = auto-detect from 02:00–06:00 historical average.
