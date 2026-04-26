@@ -3205,6 +3205,7 @@ def test_sma_connection():
 
 
 @app.route("/api/sma/rawread", methods=["POST"])
+@require_admin
 def sma_raw_read():
     """Debug: raw Modbus read for SCH-775 register map investigation. Temporary endpoint."""
     import sma_modbus as _sm
