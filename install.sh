@@ -22,7 +22,7 @@ log_err()   { echo -e "${RED}[✗]${RESET} $*" >&2; }
 log_title() { echo -e "\n${BOLD}${CYAN}$*${RESET}"; }
 
 # ─────────────────────────────────────────────────────────────────────────
-# Require root (needed for /flux and system package installs)
+# Require root (needed for system package installs and chosen install dir)
 # ─────────────────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
     log_err "This installer must be run as root: sudo bash install.sh"
@@ -45,11 +45,21 @@ fi
 # ─────────────────────────────────────────────────────────────────────────
 # Install Directory
 # ─────────────────────────────────────────────────────────────────────────
-INSTALL_DIR="${INSTALL_DIR:-/flux}"
 REPO_URL="https://github.com/DinXke/FLUX.git"
 REPO_BRANCH="main"
 
 log_title "FLUX Standalone Docker Installer"
+
+# Allow env-var override (non-interactive), otherwise prompt
+if [[ -z "${INSTALL_DIR:-}" ]]; then
+    echo -en "${BOLD}Install directory${RESET} [default: /opt/flux]: "
+    # Use /dev/tty so prompt works when the script is piped via curl | bash
+    read -r INSTALL_DIR </dev/tty || true
+    INSTALL_DIR="${INSTALL_DIR:-/opt/flux}"
+    # Trim trailing slash
+    INSTALL_DIR="${INSTALL_DIR%/}"
+fi
+
 echo "Installing to: $INSTALL_DIR"
 
 # ─────────────────────────────────────────────────────────────────────────
