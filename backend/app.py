@@ -62,6 +62,11 @@ CORS(app)
 _cfg = get_config()
 init_auth(app, _cfg.get_jwt_secret(), _cfg.get_jwt_expiry_hours(), DATA_DIR)
 
+# Standalone mode detection
+STANDALONE_MODE = os.environ.get("STANDALONE_MODE", "").lower() == "true"
+if STANDALONE_MODE:
+    log.info("Standalone mode detected – HA integration will be optional")
+
 
 @app.before_request
 def _log_request():
@@ -2334,6 +2339,8 @@ def _ha_call_service(domain: str, service: str, data: dict) -> bool:
 
 @app.route("/api/ha/settings", methods=["GET"])
 def get_ha_settings():
+    if STANDALONE_MODE:
+        return jsonify({"error": "HA integration not available in standalone mode"}), 404
     s = _ha_settings()
     return jsonify({
         "configured": bool(s.get("token")),
@@ -2345,6 +2352,8 @@ def get_ha_settings():
 @app.route("/api/ha/settings", methods=["POST"])
 @require_admin
 def post_ha_settings():
+    if STANDALONE_MODE:
+        return jsonify({"error": "HA integration not available in standalone mode"}), 404
     body = request.get_json(force=True)
     current = _ha_settings()
 
@@ -2362,6 +2371,8 @@ def post_ha_settings():
 @app.route("/api/ha/test", methods=["POST"])
 def test_ha():
     """Test HA connection and return server info."""
+    if STANDALONE_MODE:
+        return jsonify({"error": "HA integration not available in standalone mode"}), 404
     s = _ha_effective_settings()
     if not s.get("token") or not s.get("url"):
         return jsonify({"error": "Niet geconfigureerd."}), 400
@@ -2379,6 +2390,8 @@ def test_ha():
 @app.route("/api/ha/entities")
 def get_ha_entities():
     """Return all HA states (numeric entities only) for sensor selection."""
+    if STANDALONE_MODE:
+        return jsonify({"entities": []})
     s = _ha_effective_settings()
     if not s.get("token") or not s.get("url"):
         return jsonify({"entities": []})
@@ -2427,6 +2440,8 @@ def get_ha_entities():
 @app.route("/api/ha/state/<path:entity_id>")
 def get_ha_state(entity_id):
     """Fetch current state of a single HA entity."""
+    if STANDALONE_MODE:
+        return jsonify({"error": "HA integration not available in standalone mode"}), 404
     s = _ha_effective_settings()
     if not s.get("token") or not s.get("url"):
         return jsonify({"error": "Niet geconfigureerd."}), 400
@@ -2451,6 +2466,8 @@ def get_ha_state(entity_id):
 @app.route("/api/ha/poll", methods=["POST"])
 def poll_ha_sensors():
     """Batch-poll a list of entity_ids. Returns {entity_id: {value, unit}} map."""
+    if STANDALONE_MODE:
+        return jsonify({"error": "HA integration not available in standalone mode"}), 404
     s = _ha_effective_settings()
     if not s.get("token") or not s.get("url"):
         return jsonify({"error": "Niet geconfigureerd."}), 400
