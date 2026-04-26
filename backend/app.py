@@ -8,6 +8,8 @@ import time
 import uuid
 from collections import deque as _deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, date, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import urlencode, quote
 from urllib.request import urlopen, Request
 from urllib.error import URLError
@@ -36,7 +38,11 @@ import requests as _req  # aliased to avoid clash with flask.request
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # v2 uses self-signed cert
 from flask import Flask, Response, jsonify, request, send_from_directory, abort, stream_with_context
-from flask_cors import CORS
+try:
+    from flask_cors import CORS
+    _CORS_AVAILABLE = True
+except ImportError:
+    _CORS_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -61,7 +67,10 @@ logging.basicConfig(
 log = logging.getLogger("marstek")
 
 app = Flask(__name__, static_folder=None)
-CORS(app)
+if _CORS_AVAILABLE:
+    CORS(app)
+else:
+    log.warning("flask-cors not installed; CORS headers will not be set")
 
 # Initialize authentication
 _cfg = get_config()
