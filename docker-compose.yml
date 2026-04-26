@@ -24,6 +24,7 @@ services:
       TIMEZONE: ${TIMEZONE:-Europe/Brussels}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       STANDALONE_MODE: "true"
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
       ENTSOE_API_KEY: ${ENTSOE_API_KEY}
       ENTSOE_COUNTRY: ${ENTSOE_COUNTRY}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY}

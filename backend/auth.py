@@ -195,10 +195,20 @@ def get_auth_manager() -> AuthManager:
     return _auth_manager
 
 
+def _auth_enabled() -> bool:
+    """Auth is only enforced when AUTH_ENABLED=true is explicitly set."""
+    return os.environ.get("AUTH_ENABLED", "false").lower() == "true"
+
+
 def require_auth(f: Callable) -> Callable:
-    """Decorator: require valid JWT token in Authorization header."""
+    """Decorator: require valid JWT token in Authorization header.
+    Bypassed when AUTH_ENABLED != 'true' (default until frontend auth UI is ready).
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        if not _auth_enabled():
+            return f(*args, **kwargs)
+
         auth_header = request.headers.get("Authorization", "")
 
         if not auth_header.startswith("Bearer "):
@@ -218,9 +228,14 @@ def require_auth(f: Callable) -> Callable:
 
 
 def require_admin(f: Callable) -> Callable:
-    """Decorator: require valid JWT token AND admin role."""
+    """Decorator: require valid JWT token AND admin role.
+    Bypassed when AUTH_ENABLED != 'true' (default until frontend auth UI is ready).
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        if not _auth_enabled():
+            return f(*args, **kwargs)
+
         auth_header = request.headers.get("Authorization", "")
 
         if not auth_header.startswith("Bearer "):
