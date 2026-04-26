@@ -6199,7 +6199,22 @@ def _start_automation_thread(interval: int = 60) -> None:
 
 def _start_anomaly_detection_thread(interval: int = 600) -> None:
     """Start background thread for periodic anomaly detection (10 min interval)."""
+    import hashlib
     import threading
+
+    # Deduplication: {event_type: (payload_hash, last_sent_epoch)}
+    # Suppresses repeated alerts for the same anomaly; resends after 1 hour.
+    _anomaly_sent: dict[str, tuple[str, float]] = {}
+    _RESEND_S = 3600
+
+    def _should_notify(event_type: str, payload: dict) -> bool:
+        import time as _t
+        h = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        prev_hash, prev_ts = _anomaly_sent.get(event_type, ("", 0.0))
+        if h != prev_hash or (_t.time() - prev_ts) >= _RESEND_S:
+            _anomaly_sent[event_type] = (h, _t.time())
+            return True
+        return False
 
     def anomaly_loop():
         import time as _time
@@ -6215,23 +6230,17 @@ def _start_anomaly_detection_thread(interval: int = 600) -> None:
                              len(stale), len(peaks), len(faults))
 
                     if stale:
-                        _tg_notify("anomaly_stale_sensors", {
-                            "sensors": stale,
-                            "count": len(stale),
-                            "timestamp": anomalies.get("timestamp")
-                        })
+                        payload = {"sensors": stale, "count": len(stale), "timestamp": anomalies.get("timestamp")}
+                        if _should_notify("anomaly_stale_sensors", payload):
+                            _tg_notify("anomaly_stale_sensors", payload)
                     if peaks:
-                        _tg_notify("anomaly_unusual_peaks", {
-                            "peaks": peaks,
-                            "count": len(peaks),
-                            "timestamp": anomalies.get("timestamp")
-                        })
+                        payload = {"peaks": peaks, "count": len(peaks), "timestamp": anomalies.get("timestamp")}
+                        if _should_notify("anomaly_unusual_peaks", payload):
+                            _tg_notify("anomaly_unusual_peaks", payload)
                     if faults:
-                        _tg_notify("anomaly_inverter_faults", {
-                            "faults": faults,
-                            "count": len(faults),
-                            "timestamp": anomalies.get("timestamp")
-                        })
+                        payload = {"faults": faults, "count": len(faults), "timestamp": anomalies.get("timestamp")}
+                        if _should_notify("anomaly_inverter_faults", payload):
+                            _tg_notify("anomaly_inverter_faults", payload)
             except Exception as exc:
                 log.warning("Anomaly detection thread error: %s", exc)
             _time.sleep(interval)
