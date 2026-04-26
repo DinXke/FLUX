@@ -215,42 +215,41 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
 
     result: dict = {"online": True, "raw": {}, "unit_id": unit_id}
 
-    # (key, 0-based addr, count, dtype, scale, fc)
-    # Primary: SMA SB30-50-1AV-40 Modbus register map
-    # Alt_*: cross-FC fallbacks and alternate addresses — important for SB4.0/SB3.x-1AV-40
-    #        which may expose measurement registers under a different FC than SB30-50.
+    # (key, 1-based addr == SMA register number, count, dtype, scale, fc)
+    # SMA uses 1-based Modbus addressing: pymodbus addr == SMA register number.
+    # Alt_*: cross-FC fallbacks important for SB4.0/SB3.x-1AV-40 which may expose
+    #        measurement registers under a different FC than SB30-50-1AV-40.
     PROBES_FC03 = [
-        ("pac_w",            30774, 2, "S32",    1, 3),  # reg 30775 — Pac (W)
-        ("grid_v",           30782, 2, "U32",  100, 3),  # reg 30783 — Uac L1 (0.01V)
-        ("temp_c",           30952, 2, "S32",   10, 3),  # reg 30953 — Internal temp (0.1°C)
-        ("status_code",      30200, 2, "U32",    1, 3),  # reg 30201 — Device status (ENUM)
-        ("alt_status_code",  30201, 2, "U32",    1, 3),  # reg 30202/30203 — Alt status addr
-        ("alt_nominal_w",    30204, 2, "U32",    1, 3),  # reg 30205 — Nominal AC power (W)
-        ("wmax_lim_w",       42061, 2, "U32",    1, 3),  # reg 42062 — WMaxLim (PV limiter)
-        ("wmax_lim_pct",     40235, 2, "U32",    1, 3),  # reg 40236 — WMaxLimPct
+        ("pac_w",            30775, 2, "S32",    1, 3),  # Pac (W)
+        ("grid_v",           30783, 2, "U32",  100, 3),  # Uac L1 (0.01V)
+        ("temp_c",           30953, 2, "S32",   10, 3),  # Internal temp (0.1°C)
+        ("status_code",      30201, 2, "U32",    1, 3),  # Device status (ENUM)
+        ("alt_nominal_w",    30205, 2, "U32",    1, 3),  # Nominal AC power (W)
+        ("wmax_lim_w",       42062, 2, "U32",    1, 3),  # WMaxLim (PV limiter)
+        ("wmax_lim_pct",     40236, 2, "U32",    1, 3),  # WMaxLimPct
         # Cross-FC: registers normally FC04 — check if SB4.x responds via FC03 instead
-        ("alt_dc_current_fc3", 30768, 2, "U32", 1000, 3),  # reg 30769 via FC03
-        ("alt_dc_voltage_fc3", 30770, 2, "U32",  100, 3),  # reg 30771 via FC03
-        ("alt_dc_power_fc3",   30772, 2, "S32",    1, 3),  # reg 30773 via FC03
-        ("alt_freq_fc3",       30802, 2, "U32",  100, 3),  # reg 30803 via FC03
-        ("alt_op_time_fc3",    30540, 2, "U32",    1, 3),  # reg 30541 via FC03
-        ("alt_e_total_fc3",    30530, 2, "U32",    1, 3),  # reg 30531 via FC03
-        ("alt_e_day_fc3",      30534, 2, "U32",    1, 3),  # reg 30535 via FC03
+        ("alt_dc_current_fc3", 30769, 2, "U32", 1000, 3),  # DC current via FC03
+        ("alt_dc_voltage_fc3", 30771, 2, "U32",  100, 3),  # DC voltage via FC03
+        ("alt_dc_power_fc3",   30773, 2, "S32",    1, 3),  # DC power via FC03
+        ("alt_freq_fc3",       30803, 2, "U32",  100, 3),  # Grid freq via FC03
+        ("alt_op_time_fc3",    30541, 2, "U32",    1, 3),  # Operating time via FC03
+        ("alt_e_total_fc3",    30531, 2, "U32",    1, 3),  # E-Total via FC03
+        ("alt_e_day_fc3",      30535, 2, "U32",    1, 3),  # E-Day via FC03
     ]
     PROBES_FC04 = [
-        ("e_total_wh",      30512, 4, "U64",    1, 4),  # reg 30513 — E-Total (Wh) U64 new map
-        ("e_day_wh",        30516, 4, "U64",    1, 4),  # reg 30517 — E-Day (Wh) U64 new map
-        ("alt_e_total_kwh", 30530, 2, "U32",    1, 4),  # reg 30531 — E-Total (kWh) U32 alt map
-        ("alt_e_day_wh",    30534, 2, "U32",    1, 4),  # reg 30535 — E-Day (Wh) U32 alt map
-        ("freq_hz",         30802, 2, "U32",  100, 4),  # reg 30803 — Grid freq (0.01Hz)
-        ("op_time_s",       30540, 2, "U32",    1, 4),  # reg 30541 — Operating time (s)
-        ("dc_current_a",    30768, 2, "U32", 1000, 4),  # reg 30769 — DC current str1 (mA)
-        ("dc_voltage_v",    30770, 2, "U32",  100, 4),  # reg 30771 — DC voltage str1 (0.01V)
-        ("dc_power_w",      30772, 2, "S32",    1, 4),  # reg 30773 — DC power str1 (W)
+        ("e_total_wh",      30513, 4, "U64",    1, 4),  # E-Total (Wh) U64 new map
+        ("e_day_wh",        30517, 4, "U64",    1, 4),  # E-Day (Wh) U64 new map
+        ("alt_e_total_kwh", 30531, 2, "U32",    1, 4),  # E-Total (kWh) U32 alt map
+        ("alt_e_day_wh",    30535, 2, "U32",    1, 4),  # E-Day (Wh) U32 alt map
+        ("freq_hz",         30803, 2, "U32",  100, 4),  # Grid freq (0.01Hz)
+        ("op_time_s",       30541, 2, "U32",    1, 4),  # Operating time (s)
+        ("dc_current_a",    30769, 2, "U32", 1000, 4),  # DC current str1 (mA)
+        ("dc_voltage_v",    30771, 2, "U32",  100, 4),  # DC voltage str1 (0.01V)
+        ("dc_power_w",      30773, 2, "S32",    1, 4),  # DC power str1 (W)
         # Cross-FC: registers normally FC03 — check if SB4.x responds via FC04 instead
-        ("alt_pac_w_fc4",   30774, 2, "S32",    1, 4),  # reg 30775 via FC04
-        ("alt_grid_v_fc4",  30782, 2, "U32",  100, 4),  # reg 30783 via FC04
-        ("alt_temp_c_fc4",  30952, 2, "S32",   10, 4),  # reg 30953 via FC04
+        ("alt_pac_w_fc4",   30775, 2, "S32",    1, 4),  # Pac via FC04
+        ("alt_grid_v_fc4",  30783, 2, "U32",  100, 4),  # Uac L1 via FC04
+        ("alt_temp_c_fc4",  30953, 2, "S32",   10, 4),  # Internal temp via FC04
     ]
 
     nan_count = 0
@@ -260,7 +259,7 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
         nonlocal nan_count, val_count
         regs = _read_holding(client, addr, cnt, unit_id) if fc == 3 else _read_input(client, addr, cnt, unit_id)
         if regs is None:
-            result["raw"][key] = {"fc": fc, "addr": addr + 1, "status": "read_error"}
+            result["raw"][key] = {"fc": fc, "addr": addr, "status": "read_error"}
             return None
         raw_hex = [f"0x{r:04X}" for r in regs]
         if dtype == "U32":
@@ -271,7 +270,7 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
             parsed = _to_u64(regs, 0)
         val = round(parsed / scale, 3) if parsed is not None and scale > 1 else parsed
         is_nan = parsed is None
-        result["raw"][key] = {"fc": fc, "addr": addr + 1, "regs": raw_hex, "value": val, "nan": is_nan}
+        result["raw"][key] = {"fc": fc, "addr": addr, "regs": raw_hex, "value": val, "nan": is_nan}
         if is_nan:
             nan_count += 1
         elif val is not None:
@@ -284,12 +283,6 @@ def poll_diagnostics(host: str, port: int, unit_id: int, use_udp: bool = False) 
             _probe(key, addr, cnt, dtype, scale, fc)
         for key, addr, cnt, dtype, scale, fc in PROBES_FC04:
             _probe(key, addr, cnt, dtype, scale, fc)
-
-        # Prefer alt_status_code if primary status_code not found
-        if "status_code" not in result and "alt_status_code" in result:
-            result["status_code"] = result["alt_status_code"]
-        if "alt_status_code" in result:
-            del result["alt_status_code"]
 
         # Decode status code to label
         if "status_code" in result:
