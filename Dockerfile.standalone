@@ -19,7 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ ./
 
-# Setup entrypoint
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 COPY setup_config.py /app/setup_config.py
 RUN chmod +x /app/docker-entrypoint.sh
@@ -30,5 +29,5 @@ ENV STANDALONE_MODE=true \
     PYTHONUNBUFFERED=1
 
 EXPOSE 5000
-ENTRYPOINT ["/bin/bash"]
+ENTRYPOINT ["/bin/sh"]
 CMD ["/app/docker-entrypoint.sh"]
