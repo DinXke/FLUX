@@ -179,7 +179,7 @@ def _poll_esphome(devices: dict) -> dict:
 
 
 def _resolve_slot(key: str, cfg: dict, esphome_map: dict,
-                  hw_data: Optional[dict], ha_data: dict) -> Optional[float]:
+                  hw_data: Optional[dict], ha_data: dict, sma_data: Optional[dict] = None) -> Optional[float]:
     """Resolve a flow slot → numeric value (mirrors JS resolveSlot)."""
     entries = cfg.get(key)
     if not entries:
@@ -205,6 +205,8 @@ def _resolve_slot(key: str, cfg: dict, esphome_map: dict,
         elif source == "homeassistant":
             entry = ha_data.get(sensor)
             v = entry.get("value") if entry else None
+        elif source == "sma":
+            v = (sma_data or {}).get(sensor)
 
         if v is not None:
             total = (total or 0.0) + (-v if invert else v)
@@ -238,6 +240,15 @@ def _collect_and_write(app_context_fn):
 
     esphome_map = _poll_esphome(devices)
 
+    sma_data = None
+    try:
+        from sma_modbus import get_sma_live as _get_sma
+        sma = _get_sma()
+        if sma.get("online") and sma.get("ts", 0) > 0 and (time.time() - sma["ts"]) < 60:
+            sma_data = sma
+    except Exception:
+        pass
+
     SLOT_ORDER = ["solar_power", "net_power", "bat_power", "bat_soc",
                   "ev_power", "voltage_l1", "voltage_l2", "voltage_l3",
                   "net_import_kwh_total", "net_export_kwh_total"]
@@ -256,7 +267,7 @@ def _collect_and_write(app_context_fn):
 
     fields = {}
     for slot_key in SLOT_ORDER:
-        val = _resolve_slot(slot_key, flow_cfg, esphome_map, hw_data, ha_data)
+        val = _resolve_slot(slot_key, flow_cfg, esphome_map, hw_data, ha_data, sma_data)
         if val is not None:
             fields[SLOT_FIELDS[slot_key]] = float(val)
 
