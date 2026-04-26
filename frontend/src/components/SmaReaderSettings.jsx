@@ -1,5 +1,6 @@
 import { apiFetch } from "../auth.js";
 import { useState, useEffect, useRef } from "react";
+import { authHeaders } from "../auth.js";
 
 const DEFAULTS = {
   sma_reader_enabled:    false,
@@ -271,7 +272,7 @@ function SmaRegisterMapEditor() {
     try {
       const r = await fetch("api/sma/register-map", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ registers: regs }),
       });
       const d = await r.json();
@@ -287,7 +288,7 @@ function SmaRegisterMapEditor() {
     try {
       const r = await fetch("api/sma/register-map", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ reset: true }),
       });
       const d = await r.json();
