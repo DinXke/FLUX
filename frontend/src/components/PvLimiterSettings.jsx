@@ -441,11 +441,12 @@ export default function PvLimiterSettings() {
           <div style={{ margin: "0 20px 12px", padding: "10px 14px",
             background: "#0a0f1a", borderRadius: 6, fontSize: 11,
             fontFamily: "monospace", color: "#94a3b8", lineHeight: 1.8 }}>
-            <div style={{ color: "#64748b", marginBottom: 2 }}>Modbus schrijf-opdracht:</div>
+            <div style={{ color: "#64748b", marginBottom: 2 }}>Modbus schrijf-opdracht (zoals Loxone FC16):</div>
             <div>host: <span style={{ color: "#7dd3fc" }}>{modbusHost || "‹ip›"}</span>:{modbusPort}</div>
             <div>unit: <span style={{ color: "#fcd34d" }}>{modbusUnitId}</span></div>
-            <div>register: <span style={{ color: "#fcd34d" }}>{modbusReg}</span> (addr {Math.max(0, Number(modbusReg) - 1)})</div>
-            <div>dtype: <span style={{ color: "#c4b5fd" }}>{modbusDataType}</span>{modbusDataType === "U32" ? " → [high_word, low_word]" : " → [value & 0xFFFF]"}</div>
+            <div>FC: <span style={{ color: "#86efac" }}>16 — Write Multiple Registers</span></div>
+            <div>register: <span style={{ color: "#fcd34d" }}>{modbusReg}</span> (IO-adres zoals in Loxone/SMA docs)</div>
+            <div>dtype: <span style={{ color: "#c4b5fd" }}>{modbusDataType}</span>{modbusDataType === "U32" ? " → [high_word, low_word] (2 registers, ✓ Loxone)" : " → [value & 0xFFFF] (1 register)"}</div>
             <div>value: <span style={{ color: "#86efac" }}>
               {modbusValMode === "pct"
                 ? `‹target_W / ${maxW}W × 100›`
