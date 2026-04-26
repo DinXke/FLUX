@@ -183,7 +183,7 @@ def send_esphome_command(ip: str, port: int, domain: str, name: str, value: str)
     url = f"http://{ip}:{port}{path}?{params}"
     try:
         resp = _req.post(url, timeout=10, headers={"User-Agent": "FLUX/1.0"})
-        return {"ok": True, "status": resp.status_code}
+        return {"ok": resp.ok, "status": resp.status_code}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -404,8 +404,25 @@ def update_device(device_id):
         device["min_soc"] = int(body["min_soc"]) if body["min_soc"] is not None else None
     if "max_soc" in body:
         device["max_soc"] = int(body["max_soc"]) if body["max_soc"] is not None else None
+    if "forced_mode" in body:
+        fm = body["forced_mode"]
+        device["forced_mode"] = fm if fm in ("anti-feed", "manual") else None
 
     save_devices(devices)
+
+    # Immediately push changed hardware settings so the user sees instant effect
+    # without waiting for the next automation tick (up to 5 minutes).
+    ip, port = device.get("ip", ""), device.get("port", 80)
+    if ip:
+        if "min_soc" in body and device.get("min_soc") is not None:
+            send_esphome_command(ip, port, "number", "Marstek Reserve", str(device["min_soc"]))
+        if "forced_mode" in body:
+            mode = device.get("forced_mode")
+            if mode:
+                send_esphome_command(ip, port, "select", "Marstek User Work Mode", mode)
+            # When forced_mode is cleared, the next automation tick will restore the
+            # plan-based mode automatically — no immediate action needed.
+
     return jsonify(device)
 
 
@@ -5517,6 +5534,17 @@ def _automation_tick() -> None:
             continue
 
         commands = list(base_commands)
+
+        # Per-device forced_mode: user can pin the Work Mode (e.g. always "anti-feed")
+        # regardless of what the plan-based action would normally set.
+        forced_mode = device.get("forced_mode")
+        if forced_mode:
+            commands = [
+                (d, n, forced_mode if (d == "select" and n == "Marstek User Work Mode") else v)
+                for d, n, v in commands
+            ]
+            log.info("Automation: device %s  forced_mode=%s", device_id, forced_mode)
+
         if global_grid_charge_settings:
             per_bat_w         = global_grid_charge_settings["per_bat_w"]
             global_charge_soc = global_grid_charge_settings["global_charge_soc"]

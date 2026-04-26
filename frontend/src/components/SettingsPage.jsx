@@ -226,16 +226,18 @@ function TabApparaten({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDevi
   const [editName,   setEditName]   = useState("");
   const [editIp,     setEditIp]     = useState("");
   const [editPort,   setEditPort]   = useState(80);
-  const [editMinSoc, setEditMinSoc] = useState("");
-  const [editMaxSoc, setEditMaxSoc] = useState("");
-  const [editSaving, setEditSaving] = useState(false);
-  const [editError,  setEditError]  = useState(null);
-  const [settings,   setSettings]   = useState(loadSettings);
+  const [editMinSoc,     setEditMinSoc]     = useState("");
+  const [editMaxSoc,     setEditMaxSoc]     = useState("");
+  const [editForcedMode, setEditForcedMode] = useState("");
+  const [editSaving,     setEditSaving]     = useState(false);
+  const [editError,      setEditError]      = useState(null);
+  const [settings,       setSettings]       = useState(loadSettings);
 
   const openEdit = (d) => {
     setEditId(d.id); setEditName(d.name); setEditIp(d.ip); setEditPort(d.port);
     setEditMinSoc(d.min_soc != null ? String(d.min_soc) : "");
     setEditMaxSoc(d.max_soc != null ? String(d.max_soc) : "");
+    setEditForcedMode(d.forced_mode ?? "");
     setEditError(null);
   };
 
@@ -245,6 +247,7 @@ function TabApparaten({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDevi
     const body = { name: editName.trim(), ip: editIp.trim(), port: Number(editPort) };
     body.min_soc = editMinSoc !== "" ? parseInt(editMinSoc) : null;
     body.max_soc = editMaxSoc !== "" ? parseInt(editMaxSoc) : null;
+    body.forced_mode = editForcedMode || null;
     try {
       const r = await apiFetch(`api/devices/${editId}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
@@ -301,6 +304,19 @@ function TabApparaten({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDevi
                     value={editMaxSoc} onChange={(e) => setEditMaxSoc(e.target.value)} />
                   <span style={{ fontSize: 12, color: "var(--text-muted)", alignSelf: "center" }}>Min/Max SoC (optioneel, per batterij)</span>
                 </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <select className="form-input" style={{ flex: "1 1 200px" }}
+                    value={editForcedMode}
+                    onChange={(e) => setEditForcedMode(e.target.value)}
+                    title="Vergrendel de Work Mode van deze batterij, ongeacht wat de automatisering besluit.">
+                    <option value="">Automatisch (door planning)</option>
+                    <option value="anti-feed">Altijd anti-feed</option>
+                    <option value="manual">Altijd handmatig (manual)</option>
+                  </select>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", alignSelf: "center" }}>
+                    Work Mode override — wordt direct toegepast
+                  </span>
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button className="btn btn-primary btn-sm" onClick={handleSaveEdit} disabled={editSaving}>
                     {editSaving ? "Opslaan…" : "Opslaan"}
@@ -317,6 +333,11 @@ function TabApparaten({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDevi
                     {(d.min_soc != null || d.max_soc != null) && (
                       <span style={{ marginLeft: 8, color: "var(--text-muted)", fontSize: 11 }}>
                         SoC: {d.min_soc != null ? `${d.min_soc}%` : "—"}–{d.max_soc != null ? `${d.max_soc}%` : "—"}
+                      </span>
+                    )}
+                    {d.forced_mode && (
+                      <span style={{ marginLeft: 8, fontSize: 11, background: "var(--accent)", color: "#fff", borderRadius: 3, padding: "0 5px" }}>
+                        🔒 {d.forced_mode}
                       </span>
                     )}
                   </div>
