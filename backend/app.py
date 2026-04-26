@@ -4910,9 +4910,12 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
         result["claude_debug"]    = _claude_debug
     if _auto_info:
         result["engine_auto_info"] = _auto_info
-    # Heating device state for UI display and strategy consideration
-    result["daikin_devices"] = daikin_devices
-    result["bosch_devices"]  = bosch_devices
+    # Heating device registries for UI display (loaded from local files, no API calls)
+    try:
+        result["bosch_devices"] = bosch_home_connect.load_bosch_devices(DATA_DIR)
+    except Exception:
+        result["bosch_devices"] = {}
+    result["daikin_devices"] = []
     # Expose calculated (or configured) standby for display in the UI
     from strategy import load_strategy_settings as _lss
     _ss = _lss()
