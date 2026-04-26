@@ -4339,6 +4339,25 @@ def get_influx_live_slots():
 
 
 # ---------------------------------------------------------------------------
+# Grafana URL helper
+# ---------------------------------------------------------------------------
+
+@app.route("/api/grafana-url")
+def get_grafana_url():
+    """Return the Grafana base URL for iframe embedding.
+
+    Resolves in order:
+      1. GRAFANA_EXTERNAL_URL env var (explicit override)
+      2. Same hostname as the request, port 3000 (default Docker Compose setup)
+    """
+    explicit = os.environ.get("GRAFANA_EXTERNAL_URL", "").strip()
+    if explicit:
+        return jsonify({"url": explicit.rstrip("/")})
+    hostname = request.host.split(":")[0]
+    return jsonify({"url": f"http://{hostname}:3000"})
+
+
+# ---------------------------------------------------------------------------
 # Serve React frontend (production build)
 # ---------------------------------------------------------------------------
 

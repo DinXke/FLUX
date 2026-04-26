@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
 const DASHBOARDS = [
@@ -9,13 +9,22 @@ const DASHBOARDS = [
   { id: "ai-strategy-log",      icon: "🧠", labelKey: "grafana.aiLog" },
 ];
 
-function buildGrafanaUrl(uid) {
-  return `${window.location.origin}/grafana/d/${uid}?orgId=1&kiosk=tv&theme=dark`;
-}
-
 export default function GrafanaPage() {
   const { t } = useTranslation();
   const [active, setActive] = useState(DASHBOARDS[0].id);
+  const [grafanaBase, setGrafanaBase] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch("/api/grafana-url")
+      .then((r) => r.json())
+      .then((d) => setGrafanaBase(d.url))
+      .catch(() => setError("Kon Grafana URL niet ophalen"));
+  }, []);
+
+  const iframeSrc = grafanaBase
+    ? `${grafanaBase}/d/${active}?orgId=1&kiosk=tv&theme=dark`
+    : null;
 
   return (
     <div style={{ margin: "-24px", display: "flex", flexDirection: "column" }}>
@@ -41,20 +50,24 @@ export default function GrafanaPage() {
         ))}
       </div>
 
-      {/* Grafana iframe — fills remaining viewport height */}
-      <iframe
-        key={active}
-        src={buildGrafanaUrl(active)}
-        title={active}
-        style={{
-          border: "none",
-          width: "100%",
-          // 52px header + 8px picker padding*2 + 33px picker btn + 56px mobile nav
-          height: "calc(100svh - 10rem)",
-          display: "block",
-        }}
-        allow="fullscreen"
-      />
+      {error && (
+        <div style={{ padding: 16, color: "var(--red, #ef4444)" }}>{error}</div>
+      )}
+
+      {iframeSrc && (
+        <iframe
+          key={iframeSrc}
+          src={iframeSrc}
+          title={active}
+          style={{
+            border: "none",
+            width: "100%",
+            height: "calc(100svh - 10rem)",
+            display: "block",
+          }}
+          allow="fullscreen"
+        />
+      )}
     </div>
   );
 }
