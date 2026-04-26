@@ -1464,6 +1464,7 @@ HW_SENSOR_META: dict = {
     "reactive_power_var":       {"label": "Reactief verm.",   "unit": "VAr",   "group": "Overig"},
     "active_reactive_power_var":{"label": "Reactief verm.",   "unit": "VAr",   "group": "Overig"},
     "power_factor":             {"label": "Vermogensfactor",  "unit": "",      "group": "Overig"},
+    "active_power_factor":      {"label": "Vermogensfactor",  "unit": "",      "group": "Overig"},
     "active_tariff":            {"label": "Actief tarief",    "unit": "",      "group": "Overig"},
     # ── Gas ────────────────────────────────────────────────────────────────
     "total_gas_m3":             {"label": "Gasverbruik",      "unit": "m³",    "group": "Gas"},
@@ -1493,11 +1494,18 @@ def _save_hw_devices(devices: dict) -> None:
         log.error("hw_devices: failed to save %s: %s", HW_DEVICES_FILE, exc)
 
 
-def _hw_fetch(ip: str, path: str, token: str | None = None, timeout: int = 5) -> dict:
-    """Fetch from a HomeWizard device. Uses v2 (HTTPS + Bearer) when token is given."""
+def _hw_fetch(ip: str, path: str, token: str | None = None, timeout: int = 5,
+              api_version: int = 1) -> dict:
+    """Fetch from a HomeWizard device.
+    Uses HTTPS when a token is given (v2 auth) or when api_version=2 (v2 info endpoints
+    such as /api which don't require auth but the device only listens on HTTPS).
+    """
     if token:
         resp = _req.get(f"https://{ip}{path}", timeout=timeout, verify=False,
                         headers={"Authorization": f"Bearer {token}", "X-Api-Version": "2"})
+    elif api_version == 2:
+        resp = _req.get(f"https://{ip}{path}", timeout=timeout, verify=False,
+                        headers={"X-Api-Version": "2"})
     else:
         resp = _req.get(f"http://{ip}{path}", timeout=timeout)
     resp.raise_for_status()
@@ -1551,8 +1559,9 @@ def _hw_probe(ip: str) -> dict | None:
     except Exception:
         pass
     # v2: HTTPS, self-signed cert, no token needed for /api info endpoint
+    # Longer timeout: SSL handshake on IoT devices can take 1–2 s.
     try:
-        resp = _req.get(f"https://{ip}/api", timeout=1, verify=False,
+        resp = _req.get(f"https://{ip}/api", timeout=3, verify=False,
                         headers={"X-Api-Version": "2"})
         if resp.status_code == 200:
             d = resp.json()
@@ -1603,11 +1612,26 @@ def hw_add_device():
         pass
 
     if not probe:
-        # Manual add: trust caller's api_version
-        try:
-            info = _hw_fetch(ip, "/api", token=token if api_v == 2 else None)
-        except Exception as exc:
-            return jsonify({"error": f"Apparaat niet bereikbaar: {exc}"}), 502
+        # Manual add – probe failed (e.g. HTTPS timeout on busy IoT device).
+        # Try HTTP v1 first; if that fails, try HTTPS v2 (energy sockets with newer
+        # firmware are HTTPS-only and the probe's 3 s timeout may still be too tight
+        # on congested networks).
+        info = None
+        last_exc: Exception | None = None
+        for try_api_v, try_token in [
+            (api_v, token if api_v == 2 else None),  # caller's preference
+            (2, None),                                # HTTPS v2 fallback (no token, /api only)
+        ]:
+            if try_api_v == api_v and info is not None:
+                break  # already succeeded
+            try:
+                info = _hw_fetch(ip, "/api", token=try_token, api_version=try_api_v)
+                api_v = try_api_v
+                break
+            except Exception as exc:
+                last_exc = exc
+        if info is None:
+            return jsonify({"error": f"Apparaat niet bereikbaar: {last_exc}"}), 502
     else:
         info = probe
 
@@ -1668,8 +1692,14 @@ def hw_discover(device_id):
     if device_id not in devices:
         return jsonify({"error": "Niet gevonden"}), 404
     device = devices[device_id]
+    if device.get("api_version") == 2 and not device.get("token"):
+        return jsonify({"error":
+            "API v2 apparaat — koppel het apparaat eerst via de 'Koppelen' knop "
+            "(druk de fysieke knop op het apparaat in na het klikken op Koppelen)."}), 422
     try:
-        data = _hw_fetch(device["ip"], _hw_data_path(device), token=device.get("token"))
+        data = _hw_fetch(device["ip"], _hw_data_path(device),
+                         token=device.get("token"),
+                         api_version=device.get("api_version", 1))
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
 
@@ -1789,7 +1819,9 @@ def hw_data():
             "error":           None,
         }
         try:
-            data = _hw_fetch(dev["ip"], _hw_data_path(dev), token=dev.get("token"))
+            data = _hw_fetch(dev["ip"], _hw_data_path(dev),
+                             token=dev.get("token"),
+                             api_version=dev.get("api_version", 1))
             entry["reachable"] = True
             for key in selected:
                 if key in data and isinstance(data[key], (int, float)):
