@@ -2655,3 +2655,59 @@ html, body {
   min-width: 72px;
   flex-shrink: 0;
 }
+
+/* =========================================================
+   Language Switcher
+   ========================================================= */
+.language-picker {
+  position: relative;
+}
+.language-picker-summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.language-picker-summary::-webkit-details-marker { display: none; }
+
+.language-picker-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  min-width: 130px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.language-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition);
+}
+.language-picker-item:hover { background: var(--bg-hover); }
+.language-picker-item.active {
+  background: var(--bg-card-inner);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.language-picker-item.active::after {
+  content: "✓";
+  margin-left: auto;
+  font-size: 11px;
+}

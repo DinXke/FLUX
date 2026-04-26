@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import DeviceCard from "./components/DeviceCard.jsx";
 import AddDeviceModal from "./components/AddDeviceModal.jsx";
 import PricesPage from "./components/PricesPage.jsx";
@@ -10,6 +11,7 @@ import HistoricalFrankPage from "./components/HistoricalFrankPage.jsx";
 import EnergyMap from "./components/EnergyMap.jsx";
 import HomeWizardPanel from "./components/HomeWizardPanel.jsx";
 import SmaInverterPanel from "./components/SmaInverterPanel.jsx";
+import LanguageSwitcher from "./components/LanguageSwitcher.jsx";
 
 const THEMES = [
   { id: "dark",   icon: "🌙", label: "Dark"   },
@@ -51,13 +53,14 @@ function useUiVersion() {
 }
 
 function ViewToggle() {
+  const { t } = useTranslation();
   const [mode, setMode] = useViewMode();
   const isMobile = mode === "mobile";
   return (
     <button
       className="btn btn-ghost btn-sm"
       onClick={() => setMode(isMobile ? "desktop" : "mobile")}
-      title={isMobile ? "Schakel naar desktopweergave" : "Schakel naar mobiele weergave"}
+      title={isMobile ? t('view.toggleDesktop') : t('view.toggleMobile')}
       style={{ gap: 4, fontSize: 12 }}
     >
       {isMobile ? "🖥️" : "📱"}
@@ -66,16 +69,17 @@ function ViewToggle() {
 }
 
 function UiVersionToggle() {
+  const { t } = useTranslation();
   const [version, setVersion] = useUiVersion();
   const isNew = version === "new";
   return (
     <button
       className="btn btn-ghost btn-sm"
       onClick={() => setVersion(isNew ? "old" : "new")}
-      title={isNew ? "Schakel naar Old UI" : "Schakel naar New UI"}
+      title={isNew ? t('view.toggleOldUI') : t('view.toggleNewUI')}
       style={{ gap: 4, fontSize: 12 }}
     >
-      {isNew ? "🆕" : "🕹️"} {isNew ? "New UI" : "Old UI"}
+      {isNew ? "🆕" : "🕹️"} {isNew ? t('view.newUI') : t('view.oldUI')}
     </button>
   );
 }
@@ -92,16 +96,17 @@ function useUiMode() {
 }
 
 function UiModeToggle() {
+  const { t } = useTranslation();
   const [mode, setMode] = useUiMode();
   const isNew = mode === "new";
   return (
     <button
       className="btn btn-ghost btn-sm ui-mode-toggle"
       onClick={() => setMode(isNew ? "classic" : "new")}
-      title={isNew ? "Schakel naar Classic UI" : "Schakel naar New UI"}
+      title={isNew ? t('view.toggleClassic') : t('view.toggleNew')}
       style={{ gap: 4, fontSize: 12 }}
     >
-      {isNew ? "🔁 Classic" : "🆕 New UI"}
+      {isNew ? t('view.classic') : t('view.new')}
     </button>
   );
 }
@@ -146,17 +151,18 @@ function ThemeToggle() {
   );
 }
 
-const NAV_ITEMS = [
-  { id: "batteries", icon: "🔋", label: "Batterijen"       },
-  { id: "prices",    icon: "⚡", label: "Prijzen"           },
-  { id: "forecast",  icon: "☀️", label: "Voorspelling"     },
-  { id: "strategy",  icon: "🧠", label: "Strategie"        },
-  { id: "profit",    icon: "💰", label: "Winst"             },
-  { id: "frank",     icon: "📊", label: "Prijshistorie"     },
-  { id: "settings",  icon: "⚙️", label: "Instellingen"     },
-];
-
 export default function App() {
+  const { t } = useTranslation();
+
+  const NAV_ITEMS = [
+    { id: "batteries", icon: "🔋", label: t('nav.batteries') },
+    { id: "prices",    icon: "⚡", label: t('nav.prices') },
+    { id: "forecast",  icon: "☀️", label: t('nav.forecast') },
+    { id: "strategy",  icon: "🧠", label: t('nav.strategy') },
+    { id: "profit",    icon: "💰", label: t('nav.profit') },
+    { id: "frank",     icon: "📊", label: t('nav.history') },
+    { id: "settings",  icon: "⚙️", label: t('nav.settings') },
+  ];
   // Apply saved theme + view mode + ui version immediately on mount
   useEffect(() => {
     const theme = localStorage.getItem("marstek_theme") || "dark";
@@ -247,8 +253,8 @@ export default function App() {
         <div className="app-header-brand">
           <span className="app-header-logo">🔋</span>
           <div>
-            <div className="app-header-title">Marstek</div>
-            <div className="app-header-subtitle app-header-subtitle--desktop">ESPHome Battery Monitor</div>
+            <div className="app-header-title">{t('app.title')}</div>
+            <div className="app-header-subtitle app-header-subtitle--desktop">{t('app.subtitle')}</div>
           </div>
         </div>
 
@@ -270,9 +276,10 @@ export default function App() {
           <UiModeToggle />
           <ThemeToggle />
           <UiVersionToggle />
+          <LanguageSwitcher />
           {page === "batteries" && (
             <button className="btn btn-primary btn--add-desktop" onClick={() => setShowAdd(true)}>
-              + Toevoegen
+              {t('buttons.addDesktop')}
             </button>
           )}
         </div>
@@ -298,17 +305,17 @@ export default function App() {
           loading ? (
             <div className="loading-overlay">
               <div className="loading-spinner" />
-              <span>Apparaten laden…</span>
+              <span>{t('loading.devices')}</span>
             </div>
           ) : devices.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">🔋</div>
-              <div className="empty-state-title">Nog geen apparaten</div>
+              <div className="empty-state-title">{t('empty.title')}</div>
               <div className="empty-state-desc">
-                Voeg een Marstek batterij toe om te beginnen met monitoren.
+                {t('empty.description')}
               </div>
               <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
-                + Apparaat toevoegen
+                {t('buttons.addDevice')}
               </button>
             </div>
           ) : (
@@ -320,7 +327,7 @@ export default function App() {
                   onClick={toggleEnergyMap}
                   aria-expanded={energyMapVisible}
                 >
-                  ⚡ Vermogensbalans
+                  {t('cards.powerBalance')}
                   <span className={`home-flow-chevron${energyMapVisible ? " home-flow-chevron--open" : ""}`}>›</span>
                 </button>
                 <div className={`home-flow-body${energyMapVisible ? " home-flow-body--open" : ""}`}>
@@ -373,7 +380,7 @@ export default function App() {
 
       {/* Mobile FAB for adding devices */}
       {page === "batteries" && (
-        <button className="fab" onClick={() => setShowAdd(true)} title="Apparaat toevoegen">+</button>
+        <button className="fab" onClick={() => setShowAdd(true)} title={t('fab.addDevice')}>+</button>
       )}
 
       {showAdd && (

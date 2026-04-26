@@ -1,0 +1,55 @@
+{
+  "app": {
+    "title": "Marstek",
+    "subtitle": "ESPHome Battery Monitor"
+  },
+  "nav": {
+    "batteries": "Batterijen",
+    "prices": "Prijzen",
+    "forecast": "Voorspelling",
+    "strategy": "Strategie",
+    "profit": "Winst",
+    "history": "Prijshistorie",
+    "settings": "Instellingen"
+  },
+  "buttons": {
+    "add": "+ Toevoegen",
+    "addDevice": "+ Apparaat toevoegen",
+    "addDesktop": "+ Toevoegen"
+  },
+  "view": {
+    "toggleDesktop": "Schakel naar desktopweergave",
+    "toggleMobile": "Schakel naar mobiele weergave",
+    "toggleOldUI": "Schakel naar Old UI",
+    "toggleNewUI": "Schakel naar New UI",
+    "toggleClassic": "Schakel naar Classic UI",
+    "toggleNew": "Schakel naar New UI",
+    "oldUI": "Old UI",
+    "newUI": "New UI",
+    "classic": "🔁 Classic",
+    "new": "🆕 New UI"
+  },
+  "theme": {
+    "dark": "Dark",
+    "light": "Light",
+    "matrix": "Matrix"
+  },
+  "loading": {
+    "devices": "Apparaten laden…"
+  },
+  "empty": {
+    "title": "Nog geen apparaten",
+    "description": "Voeg een Marstek batterij toe om te beginnen met monitoren."
+  },
+  "cards": {
+    "powerBalance": "⚡ Vermogensbalans"
+  },
+  "fab": {
+    "addDevice": "Apparaat toevoegen"
+  },
+  "language": {
+    "nl": "Nederlands",
+    "en": "English",
+    "select": "Taal"
+  }
+}

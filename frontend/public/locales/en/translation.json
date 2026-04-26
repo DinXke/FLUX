@@ -1,0 +1,55 @@
+{
+  "app": {
+    "title": "Marstek",
+    "subtitle": "ESPHome Battery Monitor"
+  },
+  "nav": {
+    "batteries": "Batteries",
+    "prices": "Prices",
+    "forecast": "Forecast",
+    "strategy": "Strategy",
+    "profit": "Profit",
+    "history": "Price History",
+    "settings": "Settings"
+  },
+  "buttons": {
+    "add": "+ Add",
+    "addDevice": "+ Add Device",
+    "addDesktop": "+ Add"
+  },
+  "view": {
+    "toggleDesktop": "Switch to desktop view",
+    "toggleMobile": "Switch to mobile view",
+    "toggleOldUI": "Switch to Old UI",
+    "toggleNewUI": "Switch to New UI",
+    "toggleClassic": "Switch to Classic UI",
+    "toggleNew": "Switch to New UI",
+    "oldUI": "Old UI",
+    "newUI": "New UI",
+    "classic": "🔁 Classic",
+    "new": "🆕 New UI"
+  },
+  "theme": {
+    "dark": "Dark",
+    "light": "Light",
+    "matrix": "Matrix"
+  },
+  "loading": {
+    "devices": "Loading devices…"
+  },
+  "empty": {
+    "title": "No devices yet",
+    "description": "Add a Marstek battery to start monitoring."
+  },
+  "cards": {
+    "powerBalance": "⚡ Power Balance"
+  },
+  "fab": {
+    "addDevice": "Add Device"
+  },
+  "language": {
+    "nl": "Nederlands",
+    "en": "English",
+    "select": "Language"
+  }
+}
