@@ -36,3 +36,17 @@ Dit is een Home Assistant add-on. De add-on versie komt uit `config.yaml` (`vers
 ## Kleine changes zonder release
 
 Interne refactors, CI tweaks, documentatie-only changes hoeven geen versie-bump. Push naar `main` zonder tag. Alleen tag als de gebruiker de change ook echt merkt.
+
+## Git sync protocol (verplicht)
+
+Elke agent pusht naar GitHub **na elke merge naar main**. Gebruik de GITHUB_TOKEN uit de project env vars:
+
+```bash
+cd /paperclip/projects/FLUX
+git remote set-url origin "https://DinXke:${GITHUB_TOKEN}@github.com/DinXke/FLUX.git"
+git push origin main
+```
+
+Worktree branches (bijv. `backend/...`, `devops/...`) worden **niet** direct gepusht — merge naar main en push main.
+
+Na een succesvolle push: rapporteer de commit hash in een comment op de actieve taak.
