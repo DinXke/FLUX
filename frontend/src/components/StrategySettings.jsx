@@ -1,5 +1,5 @@
 import { apiFetch } from "../auth.js";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const DEFAULTS = {
   bat_capacity_kwh:     10.0,
@@ -48,17 +48,22 @@ export default function StrategySettings() {
   const [vals,      setVals]      = useState(DEFAULTS);
   const [saving,    setSaving]    = useState(false);
   const [success,   setSuccess]   = useState(false);
+  const [modeChanged, setModeChanged] = useState(false);
   const [error,     setError]     = useState(null);
   const [influx,    setInflux]    = useState(null);
   const [frankStat, setFrankStat] = useState(null);
+  const loadedModeRef = useRef(null);
 
   useEffect(() => {
     apiFetch("api/strategy/settings")
       .then((r) => r.json())
-      .then((d) => setVals({
-        ...DEFAULTS, ...d,
-        manual_peak_hours: (d.manual_peak_hours || []).join(", "),
-      }))
+      .then((d) => {
+        loadedModeRef.current = d.strategy_mode || "rule_based";
+        setVals({
+          ...DEFAULTS, ...d,
+          manual_peak_hours: (d.manual_peak_hours || []).join(", "),
+        });
+      })
       .catch(() => {});
 
     apiFetch("api/influx/status")
@@ -75,7 +80,7 @@ export default function StrategySettings() {
   const set = (k, v) => setVals((p) => ({ ...p, [k]: v }));
 
   const save = async () => {
-    setSaving(true); setError(null); setSuccess(false);
+    setSaving(true); setError(null); setSuccess(false); setModeChanged(false);
     try {
       const body = {
         ...vals,
@@ -114,8 +119,11 @@ export default function StrategySettings() {
         body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error("Opslaan mislukt");
+      const changed = body.strategy_mode !== loadedModeRef.current;
+      loadedModeRef.current = body.strategy_mode;
+      setModeChanged(changed);
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      setTimeout(() => { setSuccess(false); setModeChanged(false); }, changed ? 8000 : 3000);
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
   };
@@ -481,7 +489,12 @@ export default function StrategySettings() {
         <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
           {saving ? "Opslaan…" : "Opslaan"}
         </button>
-        {success && <span style={{ fontSize: 12, color: "var(--green)" }}>✓ Opgeslagen</span>}
+        {success && !modeChanged && <span style={{ fontSize: 12, color: "var(--green)" }}>✓ Opgeslagen</span>}
+        {success && modeChanged  && (
+          <span style={{ fontSize: 12, color: "var(--green)" }}>
+            ✓ Strategie gewijzigd — plan wordt herberekend bij volgende paginalading.
+          </span>
+        )}
         {error   && <span style={{ fontSize: 12, color: "var(--red)" }}>{error}</span>}
       </div>
     </div>

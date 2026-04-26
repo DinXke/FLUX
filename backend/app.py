@@ -3285,9 +3285,14 @@ def get_strategy_settings():
 @require_admin
 def post_strategy_settings():
     body = request.get_json(force=True) or {}
+    prev_mode = load_strategy_settings().get("strategy_mode")
     result = save_strategy_settings(body)
     if "min_reserve_soc" in body:
         _push_reserve_to_all_devices(result)
+    # Invalidate plan cache when strategy_mode changes so the next page
+    # load immediately recomputes with the new engine instead of serving stale cache.
+    if body.get("strategy_mode") and body["strategy_mode"] != prev_mode:
+        _plan_cache["fetched_at"] = None
     return jsonify(result)
 
 
