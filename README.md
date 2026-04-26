@@ -1,16 +1,19 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Home%20Assistant-Add--on-41BDF5?logo=homeassistant&logoColor=white" />
-  <img src="https://img.shields.io/badge/version-1.27.11-blue" />
+  <img src="https://img.shields.io/badge/Docker-Standalone-2496ED?logo=docker&logoColor=white" />
+  <img src="https://img.shields.io/badge/version-1.27.14-blue" />
   <img src="https://img.shields.io/badge/python-3.13-blue?logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/react-18-61DAFB?logo=react&logoColor=white" />
   <img src="https://img.shields.io/badge/license-MIT-green" />
 </p>
 
-<h1 align="center">⚡ SmartMarstek</h1>
+<h1 align="center">⚡ FLUX — Flexible Local Utility eXchange</h1>
 
 <p align="center">
-  <strong>Slimme thuisbatterij-optimalisatie voor Marstek / ESPHome batterijen in Home Assistant</strong><br/>
-  <em>Smart home battery optimisation add-on for Marstek / ESPHome batteries in Home Assistant</em>
+  <strong>Autonome energiestuurapplicatie voor thuisbatterijen · Dual-mode: Home Assistant Add-on of Standalone Docker</strong><br/>
+  <em>Autonomous home battery energy orchestration · Dual-mode: Home Assistant add-on or Standalone Docker</em><br/>
+  <br/>
+  <strong>Fork van <a href="https://github.com/DinXke/SmartMarstek">SmartMarstek</a> — uitgebreid met Daikin/Onecta, Bosch Home, MQTT, anomaliedetectie en ML-forecast.</strong>
 </p>
 
 ---
@@ -21,11 +24,39 @@
 
 # 🇳🇱 Nederlands
 
-## Wat is SmartMarstek?
+## FLUX — Wat is het?
 
-SmartMarstek is een volledig functionele Home Assistant add-on die je Marstek (of andere ESPHome-gebaseerde) thuisbatterij automatisch optimaliseert op basis van dynamische energieprijzen, zonne-energieprognoses en je historisch verbruik. Het systeem plant elk uur de optimale batterijactie voor de komende 48 uur en past dit automatisch toe — zonder dat je zelf iets hoeft te doen.
+**FLUX** is een geavanceerde energiestuurapplicatie voor thuisbatterijen, beschikbaar in twee implementatiemodi:
 
-Naast automatisering biedt SmartMarstek een uitgebreid webdashboard met live energiestromen, prijsgrafieken, winstanalyse en diepgaande configuratie.
+- **Mode A: Home Assistant Add-on** — Geïntegreerd via HA Supervisor, optie-configuratie, Ingress UI
+- **Mode B: Standalone Docker** — Zelfstandige deployment, docker-compose, eigen webinterface, nginx reverse proxy
+
+Beide modi gebruiken dezelfde Python/Flask backend en React frontend. FLUX optimaliseert je Marstek (of andere ESPHome-gebaseerde) batterij automatisch op basis van dynamische energieprijzen, zonne-energieprognoses, verbruikspatronen en real-time marktomstandigheden. Het systeem plant elk uur de optimale batterijactie voor de komende 48 uur en voert dit automatisch uit — zonder handmatige interventie.
+
+FLUX is een uitbreiding op **SmartMarstek** met aankomende integraties voor Daikin/Onecta warmtepompen, Bosch Home verwarmingslichamen, MQTT-apparaten, anomaliedetectie en ML-konsumptieforecast.
+
+Naast automatisering biedt FLUX een uitgebreid webdashboard met live energiestromen, prijsgrafieken, winstanalyse en diepgaande configuratie.
+
+---
+
+## Deploymodi
+
+### 🏠 Mode A: Home Assistant Add-on
+Geïntegreerd in je Home Assistant installatie:
+- Installatie via HA Add-on Store (repository toevoegen)
+- Configuratie via `options.json` (HA add-on interface)
+- Toegankelijk via HA Ingress sidebar
+- Vereist: Home Assistant OS of Supervised
+- Geen extra hardware/VPS nodig
+
+### 🐳 Mode B: Standalone Docker (Nieuw)
+Zelfstandige deployment op Linux/Raspberry Pi/NAS:
+- Docker Compose setup (`docker-compose.yml`)
+- Configuratie via `config.yaml` of `.env`
+- Eigen webinterface op custom poort
+- Nginx reverse proxy configuratie inbegrepen
+- Installatiehandleiding: `install.sh` (Ubuntu one-liner)
+- Geen afhankelijkheid van Home Assistant
 
 ---
 
@@ -92,6 +123,36 @@ Gebruikt het Anthropic Claude Haiku model als intelligente planningsagent:
 
 **Kosten:** Claude Haiku ~€0.002–0.005 per planningsrun (één keer per dag bij prijswijziging)
 
+#### 3. Multi-Model AI Support *(Fase 2 — optioneel)*
+Kies tussen meerdere AI-providers:
+- **Anthropic Claude** — Standaard, meest kosteneffectief (Haiku/Sonnet/Opus)
+- **OpenAI** — Gpt-4o, gpt-4o-mini, o1, o3 modellen
+- **Auto-mode** — Selecteert automatisch de best passende provider op basis van prijscomplexiteit
+
+Configureerbaar via:
+- `strategy_ai_provider`: "claude" | "openai" | "auto"
+- `claude_api_key` en `claude_model` (Claude-gebruikers)
+- `openai_api_key` en `openai_model` (OpenAI-gebruikers)
+
+LLM-abstractielaag (`llm_provider.py`) handelt beide APIs transparant af.
+
+### Geavanceerde Monitoring & Predictie *(Fase 3)*
+
+#### Anomaliedetectie
+- **Watchdog op sensor-stagnatie** — Waarschuwing als sensorwaarde > 1 uur niet vernieuwd
+- **Pieksignaaldetectie** — Ongewone stroompieken of inverter-fouten gedetecteerd
+- **Telegram alerts** — Realtime notificaties bij problemen
+
+#### ML-Consumptieforecast (Prophet)
+- **Automatische historische analyse** — 32 dagen InfluxDB-data verwerkt via Prophet
+- **7-daagse forecast per uur** — Weekdag en seizoenpatronen geïncorporeerd
+- **Integratie in Claude-strategie** — AI kan afwijkingen detecteren en compenseren
+
+### Configuratie-Abstractielaag *(Fase 1 - Complete)*
+- **Dual-mode configuratie** — Zelfde backend ondersteunt beide `options.json` (HA) en `config.yaml` (Docker)
+- **Auto-detectie** — `STANDALONE_MODE` env-var schakelt automatisch naar juiste modus
+- **Geen breaking changes** — Bestaande HA setups blijven ongewijzigd werken
+
 ### Live Dashboard
 - **Isometrische energiestroomkaart (EnergyMap)** — animeerde vermogensstromen: Zon → Net → Huis → Batterij → EV → Verbruikers
 - **Verbruikers-nodes** — HomeWizard energy sockets als diamant-nodes (wasmachine, droogkast, vaatwasser, laadpaal, ...)
@@ -136,25 +197,29 @@ Stuur batterij-updates rechtstreeks naar je Telegram-account via de Communicatio
 
 ## Installatie
 
-### Vereisten
+Kies een van de twee deploymodi:
+
+### Mode A: Home Assistant Add-on
+
+#### Vereisten
 - Home Assistant OS of Supervised
 - Een ESPHome-gebaseerde batterij (Marstek B2500 of compatibel)
 - Optioneel: Frank Energie account of ENTSO-E API-sleutel
 - Optioneel: InfluxDB add-on of externe InfluxDB instantie
 
-### Stap 1 — Add-on repository toevoegen
+#### Stap 1 — Add-on repository toevoegen
 
 Ga naar **Instellingen → Add-ons → Add-on store → ⋮ → Repositories** en voeg toe:
 
 ```
-https://github.com/DinXke/SmartMarstek
+https://github.com/DinXke/FLUX
 ```
 
-### Stap 2 — Installeer SmartMarstek
+#### Stap 2 — Installeer FLUX
 
-Zoek "SmartMarstek" in de add-on store en klik **Installeren**.
+Zoek "FLUX" in de add-on store en klik **Installeren**.
 
-### Stap 3 — Basisconfiguratie
+#### Stap 3 — Basisconfiguratie
 
 In de add-on **Configuratie**-tab:
 
@@ -172,11 +237,11 @@ influx_password: ""
 log_level: "info"
 ```
 
-### Stap 4 — Start de add-on
+#### Stap 4 — Start de add-on
 
 Klik **Starten**. De webinterface is beschikbaar via **Ingress** (HA zijbalk) of op poort `5000`.
 
-### Stap 5 — Eerste instellingen in de webinterface
+#### Stap 5 — Eerste instellingen in de webinterface
 
 1. **Apparaten** → Voeg je ESPHome batterij toe (IP-adres)
 2. **Instellingen → Strategie** → Vul batterijcapaciteit, RTE, min/max SOC in
@@ -184,6 +249,67 @@ Klik **Starten**. De webinterface is beschikbaar via **Ingress** (HA zijbalk) of
 4. **Instellingen → Zon** → Configureer forecast.solar (lat/lon, kW-piek, hoek)
 5. **Instellingen → InfluxDB** → Koppel je database voor verbruikshistoriek
 6. **Automatisering** → Schakel in ✓
+
+---
+
+### Mode B: Standalone Docker
+
+#### Vereisten
+- Ubuntu 20.04+ / Raspberry Pi OS / andere Linux-distributies
+- Docker + Docker Compose geïnstalleerd
+- Een ESPHome-gebaseerde batterij (Marstek B2500 of compatibel)
+- Optioneel: Frank Energie account of ENTSO-E API-sleutel
+
+#### Snelle Installatie (One-liner)
+
+Op een Linux-host:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DinXke/FLUX/main/install.sh | bash
+```
+
+Dit script installeert:
+- Docker en Docker Compose
+- FLUX repository klonen naar `/opt/flux`
+- `.env` configuratiebestand genereren
+- Nginx reverse proxy configureren
+- Docker volumes en network aanmaken
+- Containers starten en health checks uitvoeren
+
+#### Handmatige Installatie
+
+```bash
+# 1. Repository klonen
+git clone https://github.com/DinXke/FLUX.git
+cd FLUX
+
+# 2. Environment configureren
+cp .env.example .env
+# Edit .env met jouw instellingen:
+#  - FLUX_PORT=5000
+#  - HA_URL=http://homeassistant.local:8123
+#  - HA_TOKEN=your_long_lived_token
+#  - STANDALONE_MODE=true
+
+# 3. Containers starten
+docker-compose up -d
+
+# 4. Controleer status
+docker-compose logs -f flask
+```
+
+#### Eerste Instellingen (Standalone)
+
+Navigeer naar `http://localhost:5000` (of `http://your-host.local:5000` via nginx):
+
+1. **Apparaten** → Voeg je ESPHome batterij toe (IP-adres)
+2. **Instellingen → Strategie** → Vul batterijcapaciteit, RTE, min/max SOC in
+3. **Instellingen → Tarieven** → Koppel Frank Energie of ENTSO-E
+4. **Instellingen → Zon** → Configureer forecast.solar (lat/lon, kW-piek, hoek)
+5. **Instellingen → InfluxDB** → Koppel je externe InfluxDB
+6. **Automatisering** → Schakel in ✓
+
+Zie `docs/STANDALONE.md` voor uitgebreide gids inclusief reverse proxy, SSL/TLS, en firewall setup.
 
 ---
 
@@ -314,11 +440,39 @@ Pull requests en issues zijn welkom. Gebruik de [Issues-pagina](https://github.c
 
 # 🇬🇧 English
 
-## What is SmartMarstek?
+## FLUX — What is it?
 
-SmartMarstek is a fully-featured Home Assistant add-on that automatically optimises your Marstek (or other ESPHome-based) home battery using dynamic electricity prices, solar forecasts, and your historical consumption. The system plans the optimal battery action for every hour over the next 48 hours and executes it automatically — no manual intervention needed.
+**FLUX** is an advanced energy orchestration application for home batteries, available in two deployment modes:
 
-Beyond automation, SmartMarstek provides a rich web dashboard with live energy flows, price charts, savings analysis, and deep configuration.
+- **Mode A: Home Assistant Add-on** — Integrated via HA Supervisor, option-based config, Ingress UI
+- **Mode B: Standalone Docker** — Self-contained deployment, docker-compose, custom web interface, nginx reverse proxy
+
+Both modes use the same Python/Flask backend and React frontend. FLUX automatically optimizes your Marstek (or other ESPHome-based) battery using dynamic electricity prices, solar forecasts, consumption patterns, and real-time market conditions. The system plans the optimal battery action for every hour over the next 48 hours and executes it automatically — no manual intervention required.
+
+FLUX is an evolution of **SmartMarstek** with planned integrations for Daikin/Onecta heat pumps, Bosch Home heating controls, MQTT devices, anomaly detection, and ML consumption forecasting.
+
+Beyond automation, FLUX provides a rich web dashboard with live energy flows, price charts, savings analysis, and comprehensive configuration options.
+
+---
+
+## Deployment Modes
+
+### 🏠 Mode A: Home Assistant Add-on
+Integrated into your Home Assistant installation:
+- Install via HA Add-on Store (add repository)
+- Configure via `options.json` (HA add-on interface)
+- Access via HA Ingress sidebar
+- Requirements: Home Assistant OS or Supervised
+- No extra hardware/VPS needed
+
+### 🐳 Mode B: Standalone Docker (New)
+Self-contained deployment on Linux/Raspberry Pi/NAS:
+- Docker Compose setup (`docker-compose.yml`)
+- Configure via `config.yaml` or `.env`
+- Custom web interface on configurable port
+- Nginx reverse proxy configuration included
+- One-liner installation: `install.sh` (Ubuntu)
+- No Home Assistant dependency
 
 ---
 
@@ -385,6 +539,36 @@ Uses the Anthropic Claude Haiku model as an intelligent planning agent:
 
 **Cost:** Claude Haiku ~€0.002–0.005 per planning run (once per day on price change)
 
+#### 3. Multi-Model AI Support *(Phase 2 — optional)*
+Choose between multiple AI providers:
+- **Anthropic Claude** — Default, most cost-effective (Haiku/Sonnet/Opus)
+- **OpenAI** — GPT-4o, gpt-4o-mini, o1, o3 models
+- **Auto mode** — Automatically selects best provider based on price complexity
+
+Configurable via:
+- `strategy_ai_provider`: "claude" | "openai" | "auto"
+- `claude_api_key` and `claude_model` (Claude users)
+- `openai_api_key` and `openai_model` (OpenAI users)
+
+LLM abstraction layer (`llm_provider.py`) handles both APIs transparently.
+
+### Advanced Monitoring & Forecasting *(Phase 3)*
+
+#### Anomaly Detection
+- **Sensor staleness watchdog** — Alert if sensor value not updated for > 1 hour
+- **Peak signal detection** — Detect unusual power spikes or inverter faults
+- **Telegram alerts** — Real-time notifications on issues
+
+#### ML Consumption Forecast (Prophet)
+- **Automatic historical analysis** — 32 days of InfluxDB data processed via Prophet
+- **7-day hourly forecast** — Weekday and seasonal patterns incorporated
+- **Claude integration** — AI can detect and compensate for deviations
+
+### Configuration Abstraction Layer *(Phase 1 - Complete)*
+- **Dual-mode config** — Same backend supports both `options.json` (HA) and `config.yaml` (Docker)
+- **Auto-detection** — `STANDALONE_MODE` env var automatically switches appropriate mode
+- **No breaking changes** — Existing HA deployments continue to work unchanged
+
 ### Live Dashboard
 - **Isometric energy flow map (EnergyMap)** — animated power flows: Solar → Grid → House → Battery → EV → Consumers
 - **Consumer nodes** — HomeWizard energy sockets as diamond nodes (washing machine, dryer, dishwasher, EV charger, ...)
@@ -413,25 +597,29 @@ Uses the Anthropic Claude Haiku model as an intelligent planning agent:
 
 ## Installation
 
-### Requirements
+Choose one of the two deployment modes:
+
+### Mode A: Home Assistant Add-on
+
+#### Requirements
 - Home Assistant OS or Supervised
 - An ESPHome-based battery (Marstek B2500 or compatible)
 - Optional: Frank Energie account or ENTSO-E API key
 - Optional: InfluxDB add-on or external InfluxDB instance
 
-### Step 1 — Add the repository
+#### Step 1 — Add the repository
 
 Go to **Settings → Add-ons → Add-on store → ⋮ → Repositories** and add:
 
 ```
-https://github.com/DinXke/SmartMarstek
+https://github.com/DinXke/FLUX
 ```
 
-### Step 2 — Install SmartMarstek
+#### Step 2 — Install FLUX
 
-Find "SmartMarstek" in the add-on store and click **Install**.
+Find "FLUX" in the add-on store and click **Install**.
 
-### Step 3 — Basic configuration
+#### Step 3 — Basic configuration
 
 In the add-on **Configuration** tab:
 
@@ -449,11 +637,11 @@ influx_password: ""
 log_level: "info"
 ```
 
-### Step 4 — Start the add-on
+#### Step 4 — Start the add-on
 
 Click **Start**. The web interface is available via **Ingress** (HA sidebar) or on port `5000`.
 
-### Step 5 — First-time setup in the web interface
+#### Step 5 — First-time setup in the web interface
 
 1. **Devices** → Add your ESPHome battery (IP address)
 2. **Settings → Strategy** → Fill in battery capacity, RTE, min/max SOC
@@ -461,6 +649,67 @@ Click **Start**. The web interface is available via **Ingress** (HA sidebar) or 
 4. **Settings → Solar** → Configure forecast.solar (lat/lon, kW-peak, angle)
 5. **Settings → InfluxDB** → Connect your database for consumption history
 6. **Automation** → Enable ✓
+
+---
+
+### Mode B: Standalone Docker
+
+#### Requirements
+- Ubuntu 20.04+ / Raspberry Pi OS / other Linux distributions
+- Docker + Docker Compose installed
+- An ESPHome-based battery (Marstek B2500 or compatible)
+- Optional: Frank Energie account or ENTSO-E API key
+
+#### Quick Installation (One-liner)
+
+On a Linux host:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DinXke/FLUX/main/install.sh | bash
+```
+
+This script installs:
+- Docker and Docker Compose
+- FLUX repository clone to `/opt/flux`
+- Generate `.env` configuration file
+- Configure Nginx reverse proxy
+- Create Docker volumes and network
+- Start containers and run health checks
+
+#### Manual Installation
+
+```bash
+# 1. Clone repository
+git clone https://github.com/DinXke/FLUX.git
+cd FLUX
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env with your settings:
+#  - FLUX_PORT=5000
+#  - HA_URL=http://homeassistant.local:8123
+#  - HA_TOKEN=your_long_lived_token
+#  - STANDALONE_MODE=true
+
+# 3. Start containers
+docker-compose up -d
+
+# 4. Check status
+docker-compose logs -f flask
+```
+
+#### First-time Setup (Standalone)
+
+Navigate to `http://localhost:5000` (or `http://your-host.local:5000` via nginx):
+
+1. **Devices** → Add your ESPHome battery (IP address)
+2. **Settings → Strategy** → Fill in battery capacity, RTE, min/max SOC
+3. **Settings → Tariffs** → Connect Frank Energie or ENTSO-E
+4. **Settings → Solar** → Configure forecast.solar (lat/lon, kW-peak, angle)
+5. **Settings → InfluxDB** → Connect your external InfluxDB
+6. **Automation** → Enable ✓
+
+See `docs/STANDALONE.md` for comprehensive guide including reverse proxy, SSL/TLS, and firewall setup.
 
 ---
 
@@ -501,30 +750,34 @@ Click **Start**. The web interface is available via **Ingress** (HA sidebar) or 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                  SmartMarstek Add-on                │
-│                                                     │
-│  ┌──────────────┐    ┌──────────────────────────┐  │
-│  │   React UI   │◄──►│     Flask Backend         │  │
-│  │  (Vite/SWC)  │    │     (app.py)              │  │
-│  └──────────────┘    │                            │  │
-│                      │  ┌──────────┐  ┌────────┐ │  │
-│                      │  │strategy  │  │influx_ │ │  │
-│                      │  │.py       │  │writer  │ │  │
-│                      │  ├──────────┤  │.py     │ │  │
-│                      │  │strategy_ │  └────────┘ │  │
-│                      │  │claude.py │             │  │
-│                      │  └──────────┘             │  │
-│                      └──────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-         │               │              │
-    ESPHome           InfluxDB     Home Assistant
-    Battery          (timeseries)  (entities/services)
-         │               │              │
-   HomeWizard       Frank Energie  ENTSO-E / forecast.solar
-   (P1/sockets)     (prices)       (prices / solar)
+┌────────────────────────────────────────────────────────────┐
+│              FLUX Energy Orchestration Engine              │
+│                  (HA Add-on or Docker)                     │
+│                                                            │
+│  ┌──────────────┐         ┌─────────────────────────────┐ │
+│  │  React UI    │◄───────►│   Flask Backend             │ │
+│  │ (Vite/SWC)   │         │   (app.py)                  │ │
+│  └──────────────┘         │  ┌────────────┐  ┌────────┐ │ │
+│                           │  │strategy.py │  │influx_ │ │ │
+│                           │  │            │  │writer  │ │ │
+│                           │  ├────────────┤  │.py     │ │ │
+│                           │  │strategy_   │  └────────┘ │ │
+│                           │  │claude.py   │             │ │
+│                           │  ├────────────┤  ┌────────┐ │ │
+│                           │  │anomaly_    │  │prophet │ │ │
+│                           │  │detection   │  │forecast│ │ │
+│                           │  └────────────┘  └────────┘ │ │
+│                           └─────────────────────────────┘ │
+└────────────────────────────────────────────────────────────┘
+         │                  │              │
+    ESPHome            InfluxDB      Home Assistant
+   (Batteries)      (Timeseries)   (Entities/Services)
+         │                  │              │
+   HomeWizard        Frank Energie   ENTSO-E / Forecast.Solar
+  (P1/Sockets)       (Prices)        (Prices / Solar)
          │
-   Anthropic Claude API (optional)
+  Anthropic Claude & OpenAI API
+   (Optional AI Strategy)
 ```
 
 ---
