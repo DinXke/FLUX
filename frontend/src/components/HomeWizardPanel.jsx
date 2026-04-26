@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect, useCallback } from "react";
 
 // ---------------------------------------------------------------------------
@@ -96,7 +97,7 @@ export default function HomeWizardPanel() {
 
   const poll = useCallback(async () => {
     try {
-      const r = await fetch("api/homewizard/data");
+      const r = await apiFetch("api/homewizard/data");
       if (!r.ok) return;
       setData(await r.json());
       setLastPoll(new Date());

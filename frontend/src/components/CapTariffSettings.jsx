@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect } from "react";
 
 function Toggle({ on, onChange }) {
@@ -16,14 +17,14 @@ export default function CapTariffSettings() {
   const [error,      setError]      = useState(null);
 
   useEffect(() => {
-    fetch("api/strategy/settings")
+    apiFetch("api/strategy/settings")
       .then((r) => r.json())
       .then((d) => {
         setEnabled(d.cap_tariff_enabled ?? false);
         setMaxGridW(d.cap_tariff_max_grid_w ?? 8000);
       })
       .catch(() => {});
-    fetch("api/cap-tariff/status")
+    apiFetch("api/cap-tariff/status")
       .then((r) => r.json())
       .then(setStatus)
       .catch(() => {});
@@ -32,7 +33,7 @@ export default function CapTariffSettings() {
   const save = async () => {
     setSaving(true); setError(null); setSuccess(false);
     try {
-      const r = await fetch("api/strategy/settings", {
+      const r = await apiFetch("api/strategy/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

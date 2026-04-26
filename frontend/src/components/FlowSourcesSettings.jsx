@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect, useCallback, useRef } from "react";
 
 // ---------------------------------------------------------------------------
@@ -202,12 +203,12 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
   const [error,       setError]       = useState(null);
 
   const loadHw = useCallback(async () => {
-    try { const r = await fetch("api/homewizard/data"); if (r.ok) setHwData(await r.json()); } catch {}
+    try { const r = await apiFetch("api/homewizard/data"); if (r.ok) setHwData(await r.json()); } catch {}
   }, []);
 
   const loadHa = useCallback(async () => {
     try {
-      const r = await fetch("api/ha/entities");
+      const r = await apiFetch("api/ha/entities");
       if (r.ok) { const d = await r.json(); setHaEntities(d.entities ?? []); }
     } catch {}
   }, []);
@@ -215,8 +216,8 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
   const loadInflux = useCallback(async () => {
     try {
       const [srcR, liveR] = await Promise.all([
-        fetch("api/influx/source"),
-        fetch("api/influx/live-slots"),
+        apiFetch("api/influx/source"),
+        apiFetch("api/influx/live-slots"),
       ]);
       if (srcR.ok)  setInfluxSrc(await srcR.json());
       if (liveR.ok) setInfluxLive(await liveR.json());

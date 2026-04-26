@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect, useRef } from "react";
 
 const DEFAULT_STRING = { label: "", kwp: 1.0, az: 0, dec: 35 };
@@ -40,7 +41,7 @@ export default function ForecastSettings() {
   }, []);
 
   useEffect(() => {
-    fetch("api/forecast/settings")
+    apiFetch("api/forecast/settings")
       .then((r) => r.json())
       .then((d) => {
         setConfigured(d.configured);
@@ -51,11 +52,11 @@ export default function ForecastSettings() {
       if (d.update_interval) setUpdateInterval(d.update_interval);
       })
       .catch(() => {});
-    fetch("api/forecast/actual-source")
+    apiFetch("api/forecast/actual-source")
       .then((r) => r.json())
       .then((d) => { setActualSource(d.source || "none"); setActualEntityId(d.entity_id || ""); })
       .catch(() => {});
-    fetch("api/ha/entities")
+    apiFetch("api/ha/entities")
       .then((r) => r.json())
       .then((d) => setHaEntities(d.entities ?? []))
       .catch(() => {});
@@ -83,14 +84,14 @@ export default function ForecastSettings() {
       };
       body.update_interval = parseInt(updateInterval);
       if (apiKey.trim()) body.api_key = apiKey.trim();
-      const r = await fetch("api/forecast/settings", {
+      const r = await apiFetch("api/forecast/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error("Opslaan mislukt");
       if (apiKey.trim()) { setConfigured(true); setHint(`…${apiKey.trim().slice(-4)}`); setApiKey(""); }
-      await fetch("api/forecast/actual-source", {
+      await apiFetch("api/forecast/actual-source", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: actualSource, entity_id: actualEntityId }),
       });

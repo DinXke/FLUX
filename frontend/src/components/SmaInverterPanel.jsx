@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect, useRef } from "react";
 
 // Color matching EnergyMap solar palette
@@ -57,7 +58,7 @@ export default function SmaInverterPanel({ refreshTick }) {
   const intervalRef = useRef(null);
 
   function fetch_data() {
-    fetch("api/sma/live")
+    apiFetch("api/sma/live")
       .then((r) => r.json())
       .then((d) => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));

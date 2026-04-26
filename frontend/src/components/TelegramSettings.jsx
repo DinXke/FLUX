@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect } from "react";
 
 const EVENT_LABELS = {
@@ -55,7 +56,7 @@ export default function TelegramSettings() {
   const [testResult, setTestResult] = useState(null);
 
   useEffect(() => {
-    fetch("api/strategy/settings")
+    apiFetch("api/strategy/settings")
       .then((r) => r.json())
       .then((d) => setVals({
         ...DEFAULTS,
@@ -78,7 +79,7 @@ export default function TelegramSettings() {
     setError(null);
     setSuccess(false);
     try {
-      const r = await fetch("api/strategy/settings", {
+      const r = await apiFetch("api/strategy/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -103,7 +104,7 @@ export default function TelegramSettings() {
   async function sendTest() {
     setTesting(true); setTestResult(null);
     try {
-      const r = await fetch("api/telegram/test", { method: "POST" });
+      const r = await apiFetch("api/telegram/test", { method: "POST" });
       const d = await r.json();
       setTestResult(d.ok ? "ok" : (d.error || "Onbekende fout"));
     } catch (e) {

@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect, useCallback } from "react";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -599,7 +600,7 @@ export default function ProfitPage() {
     setError(null);
     setSelDay(null);
     try {
-      const r = await fetch(`api/profit?days=${period}`);
+      const r = await apiFetch(`api/profit?days=${period}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       setData(d);

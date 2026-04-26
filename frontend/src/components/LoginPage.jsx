@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { setToken } from "../auth.js";
+import { setToken, apiFetch } from "../auth.js";
 
 export default function LoginPage({ onLogin }) {
   const { t } = useTranslation();
@@ -14,7 +14,7 @@ export default function LoginPage({ onLogin }) {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await apiFetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),

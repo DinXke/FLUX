@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect } from "react";
 
 const DEFAULTS = {
@@ -52,7 +53,7 @@ export default function StrategySettings() {
   const [frankStat, setFrankStat] = useState(null);
 
   useEffect(() => {
-    fetch("api/strategy/settings")
+    apiFetch("api/strategy/settings")
       .then((r) => r.json())
       .then((d) => setVals({
         ...DEFAULTS, ...d,
@@ -60,12 +61,12 @@ export default function StrategySettings() {
       }))
       .catch(() => {});
 
-    fetch("api/influx/status")
+    apiFetch("api/influx/status")
       .then((r) => r.json())
       .then(setInflux)
       .catch(() => setInflux({ ok: false, error: "Niet bereikbaar" }));
 
-    fetch("api/frank/status")
+    apiFetch("api/frank/status")
       .then((r) => r.json())
       .then(setFrankStat)
       .catch(() => setFrankStat({ loggedIn: false }));
@@ -108,7 +109,7 @@ export default function StrategySettings() {
         claude_api_key:       vals.claude_api_key || "",
         claude_model:         vals.claude_model   || "claude-haiku-4-5-20251001",
       };
-      const r = await fetch("api/strategy/settings", {
+      const r = await apiFetch("api/strategy/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });

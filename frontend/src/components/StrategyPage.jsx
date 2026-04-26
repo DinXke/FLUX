@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 /**
  * StrategyPage – Battery charging strategy visualisation
  *
@@ -56,7 +57,7 @@ function fmtHour(ts) {
 // ── Sync flow config to backend so influx_writer can read it ─────────────
 function syncFlowCfgToBackend() {
   const cfg = loadFlowCfg();
-  fetch("api/flow/cfg", {
+  apiFetch("api/flow/cfg", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(cfg),
   }).catch(() => {});
@@ -473,7 +474,7 @@ function BiasPanel() {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    fetch("api/accuracy/summary")
+    apiFetch("api/accuracy/summary")
       .then((r) => (r.status === 204 ? null : r.ok ? r.json() : null))
       .then(setData)
       .catch(() => {});
@@ -560,7 +561,7 @@ function ClaudeStatsPanel() {
 
   useEffect(() => {
     const load = () =>
-      fetch("api/claude/usage")
+      apiFetch("api/claude/usage")
         .then((r) => r.ok ? r.json() : null)
         .then(setStats)
         .catch(() => {});
@@ -632,7 +633,7 @@ function ClaudeDebugPanel({ debug, plan }) {
   const [usage, setUsage] = useState(null);
 
   useEffect(() => {
-    fetch("api/claude/usage")
+    apiFetch("api/claude/usage")
       .then((r) => r.ok ? r.json() : null)
       .then(setUsage)
       .catch(() => {});
@@ -841,7 +842,7 @@ function AutomationToggle({ planLoadedAt }) {
 
   const load = async () => {
     try {
-      const r = await fetch("api/automation");
+      const r = await apiFetch("api/automation");
       if (r.ok) setAuto(await r.json());
     } catch { /* ignore */ }
   };
@@ -861,7 +862,7 @@ function AutomationToggle({ planLoadedAt }) {
     if (!auto) return;
     setSaving(true);
     try {
-      const r = await fetch("api/automation", {
+      const r = await apiFetch("api/automation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !auto.enabled }),
@@ -957,7 +958,7 @@ export default function StrategyPage() {
     try {
       let url = date ? `api/strategy/plan?date=${date}` : "api/strategy/plan";
       if (force) url += (url.includes("?") ? "&" : "?") + "refresh=1";
-      const r   = await fetch(url);
+      const r   = await apiFetch(url);
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         throw new Error(d.error || `HTTP ${r.status}`);

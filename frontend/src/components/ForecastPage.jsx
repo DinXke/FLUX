@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 /**
  * ForecastPage – Zonneopbrengst voorspelling via forecast.solar
  * Toont vandaag en morgen als staafdiagram (15-minuten intervallen).
@@ -8,7 +9,7 @@ import { loadFlowCfg } from "./FlowSourcesSettings.jsx";
 
 function syncFlowCfgToBackend() {
   const cfg = loadFlowCfg();
-  fetch("api/flow/cfg", {
+  apiFetch("api/flow/cfg", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(cfg),
   }).catch(() => {});
@@ -269,7 +270,7 @@ export default function ForecastPage() {
     // Small delay so the flow_cfg POST completes before the actuals GET
     await new Promise((r) => setTimeout(r, 300));
     try {
-      const r = await fetch(`api/forecast/actuals?date=${date}`);
+      const r = await apiFetch(`api/forecast/actuals?date=${date}`);
       const d = await r.json().catch(() => ({}));
       if (r.ok) {
         if (d.watts && Object.keys(d.watts).length > 0) {
@@ -288,7 +289,7 @@ export default function ForecastPage() {
   const loadHistActuals = useCallback(async (date) => {
     setHistLoading(true); setHistWatts(null);
     try {
-      const r = await fetch(`api/forecast/actuals?date=${date}`);
+      const r = await apiFetch(`api/forecast/actuals?date=${date}`);
       if (r.ok) { const d = await r.json(); setHistWatts(d.watts ?? {}); }
     } catch { setHistWatts({}); }
     finally { setHistLoading(false); }
@@ -297,7 +298,7 @@ export default function ForecastPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const r = await fetch("api/forecast/estimate");
+      const r = await apiFetch("api/forecast/estimate");
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         throw new Error(d.error || `HTTP ${r.status}`);

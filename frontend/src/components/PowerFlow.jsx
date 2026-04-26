@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 /**
  * Per-device animated power-flow: Grid ←→ Inverter ←→ Battery
  *

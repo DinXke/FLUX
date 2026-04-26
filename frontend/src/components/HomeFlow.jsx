@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 /**
  * Aggregated home power flow – Lumina-inspired design.
  *
@@ -203,7 +204,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
 
   const pollHw = useCallback(async () => {
     try {
-      const r = await fetch("api/homewizard/data");
+      const r = await apiFetch("api/homewizard/data");
       if (r.ok) setHwData(await r.json());
     } catch { /* no HW configured */ }
   }, []);
@@ -212,7 +213,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
     const hasInflux = Object.values(currentCfg).flat().some((sc) => sc?.source === "influx");
     if (!hasInflux) return;
     try {
-      const r = await fetch("api/influx/live-slots");
+      const r = await apiFetch("api/influx/live-slots");
       if (r.ok) setInfluxLive(await r.json());
     } catch { /* InfluxDB not configured */ }
   }, []);
@@ -224,7 +225,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
       .map((sc) => sc.sensor);
     if (!entityIds.length) return;
     try {
-      const r = await fetch("api/ha/poll", {
+      const r = await apiFetch("api/ha/poll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entity_ids: entityIds }),

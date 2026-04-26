@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect, useCallback } from "react";
 
 const PERIODS = [
@@ -62,7 +63,7 @@ export default function HistoricalFrankPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`api/frank/consumption?startDate=${startDate}&endDate=${endDate}`);
+      const res = await apiFetch(`api/frank/consumption?startDate=${startDate}&endDate=${endDate}`);
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try { msg = (await res.json()).error || msg; } catch (_) {}

@@ -14,7 +14,7 @@ import SmaInverterPanel from "./components/SmaInverterPanel.jsx";
 import LanguageSwitcher from "./components/LanguageSwitcher.jsx";
 import LoginPage from "./components/LoginPage.jsx";
 import UserManagementPage from "./components/UserManagementPage.jsx";
-import { getToken, clearToken, authHeaders } from "./auth.js";
+import { getToken, clearToken, authHeaders, apiFetch } from "./auth.js";
 
 const THEMES = [
   { id: "dark",   icon: "🌙", label: "Dark"   },
@@ -180,7 +180,7 @@ export default function App() {
       const token = getToken();
       if (token) {
         try {
-          const res = await fetch("/api/auth/me", { headers: authHeaders() });
+          const res = await apiFetch("/api/auth/me", { headers: authHeaders() });
           if (res.ok) {
             const user = await res.json();
             setCurrentUser({ email: user.email, role: user.role });
@@ -190,7 +190,7 @@ export default function App() {
         clearToken();
       }
       try {
-        const probe = await fetch("/api/users");
+        const probe = await apiFetch("/api/users");
         if (probe.status === 401) setAuthState("login");
       } catch { /* unreachable server — stay on app */ }
     }
@@ -211,7 +211,7 @@ export default function App() {
 
   const fetchDevices = useCallback(async () => {
     try {
-      const res = await fetch("api/devices");
+      const res = await apiFetch("api/devices");
       if (res.ok) setDevices(await res.json());
     } catch { /* keep existing list */ }
     finally   { setLoading(false); }
