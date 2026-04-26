@@ -202,6 +202,22 @@ log_title "Preparing data directories..."
 
 mkdir -p data grafana/provisioning/{dashboards,datasources} nginx/ssl
 
+# Generate self-signed SSL certificate if not already present
+if [[ ! -f nginx/ssl/cert.pem ]]; then
+    SERVER_IP_CERT=$(hostname -I | awk '{print $1}')
+    openssl req -x509 -nodes -days 3650 \
+        -newkey rsa:2048 \
+        -keyout nginx/ssl/key.pem \
+        -out nginx/ssl/cert.pem \
+        -subj "/C=BE/O=FLUX/CN=flux.local" \
+        -addext "subjectAltName=IP:${SERVER_IP_CERT},DNS:flux.local,DNS:localhost" \
+        2>/dev/null
+    chmod 600 nginx/ssl/key.pem
+    log_info "Zelf-gesigneerd SSL-certificaat aangemaakt (geldig 10 jaar)"
+else
+    log_info "SSL-certificaat al aanwezig, overgeslagen"
+fi
+
 log_info "Directories created"
 
 # ─────────────────────────────────────────────────────────────────────────
