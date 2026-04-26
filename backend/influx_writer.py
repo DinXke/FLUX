@@ -278,6 +278,19 @@ def _collect_and_write(app_context_fn):
                     fields[influx_field] = float(val)
                     break
 
+    # When bat_soc is absent from flow_cfg (or configured for fewer batteries than
+    # are registered), fall back to averaging the SOC of ALL polled ESPHome devices.
+    # This keeps last_soc.json fresh for multi-battery setups that haven't yet
+    # added explicit bat_soc mappings, avoiding the hardcoded 50 % strategy fallback.
+    if "bat_soc" not in fields:
+        _all_socs = [v["soc"] for v in esphome_map.values() if "soc" in v]
+        if _all_socs:
+            fields["bat_soc"] = round(sum(_all_socs) / len(_all_socs), 1)
+            log.debug(
+                "_collect_and_write: bat_soc from all-device fallback (%d devs): %.1f%%",
+                len(_all_socs), fields["bat_soc"],
+            )
+
     # house_w derived
     solar = fields.get("solar_w", 0.0)
     net   = fields.get("net_w", 0.0)   # positive = import
