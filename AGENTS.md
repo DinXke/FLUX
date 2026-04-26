@@ -50,3 +50,29 @@ git push origin main
 Worktree branches (bijv. `backend/...`, `devops/...`) worden **niet** direct gepusht — merge naar main en push main.
 
 Na een succesvolle push: rapporteer de commit hash in een comment op de actieve taak.
+
+## Integraties — gebruik bestaande libraries (verplicht)
+
+> "Beter goed gejat dan slecht gemaakt." — CEO
+
+Bij elke nieuwe integratie of feature: **zoek eerst** naar bestaande Python libraries (PyPI) of open source projecten (GitHub) voordat je zelf iets bouwt.
+
+### Aanpak
+
+1. **PyPI zoeken** — `pip search` of https://pypi.org voor de integratie (bijv. `daikin`, `bosch`, `homewizard`, `entsoe`)
+2. **GitHub zoeken** — zoek naar bestaande clients/wrappers (bijv. `site:github.com python daikin onecta`)
+3. **Beoordeel** op: actief onderhouden, licentie (MIT/Apache), README kwaliteit, issues/stars
+4. **Voorkeur:** gevestigde library boven eigen implementatie, tenzij de library te zwaar of ongeschikt is
+5. **Documenteer** in de task comment welke library gekozen is en waarom
+
+### Voorbeelden voor FLUX
+
+| Integratie | Te onderzoeken libraries |
+|---|---|
+| Daikin Onecta | `pydaikin`, `daikin-controller`, `onecta-client` |
+| Bosch Home Connect | `home-connect-python`, `pyboschconnect` |
+| HomeWizard | `python-homewizard-energy` |
+| ENTSO-E | `entsoe-py` (al in gebruik) |
+| Frank Energie | `frank-energie-python` |
+| SMA Modbus | `pymodbus` (al in gebruik) |
+| Authenticatie | `flask-jwt-extended`, `flask-login` |
