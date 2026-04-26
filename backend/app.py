@@ -6166,12 +6166,32 @@ def _start_anomaly_detection_thread(interval: int = 600) -> None:
         while True:
             try:
                 anomalies = run_anomaly_detection()
-                if anomalies.get("stale_sensors") or anomalies.get("unusual_peaks") or anomalies.get("inverter_faults"):
+                stale = anomalies.get("stale_sensors", {})
+                peaks = anomalies.get("unusual_peaks", {})
+                faults = anomalies.get("inverter_faults", {})
+
+                if stale or peaks or faults:
                     log.info("Anomaly detection found issues: stale=%d peaks=%d faults=%d",
-                             len(anomalies.get("stale_sensors", {})),
-                             len(anomalies.get("unusual_peaks", {})),
-                             len(anomalies.get("inverter_faults", {})))
-                    # TODO: Send Telegram alert when anomalies detected
+                             len(stale), len(peaks), len(faults))
+
+                    if stale:
+                        _tg_notify("anomaly_stale_sensors", {
+                            "sensors": stale,
+                            "count": len(stale),
+                            "timestamp": anomalies.get("timestamp")
+                        })
+                    if peaks:
+                        _tg_notify("anomaly_unusual_peaks", {
+                            "peaks": peaks,
+                            "count": len(peaks),
+                            "timestamp": anomalies.get("timestamp")
+                        })
+                    if faults:
+                        _tg_notify("anomaly_inverter_faults", {
+                            "faults": faults,
+                            "count": len(faults),
+                            "timestamp": anomalies.get("timestamp")
+                        })
             except Exception as exc:
                 log.warning("Anomaly detection thread error: %s", exc)
             _time.sleep(interval)

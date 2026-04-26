@@ -154,6 +154,9 @@ DEFAULT_SETTINGS = {
         "sma_offline":            True,
         "sma_error":              True,
         "sma_day_summary":        True,
+        "anomaly_stale_sensors":  True,
+        "anomaly_unusual_peaks":  True,
+        "anomaly_inverter_faults": True,
     },
     "telegram_grid_price_threshold": 0.10,  # €/kWh: grid_charge_opportunity als prijs < dit
     "telegram_grid_soc_threshold":   80,    # %: grid_charge_opportunity als SoC < dit
