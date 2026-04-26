@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { authHeaders } from "../auth.js";
+import { authHeaders, apiFetch } from "../auth.js";
 
 const ROLES = ["admin", "readonly"];
 
@@ -18,7 +18,7 @@ function UserRow({ user, onDelete, onChangeRole }) {
     try {
       const body = { role };
       if (newPassword) body.password = newPassword;
-      const res = await fetch(`/api/users/${user.id}`, {
+      const res = await apiFetch(`/api/users/${user.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(body),
@@ -41,7 +41,7 @@ function UserRow({ user, onDelete, onChangeRole }) {
   async function handleDelete() {
     if (!window.confirm(t("users.confirmDelete", { email: user.email }))) return;
     try {
-      await fetch(`/api/users/${user.id}`, {
+      await apiFetch(`/api/users/${user.id}`, {
         method: "DELETE",
         headers: authHeaders(),
       });
@@ -117,7 +117,7 @@ function AddUserForm({ onAdded }) {
     setSaving(true);
     setError("");
     try {
-      const res = await fetch("/api/users", {
+      const res = await apiFetch("/api/users", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ email, password, role }),
@@ -186,7 +186,7 @@ export default function UserManagementPage() {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/users", { headers: authHeaders() });
+      const res = await apiFetch("/api/users", { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users ?? data);

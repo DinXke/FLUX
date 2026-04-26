@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import React, { useState, useEffect, useRef } from "react";
 
 export default function AddDeviceModal({ onClose, onAdded }) {
@@ -46,7 +47,7 @@ export default function AddDeviceModal({ onClose, onAdded }) {
 
     setSaving(true);
     try {
-      const res = await fetch("api/devices", {
+      const res = await apiFetch("api/devices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

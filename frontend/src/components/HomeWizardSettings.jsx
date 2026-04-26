@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect, useCallback } from "react";
 
 const APPLIANCE_ICONS = [
@@ -30,7 +31,7 @@ function SensorSelector({ device, onClose, onSaved }) {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`api/homewizard/devices/${device.id}/discover`)
+    apiFetch(`api/homewizard/devices/${device.id}/discover`)
       .then((r) => r.json())
       .then((d) => {
         if (d.error) throw new Error(d.error);
@@ -47,7 +48,7 @@ function SensorSelector({ device, onClose, onSaved }) {
   const save = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`api/homewizard/devices/${device.id}/sensors`, {
+      const res = await apiFetch(`api/homewizard/devices/${device.id}/sensors`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sensors: Array.from(selected) }),
@@ -131,7 +132,7 @@ function ScanDialog({ onClose, onAdd, existingIps }) {
 
   // Load default subnet on mount
   useEffect(() => {
-    fetch("api/homewizard/localsubnet")
+    apiFetch("api/homewizard/localsubnet")
       .then((r) => r.json())
       .then((d) => setSubnet(d.subnet || "192.168.1.0/24"))
       .catch(() => setSubnet("192.168.1.0/24"));
@@ -140,7 +141,7 @@ function ScanDialog({ onClose, onAdd, existingIps }) {
   const scan = async () => {
     setScanning(true); setError(null); setResults(null);
     try {
-      const r = await fetch(`api/homewizard/scan?subnet=${encodeURIComponent(subnet)}`);
+      const r = await apiFetch(`api/homewizard/scan?subnet=${encodeURIComponent(subnet)}`);
       if (!r.ok) {
         // Try to parse error from JSON, fall back to status text
         let detail = `HTTP ${r.status}`;
@@ -157,7 +158,7 @@ function ScanDialog({ onClose, onAdd, existingIps }) {
   const add = async (device) => {
     setAdding((p) => ({ ...p, [device.ip]: true }));
     try {
-      const res = await fetch("api/homewizard/devices", {
+      const res = await apiFetch("api/homewizard/devices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -272,7 +273,7 @@ function PairDialog({ device, onClose, onPaired }) {
     setSecs(t);
     const tick = setInterval(() => { t--; setSecs(t); if (t <= 0) clearInterval(tick); }, 1000);
     try {
-      const res = await fetch(`api/homewizard/devices/${device.id}/pair`, { method: "POST" });
+      const res = await apiFetch(`api/homewizard/devices/${device.id}/pair`, { method: "POST" });
       clearInterval(tick); setSecs(null);
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Koppelen mislukt.");
@@ -347,7 +348,7 @@ export default function HomeWizardSettings() {
   const [pairDev,    setPairDev]    = useState(null);
 
   const load = useCallback(() => {
-    fetch("api/homewizard/devices")
+    apiFetch("api/homewizard/devices")
       .then((r) => r.json())
       .then(setDevices)
       .catch(() => {})
@@ -360,7 +361,7 @@ export default function HomeWizardSettings() {
     if (!addIp.trim()) { setAddError("IP-adres is vereist."); return; }
     setAdding(true); setAddError(null);
     try {
-      const res = await fetch("api/homewizard/devices", {
+      const res = await apiFetch("api/homewizard/devices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ip: addIp.trim(), name: addName.trim() }),
@@ -374,7 +375,7 @@ export default function HomeWizardSettings() {
   };
 
   const remove = async (id) => {
-    await fetch(`api/homewizard/devices/${id}`, { method: "DELETE" });
+    await apiFetch(`api/homewizard/devices/${id}`, { method: "DELETE" });
     setDevices((p) => p.filter((d) => d.id !== id));
     setConfirmDel(null);
   };
@@ -391,7 +392,7 @@ export default function HomeWizardSettings() {
 
   const setApplianceIcon = async (id, icon) => {
     try {
-      const res = await fetch(`api/homewizard/devices/${id}`, {
+      const res = await apiFetch(`api/homewizard/devices/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ appliance_icon: icon }),

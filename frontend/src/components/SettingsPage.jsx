@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState } from "react";
 import AddDeviceModal from "./AddDeviceModal.jsx";
 import HomeWizardSettings from "./HomeWizardSettings.jsx";
@@ -75,7 +76,7 @@ function EntsoESection() {
   const [success,    setSuccess]    = useState(false);
 
   useState(() => {
-    fetch("api/entsoe/settings").then((r) => r.json()).then((d) => {
+    apiFetch("api/entsoe/settings").then((r) => r.json()).then((d) => {
       setConfigured(d.configured); setHint(d.apiKeyHint || "");
       if (d.timezone) setTimezone(d.timezone);
       if (d.country)  setCountry(d.country);
@@ -87,7 +88,7 @@ function EntsoESection() {
     try {
       const body = { timezone, country };
       if (apiKey.trim()) body.apiKey = apiKey.trim();
-      const r = await fetch("api/entsoe/settings", {
+      const r = await apiFetch("api/entsoe/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -152,7 +153,7 @@ function DebugPanel() {
   const load = async () => {
     setLoading(true); setError(null);
     try {
-      const r = await fetch("api/debug");
+      const r = await apiFetch("api/debug");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setData(await r.json());
     } catch (e) {
@@ -245,7 +246,7 @@ function TabApparaten({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDevi
     body.min_soc = editMinSoc !== "" ? parseInt(editMinSoc) : null;
     body.max_soc = editMaxSoc !== "" ? parseInt(editMaxSoc) : null;
     try {
-      const r = await fetch(`api/devices/${editId}`, {
+      const r = await apiFetch(`api/devices/${editId}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -257,7 +258,7 @@ function TabApparaten({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDevi
   };
 
   const handleDelete = async (id) => {
-    await fetch(`api/devices/${id}`, { method: "DELETE" });
+    await apiFetch(`api/devices/${id}`, { method: "DELETE" });
     onDeviceDeleted(id); setConfirmDel(null);
   };
 

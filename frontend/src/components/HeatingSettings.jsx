@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect } from "react";
 
 function Row({ label, desc, children }) {
@@ -34,7 +35,7 @@ export default function HeatingSettings() {
 
   useEffect(() => {
     // Load heating settings
-    fetch("api/strategy/settings")
+    apiFetch("api/strategy/settings")
       .then((r) => r.json())
       .then((d) => {
         setHeatingEnabled(d.heating_enabled !== false);
@@ -49,21 +50,21 @@ export default function HeatingSettings() {
 
   const refreshDevices = async () => {
     try {
-      const daikinRes = await fetch("api/daikin/status");
+      const daikinRes = await apiFetch("api/daikin/status");
       const daikinData = await daikinRes.json();
       if (daikinData.authenticated) {
         setDaikinAuth(true);
-        const devRes = await fetch("api/daikin/devices");
+        const devRes = await apiFetch("api/daikin/devices");
         const devData = await devRes.json();
         setDaikinDevices(devData.devices || []);
       }
     } catch (e) {}
 
     try {
-      const boschRes = await fetch("api/bosch/status");
+      const boschRes = await apiFetch("api/bosch/status");
       const boschData = await boschRes.json();
       if (boschData.devices_count > 0) {
-        const devRes = await fetch("api/bosch/devices");
+        const devRes = await apiFetch("api/bosch/devices");
         const devData = await devRes.json();
         setBoschDevices(devData.devices || []);
       }
@@ -72,7 +73,7 @@ export default function HeatingSettings() {
 
   const saveSetting = async (key, value) => {
     try {
-      await fetch("api/strategy/settings", {
+      await apiFetch("api/strategy/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [key]: value }),
@@ -87,7 +88,7 @@ export default function HeatingSettings() {
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch("api/bosch/pair", {
+      const res = await apiFetch("api/bosch/pair", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ip: boschPairingIP }),
@@ -106,7 +107,7 @@ export default function HeatingSettings() {
 
   const handleDaikinLogout = async () => {
     try {
-      await fetch("api/daikin/logout", { method: "POST" });
+      await apiFetch("api/daikin/logout", { method: "POST" });
       setDaikinAuth(false);
       setDaikinDevices([]);
       setSuccess("Daikin logged out");
@@ -117,7 +118,7 @@ export default function HeatingSettings() {
 
   const handleBoschUnpair = async (deviceId) => {
     try {
-      const res = await fetch("api/bosch/unpair", {
+      const res = await apiFetch("api/bosch/unpair", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ device_id: deviceId }),

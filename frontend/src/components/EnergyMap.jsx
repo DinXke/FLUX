@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 /**
  * EnergyMap – isometric 3D energy flow visualization
  *
@@ -515,7 +516,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
 
   const pollHw = useCallback(async () => {
     try {
-      const r = await fetch("api/homewizard/data");
+      const r = await apiFetch("api/homewizard/data");
       if (r.ok) setHwData(await r.json());
     } catch {}
   }, []);
@@ -526,7 +527,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
       .map((sc) => sc.sensor);
     if (!ids.length) return;
     try {
-      const r = await fetch("api/ha/poll", {
+      const r = await apiFetch("api/ha/poll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entity_ids: ids }),

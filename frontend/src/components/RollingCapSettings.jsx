@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect } from "react";
 
 function Toggle({ on, onChange }) {
@@ -18,7 +19,7 @@ export default function RollingCapSettings() {
   const [error,         setError]         = useState(null);
 
   useEffect(() => {
-    fetch("api/strategy/settings")
+    apiFetch("api/strategy/settings")
       .then((r) => r.json())
       .then((d) => {
         setEnabled(d.rolling_cap_enabled ?? false);
@@ -27,7 +28,7 @@ export default function RollingCapSettings() {
         setDeviceWindowM(d.rolling_cap_device_window_m ?? 5);
       })
       .catch(() => {});
-    fetch("api/rolling-cap/status")
+    apiFetch("api/rolling-cap/status")
       .then((r) => r.json())
       .then(setStatus)
       .catch(() => {});
@@ -36,7 +37,7 @@ export default function RollingCapSettings() {
   const save = async () => {
     setSaving(true); setError(null); setSuccess(false);
     try {
-      const r = await fetch("api/strategy/settings", {
+      const r = await apiFetch("api/strategy/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

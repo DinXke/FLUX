@@ -16,3 +16,8 @@ export function authHeaders() {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
+
+export function apiFetch(url, opts = {}) {
+  const headers = { ...authHeaders(), ...(opts.headers || {}) };
+  return fetch(url, { ...opts, headers });
+}

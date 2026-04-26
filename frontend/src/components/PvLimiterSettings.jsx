@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import { useState, useEffect, useRef } from "react";
 
 function Toggle({ on, onChange }) {
@@ -123,7 +124,7 @@ export default function PvLimiterSettings() {
   }, []);
 
   useEffect(() => {
-    fetch("api/strategy/settings")
+    apiFetch("api/strategy/settings")
       .then((r) => r.json())
       .then((d) => {
         setEnabled(d.pv_limiter_enabled ?? false);
@@ -150,7 +151,7 @@ export default function PvLimiterSettings() {
         setManualW(d.pv_limiter_manual_w ?? 2000);
       })
       .catch(() => {});
-    fetch("api/ha/entities")
+    apiFetch("api/ha/entities")
       .then((r) => r.json())
       .then((d) => setHaEntities(d.entities ?? []))
       .catch(() => {});
@@ -182,7 +183,7 @@ export default function PvLimiterSettings() {
   const save = async () => {
     setSaving(true); setError(null); setSuccess(false);
     try {
-      const r = await fetch("api/strategy/settings", {
+      const r = await apiFetch("api/strategy/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,3 +1,4 @@
+import { apiFetch } from "../auth.js";
 import React, { useState, useEffect, useRef } from "react";
 import BatteryGauge from "./BatteryGauge.jsx";
 import PowerFlow from "./PowerFlow.jsx";
@@ -267,7 +268,7 @@ function SelectControl({ label, entity, deviceId }) {
     setValue(newVal);
     setSaving(true);
     try {
-      await fetch(`api/devices/${deviceId}/command`, {
+      await apiFetch(`api/devices/${deviceId}/command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ domain, name, value: newVal }),
@@ -315,7 +316,7 @@ function NumberControl({ label, entity, deviceId, unit }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await fetch(`api/devices/${deviceId}/command`, {
+      await apiFetch(`api/devices/${deviceId}/command`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ domain, name, value: inputVal }),
@@ -443,7 +444,7 @@ function EditDeviceModal({ device, onClose, onSaved }) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`api/devices/${device.id}`, {
+      const res = await apiFetch(`api/devices/${device.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), ip: ip.trim(), port: Number(port) }),
