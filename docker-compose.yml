@@ -74,6 +74,9 @@ services:
       GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Zet GRAFANA_EXTERNAL_URL in .env zodat Grafana zijn eigen externe URL kent
+      # (vereist bij cloudflared of andere reverse proxies)
+      GF_SERVER_ROOT_URL: "${GRAFANA_EXTERNAL_URL:-http://localhost:3000}"
       GF_INSTALL_PLUGINS:
     volumes:
       - grafana_data:/var/lib/grafana
