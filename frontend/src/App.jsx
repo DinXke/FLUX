@@ -304,6 +304,15 @@ export default function App() {
 
   const energyMapVisible = energyMapExpanded ?? true;
 
+  const energyMapRef = useRef(null);
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      energyMapRef.current?.requestFullscreen?.();
+    } else {
+      document.exitFullscreen?.();
+    }
+  }, []);
+
   // ── Login screen (after ALL hooks) ──
   if (authState === "login") {
     return <LoginPage onLogin={handleLogin} />;
@@ -395,15 +404,23 @@ export default function App() {
             <div className="batteries-page">
               {/* ── Aggregated home flow ── */}
               <div className="home-flow-card">
-                <button
-                  className="home-flow-card-title home-flow-card-toggle"
-                  onClick={toggleEnergyMap}
-                  aria-expanded={energyMapVisible}
-                >
-                  {t('cards.powerBalance')}
-                  <span className={`home-flow-chevron${energyMapVisible ? " home-flow-chevron--open" : ""}`}>›</span>
-                </button>
-                <div className={`home-flow-body${energyMapVisible ? " home-flow-body--open" : ""}`}>
+                <div className="home-flow-card-header">
+                  <button
+                    className="home-flow-card-title home-flow-card-toggle"
+                    onClick={toggleEnergyMap}
+                    aria-expanded={energyMapVisible}
+                  >
+                    {t('cards.powerBalance')}
+                    <span className={`home-flow-chevron${energyMapVisible ? " home-flow-chevron--open" : ""}`}>›</span>
+                  </button>
+                  <button
+                    className="home-flow-fullscreen-btn"
+                    onClick={toggleFullscreen}
+                    title="Volledig scherm"
+                    aria-label="Volledig scherm"
+                  >⛶</button>
+                </div>
+                <div ref={energyMapRef} className={`home-flow-body${energyMapVisible ? " home-flow-body--open" : ""}`}>
                   <EnergyMap
                     batteries={homeFlowBatteries}
                     phaseVoltages={firstWithPhase?.phaseVoltages ?? null}

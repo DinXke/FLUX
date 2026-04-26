@@ -376,23 +376,23 @@ function IsoNode({ cx, cy, hw, nc, iconEl, label, val, valColor, sub }) {
       {/* Value pill */}
       {val != null && (
         <g>
-          <rect x={cx - 24} y={cy + hw * 0.22} width={48} height={12}
+          <rect x={cx - 31} y={cy + hw * 0.20} width={62} height={16}
             fill="rgba(0,0,0,0.62)" rx="5" />
-          <text x={cx} y={cy + hw * 0.22 + 6}
+          <text x={cx} y={cy + hw * 0.20 + 8}
             textAnchor="middle" dominantBaseline="middle"
-            fill={valColor || nc.b} fontSize={8} fontWeight="700"
+            fill={valColor || nc.b} fontSize={12} fontWeight="700"
             fontFamily="'Courier New',Courier,monospace">{val}</text>
         </g>
       )}
       {/* Label below diamond */}
       <text x={cx} y={s + 13}
         textAnchor="middle" dominantBaseline="middle"
-        fill="var(--text-muted)" fontSize={8.5} letterSpacing="0.6"
+        fill="var(--text-muted)" fontSize={11} letterSpacing="0.6"
         fontFamily="Inter,system-ui,sans-serif">{label}</text>
       {sub && (
-        <text x={cx} y={s + 24}
+        <text x={cx} y={s + 26}
           textAnchor="middle" dominantBaseline="middle"
-          fill="var(--text-dim)" fontSize={7.5}
+          fill="var(--text-dim)" fontSize={10}
           fontFamily="'Courier New',Courier,monospace">{sub}</text>
       )}
     </g>
@@ -442,7 +442,7 @@ function FlowLine({ x1, y1, x2, y2, color, active, reverse, power, labelText }) 
       </g>
       {labelText && (
         <text x={mx} y={my} textAnchor="middle" dominantBaseline="middle"
-          fill={color} fontSize={8.5} fontWeight="700"
+          fill={color} fontSize={10} fontWeight="700"
           fontFamily="'Courier New',Courier,monospace">{labelText}</text>
       )}
     </g>
@@ -452,34 +452,34 @@ function FlowLine({ x1, y1, x2, y2, color, active, reverse, power, labelText }) 
 // ── Layout helpers ────────────────────────────────────────────────────────────
 function batPositions(n) {
   if (n <= 0) n = 1;
-  if (n === 1) return [{ cx: 160, cy: 355, hw: 62 }];
+  if (n === 1) return [{ cx: 160, cy: 360, hw: 74 }];
   if (n === 2) return [
-    { cx: 106, cy: 355, hw: 50 },
-    { cx: 214, cy: 355, hw: 50 },
+    { cx: 106, cy: 358, hw: 60 },
+    { cx: 214, cy: 358, hw: 60 },
   ];
   if (n === 3) return [
-    { cx: 80,  cy: 355, hw: 42 },
-    { cx: 160, cy: 355, hw: 42 },
-    { cx: 240, cy: 355, hw: 42 },
+    { cx: 80,  cy: 356, hw: 50 },
+    { cx: 160, cy: 356, hw: 50 },
+    { cx: 240, cy: 356, hw: 50 },
   ];
   return [
-    { cx: 64,  cy: 355, hw: 36 },
-    { cx: 136, cy: 355, hw: 36 },
-    { cx: 208, cy: 355, hw: 36 },
-    { cx: 280, cy: 355, hw: 36 },
+    { cx: 64,  cy: 356, hw: 44 },
+    { cx: 136, cy: 356, hw: 44 },
+    { cx: 208, cy: 356, hw: 44 },
+    { cx: 280, cy: 356, hw: 44 },
   ];
 }
 
 function solarPositions(n) {
-  if (n <= 1) return [{ cx: 165, cy: 118, hw: 72 }];
+  if (n <= 1) return [{ cx: 165, cy: 116, hw: 82 }];
   if (n === 2) return [
-    { cx: 112, cy: 116, hw: 58 },
-    { cx: 220, cy: 116, hw: 58 },
+    { cx: 112, cy: 114, hw: 66 },
+    { cx: 220, cy: 114, hw: 66 },
   ];
   return [
-    { cx: 88,  cy: 114, hw: 48 },
-    { cx: 165, cy: 114, hw: 48 },
-    { cx: 242, cy: 114, hw: 48 },
+    { cx: 88,  cy: 112, hw: 55 },
+    { cx: 165, cy: 112, hw: 55 },
+    { cx: 242, cy: 112, hw: 55 },
   ];
 }
 
@@ -579,7 +579,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
 
   // ── Layout ────────────────────────────────────────────────────────────────
   const W = 800;
-  const H = consumers.length > 0 ? 490 : 500;
+  const H = 540;
 
   const numBat   = Math.min(Math.max(batteries.length, 1), 4);
   const numSolar = Math.max(
@@ -594,9 +594,9 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
   const batCC   = clusterCenter(batPos);
   const solCC   = clusterCenter(solPos);
 
-  const HOUSE = { cx: 400, cy: 200, hw: 80 };
-  const GRID  = { cx: 628, cy: 122, hw: 50 };
-  const EV    = { cx: 632, cy: 350, hw: 64 };
+  const HOUSE = { cx: 400, cy: 210, hw: 92 };
+  const GRID  = { cx: 628, cy: 122, hw: 62 };
+  const EV    = { cx: 632, cy: 360, hw: 76 };
 
   const hCx = HOUSE.cx, hCy = HOUSE.cy;
   const gCx = GRID.cx,  gCy = GRID.cy;
@@ -701,7 +701,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
         })()}
         {showSolar && numSolar > 1 && solarPower != null && (
           <text x={sCx} y={solPos[0].cy - solPos[0].hw * 0.5 - 10}
-            textAnchor="middle" fill={C.solar.b} fontSize={9} fontWeight="700"
+            textAnchor="middle" fill={C.solar.b} fontSize={11} fontWeight="700"
             fontFamily="'Courier New',Courier,monospace" filter="url(#em-glow)">
             {fmt(solarPower)} totaal
           </text>
@@ -743,7 +743,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
         })}
         {batPos.length > 1 && batDisplayPower != null && (
           <text x={bCx} y={batPos[0].cy - batPos[0].hw * 0.5 - 10}
-            textAnchor="middle" fill={batColor} fontSize={9} fontWeight="700"
+            textAnchor="middle" fill={batColor} fontSize={11} fontWeight="700"
             fontFamily="'Courier New',Courier,monospace" filter="url(#em-glow)">
             {fmt(batDisplayPower)} totaal
             {batSoc != null ? ` · ${batSoc.toFixed(0)}% gem.` : ""}
@@ -799,7 +799,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
           const mx = (gCx + hCx) / 2 + 8, my = (gCy + hCy) / 2 + 14;
           return (
             <text x={mx} y={my} textAnchor="middle"
-              fill="var(--text-muted)" fontSize={7.5}
+              fill="var(--text-muted)" fontSize={10}
               fontFamily="'Courier New',Courier,monospace">{vStr}</text>
           );
         })()}
