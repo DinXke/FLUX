@@ -182,11 +182,9 @@ def send_esphome_command(ip: str, port: int, domain: str, name: str, value: str)
 
     url = f"http://{ip}:{port}{path}?{params}"
     try:
-        req = Request(url, method="POST", data=b"")
-        req.add_header("Content-Length", "0")
-        with urlopen(req, timeout=5) as resp:
-            return {"ok": True, "status": resp.status}
-    except URLError as exc:
+        resp = _req.post(url, timeout=10, headers={"User-Agent": "FLUX/1.0"})
+        return {"ok": True, "status": resp.status_code}
+    except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
 
@@ -444,27 +442,38 @@ def stream_device(device_id):
 
     def generate():
         log.info("SSE stream open  device=%s  ip=%s:%s", device_id, ip, port)
+        backoff = 5
         while True:
             try:
-                with _req.get(
-                    f"http://{ip}:{port}/events",
-                    stream=True,
-                    timeout=(5, 65),  # 5s connect, 65s read (ESPHome pings every 30s)
-                    headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
-                ) as resp:
-                    resp.raise_for_status()
-                    log.debug("SSE connected  device=%s  status=%s", device_id, resp.status_code)
-                    for chunk in resp.iter_content(chunk_size=512):
-                        if chunk:
-                            yield chunk
+                # Fresh session per attempt: ESPHome (ESP32) supports ≤4 concurrent
+                # connections. Reusing a pooled session can hold stale TCP slots on
+                # the device (especially on high-latency WiFi), causing RST on reconnect.
+                with _req.Session() as sess:
+                    with sess.get(
+                        f"http://{ip}:{port}/events",
+                        stream=True,
+                        timeout=(10, 65),  # 10s connect (high-latency WiFi), 65s read
+                        headers={
+                            "Accept": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "User-Agent": "FLUX/1.0",
+                        },
+                    ) as resp:
+                        resp.raise_for_status()
+                        backoff = 5  # reset on successful connect
+                        log.debug("SSE connected  device=%s  status=%s", device_id, resp.status_code)
+                        for chunk in resp.iter_content(chunk_size=512):
+                            if chunk:
+                                yield chunk
             except GeneratorExit:
                 log.info("SSE stream closed  device=%s", device_id)
                 return
             except Exception as exc:
-                log.warning("SSE error  device=%s  err=%s — reconnecting in 5 s", device_id, exc)
+                log.warning("SSE error  device=%s  err=%s — reconnecting in %ds", device_id, exc, backoff)
                 msg = f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
                 yield msg.encode()
-                time.sleep(5)  # wait before reconnecting
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60)  # exponential backoff, max 60s
 
     return Response(
         stream_with_context(generate()),
@@ -2969,7 +2978,7 @@ def debug_info():
     device_status = {}
     for dev in devices.values():
         try:
-            r = _req.get(f"http://{dev['ip']}:{dev['port']}/", timeout=2)
+            r = _req.get(f"http://{dev['ip']}:{dev['port']}/", timeout=8)
             device_status[dev["id"]] = {"reachable": True, "http_status": r.status_code}
         except Exception as exc:
             device_status[dev["id"]] = {"reachable": False, "error": str(exc)}
