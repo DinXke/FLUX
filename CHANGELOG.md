@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.28.1] - 2026-04-26
+
+### Fixed
+- **OpenAI API system message parameter bug** ([SCH-811](/SCH/issues/SCH-811)): `system=system_prompt` is not a valid parameter in OpenAI's API — it caused a TypeError. Fixed by moving the system message into the `messages` array as a `{"role": "system", "content": system_prompt}` entry, matching the correct OpenAI API format.
+
 ## [1.28.0] - 2026-04-26
 
 ### Added
