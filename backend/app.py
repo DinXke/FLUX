@@ -22,6 +22,8 @@ from strategy import (load_strategy_settings, save_strategy_settings,
 from telegram import notify_event as _tg_notify, resolve_approval, get_pending_approvals
 from anomaly_detector import run_anomaly_detection, get_anomaly_summary
 from prophet_forecast import get_prophet_forecast
+from config import get_config
+from auth import init_auth, get_auth_manager, require_auth, require_admin, get_current_user
 import daikin_onecta
 import bosch_home_connect
 
@@ -55,6 +57,10 @@ log = logging.getLogger("marstek")
 
 app = Flask(__name__, static_folder=None)
 CORS(app)
+
+# Initialize authentication
+_cfg = get_config()
+init_auth(app, _cfg.get_jwt_secret(), _cfg.get_jwt_expiry_hours(), DATA_DIR)
 
 
 @app.before_request
@@ -175,6 +181,160 @@ def send_esphome_command(ip: str, port: int, domain: str, name: str, value: str)
 
 
 # ---------------------------------------------------------------------------
+# API routes – authentication
+# ---------------------------------------------------------------------------
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    """Login with email/password, return JWT token."""
+    body = request.get_json(force=True) or {}
+    email = body.get("email", "").strip()
+    password = body.get("password", "")
+
+    if not email or not password:
+        return jsonify({"error": "Email and password required"}), 400
+
+    manager = get_auth_manager()
+    user = manager.get_user_by_email(email)
+
+    if not user or not manager.verify_password(password, user.get("password_hash", "")):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    token = manager.create_token(user["id"], user["email"], user["role"])
+    return jsonify({"ok": True, "token": token, "email": user["email"], "role": user["role"]})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+@require_auth
+def auth_logout():
+    """Logout (frontend-side token deletion)."""
+    return jsonify({"ok": True, "message": "Token should be deleted on client side"})
+
+
+@app.route("/api/auth/me", methods=["GET"])
+@require_auth
+def auth_me():
+    """Get current authenticated user."""
+    user = get_current_user()
+    manager = get_auth_manager()
+    full_user = manager.get_user(user["user_id"])
+
+    if not full_user:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "ok": True,
+        "id": user["user_id"],
+        "email": user["email"],
+        "role": user["role"],
+    })
+
+
+@app.route("/api/users", methods=["GET"])
+@require_admin
+def list_users():
+    """List all users (admin only)."""
+    manager = get_auth_manager()
+    users = manager.load_users()
+
+    user_list = [
+        {
+            "id": uid,
+            "email": u.get("email"),
+            "role": u.get("role"),
+            "created_at": u.get("created_at"),
+        }
+        for uid, u in users.items()
+    ]
+
+    return jsonify({"ok": True, "users": user_list})
+
+
+@app.route("/api/users", methods=["POST"])
+@require_admin
+def create_user_route():
+    """Create new user (admin only)."""
+    body = request.get_json(force=True) or {}
+    email = body.get("email", "").strip()
+    password = body.get("password", "")
+    role = body.get("role", "readonly")
+
+    if not email or not password:
+        return jsonify({"error": "Email and password required"}), 400
+
+    if role not in ["admin", "readonly"]:
+        return jsonify({"error": "Role must be 'admin' or 'readonly'"}), 400
+
+    manager = get_auth_manager()
+    user = manager.create_user(email, password, role)
+
+    if not user:
+        return jsonify({"error": "User already exists"}), 409
+
+    return jsonify({
+        "ok": True,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "role": user["role"],
+        },
+    }), 201
+
+
+@app.route("/api/users/<user_id>", methods=["PATCH"])
+@require_admin
+def update_user_route(user_id):
+    """Update user password or role (admin only)."""
+    body = request.get_json(force=True) or {}
+    password = body.get("password")
+    role = body.get("role")
+
+    manager = get_auth_manager()
+
+    if not manager.get_user(user_id):
+        return jsonify({"error": "User not found"}), 404
+
+    updates = {}
+    if password:
+        updates["password"] = password
+    if role:
+        if role not in ["admin", "readonly"]:
+            return jsonify({"error": "Role must be 'admin' or 'readonly'"}), 400
+        updates["role"] = role
+
+    if not updates:
+        return jsonify({"error": "Nothing to update"}), 400
+
+    if manager.update_user(user_id, **updates):
+        user = manager.get_user(user_id)
+        return jsonify({
+            "ok": True,
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "role": user["role"],
+            },
+        })
+
+    return jsonify({"error": "Failed to update user"}), 500
+
+
+@app.route("/api/users/<user_id>", methods=["DELETE"])
+@require_admin
+def delete_user_route(user_id):
+    """Delete user (admin only)."""
+    manager = get_auth_manager()
+
+    if not manager.get_user(user_id):
+        return jsonify({"error": "User not found"}), 404
+
+    if manager.delete_user(user_id):
+        return jsonify({"ok": True, "message": "User deleted"})
+
+    return jsonify({"error": "Failed to delete user"}), 500
+
+
+# ---------------------------------------------------------------------------
 # API routes – devices
 # ---------------------------------------------------------------------------
 
@@ -184,6 +344,7 @@ def list_devices():
 
 
 @app.route("/api/devices", methods=["POST"])
+@require_admin
 def add_device():
     body = request.get_json(force=True)
     name = (body.get("name") or "").strip()
@@ -209,6 +370,7 @@ def add_device():
 
 
 @app.route("/api/devices/<device_id>", methods=["PUT"])
+@require_admin
 def update_device(device_id):
     devices = load_devices()
     if device_id not in devices:
@@ -232,6 +394,7 @@ def update_device(device_id):
 
 
 @app.route("/api/devices/<device_id>", methods=["DELETE"])
+@require_admin
 def delete_device(device_id):
     devices = load_devices()
     if device_id not in devices:
@@ -297,6 +460,7 @@ def stream_device(device_id):
 
 
 @app.route("/api/devices/<device_id>/command", methods=["POST"])
+@require_admin
 def send_command(device_id):
     devices = load_devices()
     if device_id not in devices:
@@ -842,6 +1006,7 @@ def daikin_status():
 
 
 @app.route("/api/daikin/logout", methods=["POST"])
+@require_admin
 def daikin_logout():
     try:
         daikin_onecta.daikin_logout(DATA_DIR)
@@ -868,6 +1033,7 @@ def daikin_devices():
 
 
 @app.route("/api/daikin/set-temperature", methods=["POST"])
+@require_admin
 def daikin_set_temperature():
     try:
         body = request.get_json(force=True)
@@ -895,6 +1061,7 @@ def daikin_set_temperature():
 
 
 @app.route("/api/daikin/set-power", methods=["POST"])
+@require_admin
 def daikin_set_power():
     try:
         body = request.get_json(force=True)
@@ -1365,6 +1532,7 @@ def hw_list_devices():
 
 
 @app.route("/api/homewizard/devices", methods=["POST"])
+@require_admin
 def hw_add_device():
     body  = request.get_json(force=True) or {}
     ip    = (body.get("ip")    or "").strip()
@@ -1413,6 +1581,7 @@ def hw_add_device():
 
 
 @app.route("/api/homewizard/devices/<device_id>", methods=["PATCH"])
+@require_admin
 def hw_update_device(device_id):
     """Update editable device fields: name, appliance_icon."""
     devices = _hw_devices()
@@ -1427,6 +1596,7 @@ def hw_update_device(device_id):
 
 
 @app.route("/api/homewizard/devices/<device_id>", methods=["DELETE"])
+@require_admin
 def hw_delete_device(device_id):
     devices = _hw_devices()
     if device_id not in devices:
@@ -1472,6 +1642,7 @@ def hw_discover(device_id):
 
 
 @app.route("/api/homewizard/devices/<device_id>/sensors", methods=["PUT"])
+@require_admin
 def hw_save_sensors(device_id):
     devices = _hw_devices()
     if device_id not in devices:
@@ -1517,6 +1688,7 @@ def hw_probe_endpoint():
 
 
 @app.route("/api/homewizard/devices/<device_id>/pair", methods=["POST"])
+@require_admin
 def hw_pair_v2(device_id):
     """Obtain a v2 token by triggering the button-press flow.
     The user must press the physical button on the device within 30 s of this call.
@@ -1640,6 +1812,7 @@ def bosch_status():
 
 
 @app.route("/api/bosch/pair", methods=["POST"])
+@require_admin
 def bosch_pair():
     try:
         body = request.get_json(force=True)
@@ -1709,6 +1882,7 @@ def bosch_devices():
 
 
 @app.route("/api/bosch/set-thermostat", methods=["POST"])
+@require_admin
 def bosch_set_thermostat():
     try:
         body = request.get_json(force=True)
@@ -1736,6 +1910,7 @@ def bosch_set_thermostat():
 
 
 @app.route("/api/bosch/set-power", methods=["POST"])
+@require_admin
 def bosch_set_power():
     try:
         body = request.get_json(force=True)
@@ -1764,6 +1939,7 @@ def bosch_set_power():
 
 
 @app.route("/api/bosch/unpair", methods=["POST"])
+@require_admin
 def bosch_unpair():
     try:
         body = request.get_json(force=True)
@@ -1817,6 +1993,7 @@ def get_flow_sources():
 
 
 @app.route("/api/flow/sources", methods=["PUT"])
+@require_admin
 def put_flow_sources():
     body = request.get_json(force=True)
     # Validate: only allow known slots
@@ -2033,6 +2210,7 @@ def get_entsoe_settings_route():
 
 
 @app.route("/api/entsoe/settings", methods=["POST"])
+@require_admin
 def set_entsoe_settings_route():
     body     = request.get_json(force=True)
     s        = _entsoe_settings()
@@ -2165,6 +2343,7 @@ def get_ha_settings():
 
 
 @app.route("/api/ha/settings", methods=["POST"])
+@require_admin
 def post_ha_settings():
     body = request.get_json(force=True)
     current = _ha_settings()
@@ -2367,6 +2546,7 @@ def get_forecast_settings():
     })
 
 @app.route("/api/forecast/settings", methods=["POST"])
+@require_admin
 def post_forecast_settings():
     body = request.get_json(force=True) or {}
     current = _forecast_settings()
@@ -2475,6 +2655,7 @@ def get_forecast_actual_source():
 
 
 @app.route("/api/forecast/actual-source", methods=["POST"])
+@require_admin
 def save_forecast_actual_source():
     body = request.get_json(force=True) or {}
     with open(FORECAST_ACTUAL_FILE, "w", encoding="utf-8") as f:
@@ -2866,6 +3047,7 @@ def get_flow_cfg():
 
 
 @app.route("/api/flow/cfg", methods=["POST"])
+@require_admin
 def post_flow_cfg():
     """Frontend calls this whenever marstek_flow_cfg changes in localStorage."""
     body = request.get_json(force=True) or {}
@@ -2964,6 +3146,7 @@ def get_strategy_settings():
 
 
 @app.route("/api/strategy/settings", methods=["POST", "PATCH"])
+@require_admin
 def post_strategy_settings():
     body = request.get_json(force=True) or {}
     result = save_strategy_settings(body)
@@ -3587,6 +3770,7 @@ def get_influx_connection():
 
 
 @app.route("/api/influx/connection", methods=["POST"])
+@require_admin
 def save_influx_connection():
     body    = request.get_json(force=True) or {}
     current = _load_influx_conn()
@@ -3846,6 +4030,7 @@ def get_influx_source():
 
 
 @app.route("/api/influx/source", methods=["POST"])
+@require_admin
 def save_influx_source():
     body = request.get_json(force=True) or {}
     current = _load_influx_source()
@@ -5844,6 +6029,7 @@ def get_automation():
 
 
 @app.route("/api/automation", methods=["POST"])
+@require_admin
 def set_automation():
     body = request.get_json(force=True) or {}
     data = _load_automation()

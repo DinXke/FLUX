@@ -257,6 +257,38 @@ class Config:
         """Get HomeWizard local API IP."""
         return os.environ.get("HOMEWIZARD_IP", "")
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Authentication & Authorization
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def get_jwt_secret(self) -> str:
+        """Get JWT signing secret."""
+        if self.standalone_mode:
+            secret = os.environ.get("JWT_SECRET", "")
+            if not secret:
+                import secrets
+                secret = secrets.token_urlsafe(32)
+                log.warning("JWT_SECRET not set; generated random secret. Set JWT_SECRET for persistence across restarts.")
+            return secret
+        else:
+            # HA Addon: store in a file or env
+            return os.environ.get("JWT_SECRET", "")
+
+    def get_jwt_expiry_hours(self) -> int:
+        """Get JWT token expiry in hours."""
+        try:
+            return int(os.environ.get("JWT_EXPIRY_HOURS", "24"))
+        except ValueError:
+            log.warning("JWT_EXPIRY_HOURS invalid; using default 24 hours")
+            return 24
+
+    def get_admin_credentials(self) -> dict:
+        """Get initial admin credentials from environment."""
+        return {
+            "email": os.environ.get("FLUX_ADMIN_USER", ""),
+            "password": os.environ.get("FLUX_ADMIN_PASSWORD", ""),
+        }
+
 
 # Global singleton instance
 _config: Optional[Config] = None
