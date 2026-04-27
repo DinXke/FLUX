@@ -121,16 +121,30 @@ def _poll_esphome(devices: dict) -> dict:
         (["voltage", "l3"],     "l3V"),
     ]
 
+    # ESPHome domains that hold writable controls, not measurements.
+    # "Marstek Charge to SoC" lives in the number domain and must not be
+    # confused with the actual battery SOC sensor.
+    _CONTROL_DOMAINS = {"number", "select", "switch", "button",
+                        "input_number", "input_select"}
+
     def _map_name(entity_id: str) -> Optional[str]:
-        slash = entity_id.find("/")
-        raw   = entity_id[slash + 1:] if slash >= 0 else entity_id
-        name  = raw.lower().replace("_", " ").replace(".", " ").replace("-", " ")
+        # Extract domain prefix — ESPHome uses both "sensor/name" and "sensor-name".
+        sep = entity_id.find("/")
+        if sep < 0:
+            sep = entity_id.find("-")
+        domain = entity_id[:sep].lower() if sep >= 0 else ""
+        raw    = entity_id[sep + 1:] if sep >= 0 else entity_id
+        name   = raw.lower().replace("_", " ").replace(".", " ").replace("-", " ")
         for terms, key in NAME_MAP:
             if all(t in name for t in terms):
+                # Never infer SOC from a writable control entity (e.g. "Marstek Charge
+                # to SoC" is the charge-target setting, not the measured SOC).
+                if key == "soc" and domain in _CONTROL_DOMAINS:
+                    continue
                 return key
         # Word-exact fallback: entity named just "soc" or "soc_1" etc.
-        # Uses word-boundary check to avoid matching "socket".
-        if "soc" in name.split():
+        # Only match sensor/unknown domains — control domains are excluded above.
+        if domain not in _CONTROL_DOMAINS and "soc" in name.split():
             return "soc"
         return None
 
