@@ -160,22 +160,22 @@ export default function HistoricalFrankPage() {
                     style={{
                       display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
                       minWidth: slotMinWidth, flex: 1, cursor: "pointer",
-                      outline: isSelected ? "2px solid #3b82f6" : "none", outlineOffset: 1, borderRadius: 3,
+                      outline: isSelected ? `2px solid ${point.frank_cost_eur < 0 ? "#22c55e" : "#3b82f6"}` : "none", outlineOffset: 1, borderRadius: 3,
                     }}>
                     <div style={{ display: "flex", alignItems: "flex-end", height: 178, width: "100%" }}>
                       <div style={{
                         flex: 1,
                         height: `${frankH}px`,
                         minHeight: point.frank_kwh > 0 ? 2 : 0,
-                        background: isSelected
-                          ? "linear-gradient(to top,#1d4ed8,#3b82f6)"
-                          : "linear-gradient(to top,#2563eb,#60a5fa)",
+                        background: point.frank_cost_eur < 0
+                          ? (isSelected ? "linear-gradient(to top,#15803d,#22c55e)" : "linear-gradient(to top,#16a34a,#4ade80)")
+                          : (isSelected ? "linear-gradient(to top,#1d4ed8,#3b82f6)" : "linear-gradient(to top,#2563eb,#60a5fa)"),
                         borderRadius: "3px 3px 0 0",
                         transition: "background 0.1s",
                       }} />
                     </div>
                     <div style={{
-                      fontSize: 9, color: isSelected ? "#3b82f6" : "var(--text-muted)",
+                      fontSize: 9, color: isSelected ? (point.frank_cost_eur < 0 ? "#22c55e" : "#3b82f6") : "var(--text-muted)",
                       fontWeight: isSelected ? 700 : 400,
                       writingMode: "vertical-rl", transform: "rotate(180deg)",
                       whiteSpace: "nowrap", maxHeight: 36, overflow: "hidden",
