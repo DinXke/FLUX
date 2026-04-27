@@ -6409,7 +6409,7 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
             log.warning("PV limiter: HA service call failed (manual override, entity=%s service=%s)", entity, svc_str)
         return
 
-    min_w     = int(s.get("pv_limiter_min_w",          0))
+    min_w     = int(s.get("pv_limiter_min_w",         50))
     max_w     = int(s.get("pv_limiter_max_w",         4000))
     threshold = float(s.get("pv_limiter_threshold_ct", 0.0)) / 100.0  # € /kWh
 
@@ -6482,6 +6482,9 @@ def _pv_limiter_tick() -> None:
     if not s.get("pv_limiter_enabled") and rc_pv_override is None:
         log.debug("PV limiter tick: disabled and no rolling cap override")
         return
+    if s.get("pv_limiter_enabled") and int(s.get("pv_limiter_min_w", 50)) == 0:
+        log.warning("pv_limiter_min_w is 0W — panelen worden op 0W gezet bij lage/negatieve prijzen. "
+                    "Stel pv_limiter_min_w in op bijv. 100W om dit te voorkomen.")
     log.debug("PV limiter tick: enabled=%s entity=%s use_service=%s rc_pv_override=%s",
               s.get("pv_limiter_enabled"), s.get("pv_limiter_entity"),
               s.get("pv_limiter_use_service"), rc_pv_override)
@@ -6560,7 +6563,7 @@ def _rolling_cap_tick() -> None:
 
     remaining_overshoot = overshoot_w
     if pv_configured and solar_w is not None and solar_w > 0:
-        pv_min_w = int(s.get("pv_limiter_min_w", 0))
+        pv_min_w = int(s.get("pv_limiter_min_w", 50))
         new_pv_w = max(pv_min_w, int(solar_w - overshoot_w))
         prev_override = auto.get("rolling_cap_pv_override_w")
         auto["rolling_cap_pv_override_w"] = new_pv_w
