@@ -36,6 +36,10 @@ backend/automation.json
 backend/marstek.log
 backend/energy.db
 backend/*.db
+backend/_anomalies.json
+
+# ── Debian packages (Playwright/browser deps, never commit) ────────────────
+*.deb
 
 # ── OS ─────────────────────────────────────────────────────────────────────
 .DS_Store
