@@ -29,7 +29,7 @@ function flowSpeed(power) {
 }
 
 // ── Data resolution ───────────────────────────────────────────────────────────
-function resolveOne(sc, batteries, hwData, haData, influxLive) {
+function resolveOne(sc, batteries, hwData, haData, influxLive, smaLive) {
   if (sc.source === "esphome") {
     const b = batteries.find((x) => x.id === sc.device_id);
     const v = b?.[sc.sensor];
@@ -48,17 +48,21 @@ function resolveOne(sc, batteries, hwData, haData, influxLive) {
     const v = influxLive?.[sc.sensor];
     return v == null ? null : sc.invert ? -v : v;
   }
+  if (sc.source === "sma_reader") {
+    const v = smaLive?.pac_w;
+    return v == null ? null : sc.invert ? -v : v;
+  }
   return null;
 }
 
-function resolveSlot(key, cfg, batteries, hwData, haData, influxLive) {
+function resolveSlot(key, cfg, batteries, hwData, haData, influxLive, smaLive) {
   let sc = cfg?.[key];
   if (!sc) return null;
   if (!Array.isArray(sc)) sc = [sc];
   const isAvg = key === "bat_soc";
   let total = null, count = 0;
   for (const s of sc) {
-    const v = resolveOne(s, batteries, hwData, haData, influxLive);
+    const v = resolveOne(s, batteries, hwData, haData, influxLive, smaLive);
     if (v != null) { total = (total ?? 0) + v; count++; }
   }
   if (total == null) return null;
@@ -246,14 +250,14 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
     ? socsWithData.reduce((a, v) => a + v, 0) / socsWithData.length : null;
 
   // ── Slot resolution ────────────────────────────────────────────────────────
-  const solarPower  = resolveSlot("solar_power", cfg, batteries, hwData, haData, influxLive);
-  const netPowerRaw = resolveSlot("net_power",   cfg, batteries, hwData, haData, influxLive);
-  const batPowerRaw = resolveSlot("bat_power",   cfg, batteries, hwData, haData, influxLive);
-  const batSoc      = resolveSlot("bat_soc",     cfg, batteries, hwData, haData, influxLive) ?? avgSoc;
-  const evPower     = resolveSlot("ev_power",    cfg, batteries, hwData, haData, influxLive);
-  const v1 = resolveSlot("voltage_l1", cfg, batteries, hwData, haData, influxLive);
-  const v2 = resolveSlot("voltage_l2", cfg, batteries, hwData, haData, influxLive);
-  const v3 = resolveSlot("voltage_l3", cfg, batteries, hwData, haData, influxLive);
+  const solarPower  = resolveSlot("solar_power", cfg, batteries, hwData, haData, influxLive, smaLive);
+  const netPowerRaw = resolveSlot("net_power",   cfg, batteries, hwData, haData, influxLive, smaLive);
+  const batPowerRaw = resolveSlot("bat_power",   cfg, batteries, hwData, haData, influxLive, smaLive);
+  const batSoc      = resolveSlot("bat_soc",     cfg, batteries, hwData, haData, influxLive, smaLive) ?? avgSoc;
+  const evPower     = resolveSlot("ev_power",    cfg, batteries, hwData, haData, influxLive, smaLive);
+  const v1 = resolveSlot("voltage_l1", cfg, batteries, hwData, haData, influxLive, smaLive);
+  const v2 = resolveSlot("voltage_l2", cfg, batteries, hwData, haData, influxLive, smaLive);
+  const v3 = resolveSlot("voltage_l3", cfg, batteries, hwData, haData, influxLive, smaLive);
 
   // ── Sign convention ────────────────────────────────────────────────────────
   // netDisplayPower: positive = export to grid

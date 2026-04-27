@@ -46,7 +46,7 @@ function flowDur(power) {
 }
 
 /** Resolve one source entry → numeric value or null */
-function resolveOne(sc, batteries, hwData, haData, influxLive) {
+function resolveOne(sc, batteries, hwData, haData, influxLive, smaLive) {
   if (sc.source === "esphome") {
     const bat = batteries.find((b) => b.id === sc.device_id);
     const v = bat?.[sc.sensor];
@@ -69,6 +69,11 @@ function resolveOne(sc, batteries, hwData, haData, influxLive) {
     if (v == null) return null;
     return sc.invert ? -v : v;
   }
+  if (sc.source === "sma_reader") {
+    const v = smaLive?.pac_w;
+    if (v == null) return null;
+    return sc.invert ? -v : v;
+  }
   return null;
 }
 
@@ -76,7 +81,7 @@ function resolveOne(sc, batteries, hwData, haData, influxLive) {
  * Resolve a flow slot: supports array of sources (summed) or single object (backward compat).
  * For bat_soc the values are averaged instead of summed.
  */
-function resolveSlot(key, cfg, batteries, hwData, haData, influxLive) {
+function resolveSlot(key, cfg, batteries, hwData, haData, influxLive, smaLive) {
   let slotCfg = cfg?.[key];
   if (!slotCfg) return null;
   if (!Array.isArray(slotCfg)) slotCfg = [slotCfg]; // backward compat
@@ -86,7 +91,7 @@ function resolveSlot(key, cfg, batteries, hwData, haData, influxLive) {
   let count = 0;
 
   for (const sc of slotCfg) {
-    const v = resolveOne(sc, batteries, hwData, haData, influxLive);
+    const v = resolveOne(sc, batteries, hwData, haData, influxLive, smaLive);
     if (v != null) {
       total = (total ?? 0) + v;
       count++;
@@ -267,7 +272,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
     : null;
 
   // ── Resolve configured slots ───────────────────────────────────────────────
-  const solarPower  = resolveSlot("solar_power", cfg, batteries, hwData, haData, influxLive);
+  const solarPower  = resolveSlot("solar_power", cfg, batteries, hwData, haData, influxLive, smaLive);
 
   // Check if SMA is configured as solar source
   const hasSmaReader = cfg?.solar_power && (Array.isArray(cfg.solar_power)
@@ -281,17 +286,17 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
   );
 
   // net_power: positive = import from grid
-  const netPowerRaw = resolveSlot("net_power",   cfg, batteries, hwData, haData, influxLive);
+  const netPowerRaw = resolveSlot("net_power",   cfg, batteries, hwData, haData, influxLive, smaLive);
 
   // bat_power: positive = discharging
-  const batPowerRaw = resolveSlot("bat_power",   cfg, batteries, hwData, haData, influxLive);
+  const batPowerRaw = resolveSlot("bat_power",   cfg, batteries, hwData, haData, influxLive, smaLive);
 
-  const batSoc = resolveSlot("bat_soc", cfg, batteries, hwData, haData, influxLive) ?? avgSoc;
+  const batSoc = resolveSlot("bat_soc", cfg, batteries, hwData, haData, influxLive, smaLive) ?? avgSoc;
 
   // Phase voltages overrides
-  const v1 = resolveSlot("voltage_l1", cfg, batteries, hwData, haData, influxLive);
-  const v2 = resolveSlot("voltage_l2", cfg, batteries, hwData, haData, influxLive);
-  const v3 = resolveSlot("voltage_l3", cfg, batteries, hwData, haData, influxLive);
+  const v1 = resolveSlot("voltage_l1", cfg, batteries, hwData, haData, influxLive, smaLive);
+  const v2 = resolveSlot("voltage_l2", cfg, batteries, hwData, haData, influxLive, smaLive);
+  const v3 = resolveSlot("voltage_l3", cfg, batteries, hwData, haData, influxLive, smaLive);
 
   // ── Unified sign convention ────────────────────────────────────────────────
   // netDisplayPower: positive = export to grid (drives arrow direction logic)
