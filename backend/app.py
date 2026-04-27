@@ -32,6 +32,7 @@ except ImportError:
 from config import get_config
 from auth import init_auth, get_auth_manager, require_auth, require_admin, get_current_user
 import daikin_onecta
+import daikin_planner
 import bosch_home_connect
 import bosch_appliances
 
@@ -1146,6 +1147,137 @@ def daikin_set_power():
         return jsonify(result)
     except Exception as exc:
         log.error("Daikin set-power error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+# ---------------------------------------------------------------------------
+# Daikin Smart Planner
+# ---------------------------------------------------------------------------
+
+DAIKIN_PLANNER_SETTINGS_FILE = os.path.join(DATA_DIR, "daikin_planner_settings.json")
+
+DEFAULT_DAIKIN_PLANNER_SETTINGS = {
+    "enabled": False,
+    "solar_surplus_threshold_w": 500,
+    "devices": {},
+}
+
+
+def load_daikin_planner_settings() -> dict:
+    try:
+        with open(DAIKIN_PLANNER_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            stored = json.load(f)
+        return {**DEFAULT_DAIKIN_PLANNER_SETTINGS, **stored}
+    except Exception:
+        return dict(DEFAULT_DAIKIN_PLANNER_SETTINGS)
+
+
+def save_daikin_planner_settings(patch: dict) -> dict:
+    current = load_daikin_planner_settings()
+    # Only allow updating known keys
+    allowed_keys = {"enabled", "solar_surplus_threshold_w", "devices"}
+    for k, v in patch.items():
+        if k in allowed_keys:
+            current[k] = v
+    with open(DAIKIN_PLANNER_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(current, f, indent=2)
+    return current
+
+
+@app.route("/api/daikin/planner/settings", methods=["GET"])
+def get_daikin_planner_settings():
+    try:
+        return jsonify(load_daikin_planner_settings())
+    except Exception as exc:
+        log.error("Get daikin planner settings error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/daikin/planner/settings", methods=["POST"])
+@require_admin
+def post_daikin_planner_settings():
+    try:
+        body = request.get_json(force=True) or {}
+        result = save_daikin_planner_settings(body)
+        _tg_notify("📋 Daikin planner instellingen opgeslagen")
+        return jsonify(result)
+    except Exception as exc:
+        log.error("Save daikin planner settings error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/daikin/plan", methods=["GET"])
+def get_daikin_plan():
+    try:
+        settings = load_daikin_planner_settings()
+        if not settings.get("enabled"):
+            return jsonify({"plan": []})
+
+        session = daikin_onecta.load_daikin_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Daikin not authenticated"}), 401
+
+        # Get current prices and solar forecast
+        strategy_settings = load_strategy_settings()
+        now = datetime.now(ZoneInfo("Europe/Amsterdam"))
+
+        # Fetch prices
+        prices = []
+        try:
+            auth_token = strategy_settings.get("frank_auth_token")
+            if auth_token:
+                today = now.date()
+                prices = _fetch_prices(auth_token, today, today + timedelta(days=1), "NL")
+        except Exception as e:
+            log.warning("Could not fetch prices for planner: %s", e)
+
+        # Fetch solar forecast from forecast.solar and transform to planner format
+        solar_forecast = {}
+        try:
+            forecast_settings = _forecast_settings()
+            if forecast_settings.get("lat") and forecast_settings.get("lon"):
+                raw_forecast = _fetch_forecast(forecast_settings)
+                # Transform forecast.solar format to daikin_planner format
+                # forecast.solar returns: {hour_iso: wh, ...}
+                # daikin_planner expects: {date: {hourly: {hour: {watt_hours_period: wh}}}}
+                wh_period = raw_forecast.get("watt_hours_period", {})
+                for hour_iso, wh_value in wh_period.items():
+                    try:
+                        dt = datetime.fromisoformat(hour_iso)
+                        date_key = dt.date().isoformat()
+                        hour_key = str(dt.hour)
+                        if date_key not in solar_forecast:
+                            solar_forecast[date_key] = {"hourly": {}}
+                        solar_forecast[date_key]["hourly"][hour_key] = {"watt_hours_period": wh_value}
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.debug("Could not fetch solar forecast for planner: %s", e)
+
+        # Build plan using daikin_planner
+        devices_cfg = settings.get("devices", {})
+        # Inject global solar threshold into each device config
+        global_threshold = settings.get("solar_surplus_threshold_w", 500)
+        for device_id in devices_cfg:
+            if "solar_surplus_threshold_w" not in devices_cfg[device_id]:
+                devices_cfg[device_id]["solar_surplus_threshold_w"] = global_threshold
+
+        plan_data = daikin_planner.build_daikin_plan(prices, solar_forecast, devices_cfg, now)
+
+        # Format plan for display (flatten the nested structure)
+        flat_plan = []
+        for device_id, slots in plan_data.items():
+            if slots:
+                for slot in slots:
+                    flat_plan.append({
+                        "device": device_id,
+                        "setpoint": slot["setpoint"],
+                        "reason": slot["reason"],
+                    })
+
+        return jsonify({"plan": flat_plan})
+    except Exception as exc:
+        log.error("Get daikin plan error: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 502
 
 
@@ -4809,6 +4941,8 @@ def _influx_context():
 
 AUTOMATION_FILE  = os.path.join(BASE_DIR, "automation.json")
 CAP_PEAK_FILE    = os.path.join(BASE_DIR, "cap_peak.json")
+DAIKIN_PLANNER_SETTINGS_FILE = os.path.join(BASE_DIR, "daikin_planner_settings.json")
+DAIKIN_ACTIVE_PLAN_FILE = os.path.join(BASE_DIR, "daikin_active_plan.json")
 
 
 # ---------------------------------------------------------------------------
@@ -4841,6 +4975,54 @@ def _cap_tariff_track_peak(net_w: float) -> None:
         for old in keys[:-3]:          # keep last 3 months
             del peak_data[old]
         _save_cap_peak(peak_data)
+
+
+# ---------------------------------------------------------------------------
+# Daikin smart planner helpers
+# ---------------------------------------------------------------------------
+
+def _load_daikin_planner_settings() -> dict:
+    """Load Daikin planner settings, with sensible defaults."""
+    try:
+        if os.path.exists(DAIKIN_PLANNER_SETTINGS_FILE):
+            with open(DAIKIN_PLANNER_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as exc:
+        log.warning("Failed to load daikin_planner_settings.json: %s", exc)
+    return {
+        "enabled": False,
+        "solar_surplus_threshold_w": 500,
+        "devices": {}
+    }
+
+
+def _save_daikin_planner_settings(settings: dict) -> None:
+    """Save Daikin planner settings to file."""
+    try:
+        with open(DAIKIN_PLANNER_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+    except Exception as exc:
+        log.error("Failed to save daikin_planner_settings.json: %s", exc)
+
+
+def _load_daikin_active_plan() -> dict:
+    """Load the last active plan from disk."""
+    try:
+        if os.path.exists(DAIKIN_ACTIVE_PLAN_FILE):
+            with open(DAIKIN_ACTIVE_PLAN_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as exc:
+        log.warning("Failed to load daikin_active_plan.json: %s", exc)
+    return {}
+
+
+def _save_daikin_active_plan(plan: dict) -> None:
+    """Save the current active plan to disk."""
+    try:
+        with open(DAIKIN_ACTIVE_PLAN_FILE, "w", encoding="utf-8") as f:
+            json.dump(plan, f, indent=2)
+    except Exception as exc:
+        log.error("Failed to save daikin_active_plan.json: %s", exc)
 
 
 def _compute_forward_plan(force_claude: bool = False) -> dict:
@@ -6471,6 +6653,89 @@ def _update_frank_ha_sensors() -> None:
 
 
 _frank_ha_last_update: float | None = None
+_daikin_planner_last_hour: int = -1
+
+
+def _daikin_planner_tick() -> None:
+    """Run Daikin planner hourly to build and apply smart heating plans."""
+    global _daikin_planner_last_hour
+
+    settings = load_daikin_planner_settings()
+    if not settings.get("enabled", False):
+        return
+
+    # Only run once per hour at the boundary
+    now = datetime.now(timezone.utc)
+    current_hour = now.hour
+    if current_hour == _daikin_planner_last_hour:
+        return
+
+    _daikin_planner_last_hour = current_hour
+
+    devices_cfg = settings.get("devices", {})
+    if not devices_cfg:
+        log.debug("Daikin planner: no devices configured")
+        return
+
+    try:
+        # Get prices and solar forecast
+        today_key = now.date().isoformat()
+        prices = _price_cache.get(today_key, {}).get("data", [])
+        if not prices:
+            log.debug("Daikin planner: no prices available yet")
+            return
+
+        # Load solar forecast
+        solar_forecast = {}
+        try:
+            with open(FORECAST_CACHE_FILE, "r", encoding="utf-8") as f:
+                forecast_data = json.load(f)
+                if forecast_data:
+                    solar_forecast = forecast_data.get("data", {})
+        except Exception:
+            pass
+
+        if not solar_forecast:
+            log.debug("Daikin planner: no solar forecast available")
+            return
+
+        # Inject global solar threshold into each device config
+        global_threshold = settings.get("solar_surplus_threshold_w", 500)
+        for device_id in devices_cfg:
+            if "solar_surplus_threshold_w" not in devices_cfg[device_id]:
+                devices_cfg[device_id]["solar_surplus_threshold_w"] = global_threshold
+
+        # Build the plan for next 24 hours
+        plan = daikin_planner.build_daikin_plan(prices, solar_forecast, devices_cfg, now)
+
+        # Apply current hour's setpoints
+        if plan:
+            hour_iso = now.isoformat(timespec="seconds")
+            daikin_session = daikin_onecta.load_daikin_session(DATA_DIR)
+
+            applied = daikin_planner.apply_daikin_plan(
+                plan,
+                hour_iso,
+                daikin_session,
+                DATA_DIR,
+                DAIKIN_CLIENT_ID,
+                DAIKIN_CLIENT_SECRET,
+                daikin_onecta
+            )
+
+            if applied:
+                log.info("Daikin planner: applied plan for %d devices", len(applied))
+
+            # Save the plan to disk
+            plan_with_meta = {
+                "timestamp": now.isoformat(),
+                "plan": plan,
+                "applied": applied
+            }
+            _save_daikin_active_plan(plan_with_meta)
+
+    except Exception as exc:
+        log.error("Daikin planner error: %s", exc)
 
 
 def _start_automation_thread(interval: int = 60) -> None:
@@ -6491,6 +6756,10 @@ def _start_automation_thread(interval: int = 60) -> None:
                 _update_frank_ha_sensors()
             except Exception as exc:
                 log.debug("Frank HA sensor update error: %s", exc)
+            try:
+                _daikin_planner_tick()
+            except Exception as exc:
+                log.warning("Daikin planner tick error: %s", exc)
             _time.sleep(interval)
 
     def pv_loop():
