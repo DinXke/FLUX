@@ -6560,7 +6560,8 @@ def _rolling_cap_tick() -> None:
 
     remaining_overshoot = overshoot_w
     if pv_configured and solar_w is not None and solar_w > 0:
-        new_pv_w = max(0, int(solar_w - overshoot_w))
+        pv_min_w = int(s.get("pv_limiter_min_w", 0))
+        new_pv_w = max(pv_min_w, int(solar_w - overshoot_w))
         prev_override = auto.get("rolling_cap_pv_override_w")
         auto["rolling_cap_pv_override_w"] = new_pv_w
         # Only clear last_w when the target changes to avoid re-sending the same
