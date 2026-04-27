@@ -98,7 +98,7 @@ DEFAULT_SETTINGS = {
     "sma_reader_host":       "",    # IP-adres omvormer (kan zelfde zijn als pv_limiter_modbus_host)
     "sma_reader_port":       502,
     "sma_reader_unit_id":    3,     # SMA default slave ID = 3
-    "sma_reader_use_udp":    False, # UDP i.p.v. TCP (verbindingsloos, geen sessieconflict)
+    "sma_reader_use_udp":    False, # SMA reageert niet op Modbus UDP; altijd TCP gebruiken
     "sma_reader_interval_s": 10,    # pollinterval in seconden
     "sma_reader_max_w":      4000,  # nominaal max vermogen (W) — voor strategie-logica
     "sma_reader_registers":  None,  # None = gebruik default registermap uit sma_modbus.py
@@ -171,6 +171,9 @@ def load_strategy_settings() -> dict:
         result = {**DEFAULT_SETTINGS, **stored}
     except Exception:
         result = dict(DEFAULT_SETTINGS)
+    # SMA Sunny Boy does not respond to Modbus MBAP over UDP — only TCP works.
+    # Silently correct any saved True so a stale setting cannot re-enable UDP.
+    result["sma_reader_use_udp"] = False
     return result
 
 
