@@ -32,7 +32,9 @@ except ImportError:
 from config import get_config
 from auth import init_auth, get_auth_manager, require_auth, require_admin, get_current_user
 import daikin_onecta
+import daikin_planner
 import bosch_home_connect
+import bosch_appliances
 
 import requests as _req  # aliased to avoid clash with flask.request
 import urllib3
@@ -1039,6 +1041,14 @@ def frank_status():
 DAIKIN_CLIENT_ID = os.environ.get("DAIKIN_CLIENT_ID", "d2c97e4f-aab2-42f5-a863-e8fb0f95c21a")
 DAIKIN_CLIENT_SECRET = os.environ.get("DAIKIN_CLIENT_SECRET", "")
 
+# ---------------------------------------------------------------------------
+# Bosch Home Connect Appliances Integration
+# ---------------------------------------------------------------------------
+BOSCH_APPLIANCES_CLIENT_ID = os.environ.get("BOSCH_APPLIANCES_CLIENT_ID", "")
+BOSCH_APPLIANCES_CLIENT_SECRET = os.environ.get("BOSCH_APPLIANCES_CLIENT_SECRET", "")
+BOSCH_APPLIANCES_REDIRECT_URI = os.environ.get("BOSCH_APPLIANCES_REDIRECT_URI", "http://localhost:5000/api/bosch-appliances/callback")
+BOSCH_APPLIANCES_SANDBOX = os.environ.get("BOSCH_APPLIANCES_SANDBOX", "false").lower() == "true"
+
 @app.route("/api/daikin/status", methods=["GET"])
 def daikin_status():
     try:
@@ -1137,6 +1147,300 @@ def daikin_set_power():
         return jsonify(result)
     except Exception as exc:
         log.error("Daikin set-power error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+# ---------------------------------------------------------------------------
+# Daikin Smart Planner
+# ---------------------------------------------------------------------------
+
+DAIKIN_PLANNER_SETTINGS_FILE = os.path.join(DATA_DIR, "daikin_planner_settings.json")
+
+DEFAULT_DAIKIN_PLANNER_SETTINGS = {
+    "enabled": False,
+    "solar_surplus_threshold_w": 500,
+    "devices": {},
+}
+
+
+def load_daikin_planner_settings() -> dict:
+    try:
+        with open(DAIKIN_PLANNER_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            stored = json.load(f)
+        return {**DEFAULT_DAIKIN_PLANNER_SETTINGS, **stored}
+    except Exception:
+        return dict(DEFAULT_DAIKIN_PLANNER_SETTINGS)
+
+
+def save_daikin_planner_settings(patch: dict) -> dict:
+    current = load_daikin_planner_settings()
+    # Only allow updating known keys
+    allowed_keys = {"enabled", "solar_surplus_threshold_w", "devices"}
+    for k, v in patch.items():
+        if k in allowed_keys:
+            current[k] = v
+    with open(DAIKIN_PLANNER_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(current, f, indent=2)
+    return current
+
+
+@app.route("/api/daikin/planner/settings", methods=["GET"])
+def get_daikin_planner_settings():
+    try:
+        return jsonify(load_daikin_planner_settings())
+    except Exception as exc:
+        log.error("Get daikin planner settings error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/daikin/planner/settings", methods=["POST"])
+@require_admin
+def post_daikin_planner_settings():
+    try:
+        body = request.get_json(force=True) or {}
+        result = save_daikin_planner_settings(body)
+        _tg_notify("📋 Daikin planner instellingen opgeslagen")
+        return jsonify(result)
+    except Exception as exc:
+        log.error("Save daikin planner settings error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/daikin/plan", methods=["GET"])
+def get_daikin_plan():
+    try:
+        settings = load_daikin_planner_settings()
+        if not settings.get("enabled"):
+            return jsonify({"plan": []})
+
+        session = daikin_onecta.load_daikin_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Daikin not authenticated"}), 401
+
+        # Get current prices and solar forecast
+        strategy_settings = load_strategy_settings()
+        now = datetime.now(ZoneInfo("Europe/Amsterdam"))
+
+        # Fetch prices
+        prices = []
+        try:
+            auth_token = strategy_settings.get("frank_auth_token")
+            if auth_token:
+                today = now.date()
+                prices = _fetch_prices(auth_token, today, today + timedelta(days=1), "NL")
+        except Exception as e:
+            log.warning("Could not fetch prices for planner: %s", e)
+
+        # Fetch solar forecast from forecast.solar and transform to planner format
+        solar_forecast = {}
+        try:
+            forecast_settings = _forecast_settings()
+            if forecast_settings.get("lat") and forecast_settings.get("lon"):
+                raw_forecast = _fetch_forecast(forecast_settings)
+                # Transform forecast.solar format to daikin_planner format
+                # forecast.solar returns: {hour_iso: wh, ...}
+                # daikin_planner expects: {date: {hourly: {hour: {watt_hours_period: wh}}}}
+                wh_period = raw_forecast.get("watt_hours_period", {})
+                for hour_iso, wh_value in wh_period.items():
+                    try:
+                        dt = datetime.fromisoformat(hour_iso)
+                        date_key = dt.date().isoformat()
+                        hour_key = str(dt.hour)
+                        if date_key not in solar_forecast:
+                            solar_forecast[date_key] = {"hourly": {}}
+                        solar_forecast[date_key]["hourly"][hour_key] = {"watt_hours_period": wh_value}
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.debug("Could not fetch solar forecast for planner: %s", e)
+
+        # Build plan using daikin_planner
+        devices_cfg = settings.get("devices", {})
+        # Inject global solar threshold into each device config
+        global_threshold = settings.get("solar_surplus_threshold_w", 500)
+        for device_id in devices_cfg:
+            if "solar_surplus_threshold_w" not in devices_cfg[device_id]:
+                devices_cfg[device_id]["solar_surplus_threshold_w"] = global_threshold
+
+        plan_data = daikin_planner.build_daikin_plan(prices, solar_forecast, devices_cfg, now)
+
+        # Format plan for display (flatten the nested structure)
+        flat_plan = []
+        for device_id, slots in plan_data.items():
+            if slots:
+                for slot in slots:
+                    flat_plan.append({
+                        "device": device_id,
+                        "setpoint": slot["setpoint"],
+                        "reason": slot["reason"],
+                    })
+
+        return jsonify({"plan": flat_plan})
+    except Exception as exc:
+        log.error("Get daikin plan error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+# ---------------------------------------------------------------------------
+# Bosch Home Connect Appliances Integration
+# ---------------------------------------------------------------------------
+
+@app.route("/api/bosch-appliances/status", methods=["GET"])
+def bosch_appliances_status():
+    try:
+        session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if session.get("access_token"):
+            return jsonify({
+                "authenticated": True,
+                "sandbox": BOSCH_APPLIANCES_SANDBOX,
+                "updated_at": session.get("updated_at"),
+            })
+        return jsonify({"authenticated": False, "sandbox": BOSCH_APPLIANCES_SANDBOX})
+    except Exception as exc:
+        log.error("Bosch status error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/authorize", methods=["GET"])
+def bosch_appliances_authorize():
+    try:
+        if not BOSCH_APPLIANCES_CLIENT_ID:
+            return jsonify({"error": "Bosch OAuth2 not configured"}), 400
+        auth_url = bosch_appliances.get_bosch_appliances_auth_url(
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_REDIRECT_URI,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+        return jsonify({"auth_url": auth_url})
+    except Exception as exc:
+        log.error("Bosch authorize error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/callback", methods=["GET"])
+def bosch_appliances_callback():
+    try:
+        code = request.args.get("code")
+        if not code:
+            return jsonify({"error": "Authorization code required"}), 400
+
+        result = bosch_appliances.exchange_bosch_appliances_code(
+            code,
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_CLIENT_SECRET,
+            BOSCH_APPLIANCES_REDIRECT_URI,
+            DATA_DIR,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+        log.info("Bosch OAuth2 callback success")
+        return jsonify(result)
+    except Exception as exc:
+        log.error("Bosch callback error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/devices", methods=["GET"])
+def bosch_appliances_devices():
+    try:
+        session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Not authenticated"}), 401
+
+        appliances = bosch_appliances.get_appliances(
+            session,
+            DATA_DIR,
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_CLIENT_SECRET,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+        return jsonify({"appliances": appliances})
+    except Exception as exc:
+        log.error("Bosch devices error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/start", methods=["POST"])
+@require_admin
+def bosch_appliances_start():
+    try:
+        body = request.get_json(force=True)
+        ha_id = body.get("ha_id", "").strip()
+        program_key = body.get("program_key", "").strip()
+
+        if not ha_id or not program_key:
+            return jsonify({"error": "ha_id and program_key required"}), 400
+
+        session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Not authenticated"}), 401
+
+        result = bosch_appliances.start_appliance_program(
+            ha_id,
+            program_key,
+            session,
+            DATA_DIR,
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_CLIENT_SECRET,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+        bosch_appliances.save_bosch_session(DATA_DIR, session)
+        _tg_notify(f"🏠 Bosch: Started {program_key} on appliance")
+        return jsonify(result)
+    except Exception as exc:
+        log.error("Bosch start error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/stop", methods=["POST"])
+@require_admin
+def bosch_appliances_stop():
+    try:
+        body = request.get_json(force=True)
+        ha_id = body.get("ha_id", "").strip()
+
+        if not ha_id:
+            return jsonify({"error": "ha_id required"}), 400
+
+        session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Not authenticated"}), 401
+
+        result = bosch_appliances.stop_appliance(
+            ha_id,
+            session,
+            DATA_DIR,
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_CLIENT_SECRET,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+        bosch_appliances.save_bosch_session(DATA_DIR, session)
+        _tg_notify(f"🏠 Bosch: Stopped appliance")
+        return jsonify(result)
+    except Exception as exc:
+        log.error("Bosch stop error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/settings", methods=["GET"])
+def bosch_appliances_settings_get():
+    try:
+        settings = bosch_appliances.load_bosch_settings(DATA_DIR)
+        return jsonify(settings)
+    except Exception as exc:
+        log.error("Bosch settings GET error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/settings", methods=["POST"])
+@require_admin
+def bosch_appliances_settings_post():
+    try:
+        body = request.get_json(force=True)
+        bosch_appliances.save_bosch_settings(DATA_DIR, body)
+        log.info("Bosch appliances settings updated")
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log.error("Bosch settings POST error: %s", exc)
         return jsonify({"error": str(exc)}), 502
 
 
@@ -4637,6 +4941,8 @@ def _influx_context():
 
 AUTOMATION_FILE  = os.path.join(BASE_DIR, "automation.json")
 CAP_PEAK_FILE    = os.path.join(BASE_DIR, "cap_peak.json")
+DAIKIN_PLANNER_SETTINGS_FILE = os.path.join(BASE_DIR, "daikin_planner_settings.json")
+DAIKIN_ACTIVE_PLAN_FILE = os.path.join(BASE_DIR, "daikin_active_plan.json")
 
 
 # ---------------------------------------------------------------------------
@@ -4669,6 +4975,54 @@ def _cap_tariff_track_peak(net_w: float) -> None:
         for old in keys[:-3]:          # keep last 3 months
             del peak_data[old]
         _save_cap_peak(peak_data)
+
+
+# ---------------------------------------------------------------------------
+# Daikin smart planner helpers
+# ---------------------------------------------------------------------------
+
+def _load_daikin_planner_settings() -> dict:
+    """Load Daikin planner settings, with sensible defaults."""
+    try:
+        if os.path.exists(DAIKIN_PLANNER_SETTINGS_FILE):
+            with open(DAIKIN_PLANNER_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as exc:
+        log.warning("Failed to load daikin_planner_settings.json: %s", exc)
+    return {
+        "enabled": False,
+        "solar_surplus_threshold_w": 500,
+        "devices": {}
+    }
+
+
+def _save_daikin_planner_settings(settings: dict) -> None:
+    """Save Daikin planner settings to file."""
+    try:
+        with open(DAIKIN_PLANNER_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+    except Exception as exc:
+        log.error("Failed to save daikin_planner_settings.json: %s", exc)
+
+
+def _load_daikin_active_plan() -> dict:
+    """Load the last active plan from disk."""
+    try:
+        if os.path.exists(DAIKIN_ACTIVE_PLAN_FILE):
+            with open(DAIKIN_ACTIVE_PLAN_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as exc:
+        log.warning("Failed to load daikin_active_plan.json: %s", exc)
+    return {}
+
+
+def _save_daikin_active_plan(plan: dict) -> None:
+    """Save the current active plan to disk."""
+    try:
+        with open(DAIKIN_ACTIVE_PLAN_FILE, "w", encoding="utf-8") as f:
+            json.dump(plan, f, indent=2)
+    except Exception as exc:
+        log.error("Failed to save daikin_active_plan.json: %s", exc)
 
 
 def _compute_forward_plan(force_claude: bool = False) -> dict:
@@ -5465,6 +5819,65 @@ def _current_slot_action() -> str | None:
     return "neutral"
 
 
+def _trigger_bosch_smart_start(settings: dict) -> None:
+    """
+    Check if Bosch appliances should be smart-started based on solar surplus,
+    negative price, or cheap hours. Runs every minute as part of _automation_tick().
+    """
+    try:
+        session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if not session.get("access_token"):
+            return
+
+        # Get solar surplus (current solar vs consumption)
+        solar_surplus_w = _solar_overproduction_w()
+        if solar_surplus_w is None:
+            solar_surplus_w = 0.0
+
+        # Get current price and calculate average from plan
+        current_price: float | None = None
+        avg_price = 0.15
+        try:
+            slots = _plan_cache.get("slots", [])
+            if slots:
+                tz = ZoneInfo(_entsoe_settings().get("timezone", "Europe/Brussels"))
+                now_h = datetime.now(tz).hour
+                current_slot = next((sl for sl in slots if sl.get("hour") == now_h), None)
+                if current_slot:
+                    current_price = current_slot.get("price_eur_kwh")
+                # Average price across all 24 hours
+                prices = [sl.get("price_eur_kwh") for sl in slots if sl.get("price_eur_kwh") is not None]
+                if prices:
+                    avg_price = sum(prices) / len(prices)
+        except Exception as exc:
+            log.debug("Smart-start: failed to get price info: %s", exc)
+
+        log.debug(
+            "Bosch smart-start check: solar_surplus=%.0fW, current_price=%.4f EUR/kWh, avg=%.4f",
+            solar_surplus_w, current_price or 0, avg_price
+        )
+
+        # Check smart-start conditions and start appliances if applicable
+        result = bosch_appliances.check_bosch_appliances_smart_start(
+            solar_surplus_w,
+            current_price,
+            avg_price,
+            session,
+            DATA_DIR,
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_CLIENT_SECRET,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+
+        if result.get("ok") and result.get("started"):
+            log.info("Bosch smart-start: %d appliances started (%s)", result.get("count"), result.get("reason"))
+            for app in result.get("started", []):
+                _tg_notify(f"🏠 Bosch appliances: {app.get('program_key')} gestart ({result.get('reason')})")
+
+    except Exception as exc:
+        log.error("Bosch smart-start error: %s", exc)
+
+
 def _apply_heating_control(action: str, settings: dict) -> None:
     """
     Apply heating device control based on current automation action.
@@ -5831,6 +6244,10 @@ def _automation_tick() -> None:
     # Dispatch heating setpoint/valve commands based on current action
     if auto.get("heating_enabled", True):
         _apply_heating_control(effective_action, s_now)
+
+    # ── Bosch Home Connect appliances smart-start ────────────────────────────
+    # Start configured appliances when solar surplus or negative price conditions met
+    _trigger_bosch_smart_start(s_now)
 
     _save_automation(auto)
 
@@ -6236,6 +6653,89 @@ def _update_frank_ha_sensors() -> None:
 
 
 _frank_ha_last_update: float | None = None
+_daikin_planner_last_hour: int = -1
+
+
+def _daikin_planner_tick() -> None:
+    """Run Daikin planner hourly to build and apply smart heating plans."""
+    global _daikin_planner_last_hour
+
+    settings = load_daikin_planner_settings()
+    if not settings.get("enabled", False):
+        return
+
+    # Only run once per hour at the boundary
+    now = datetime.now(timezone.utc)
+    current_hour = now.hour
+    if current_hour == _daikin_planner_last_hour:
+        return
+
+    _daikin_planner_last_hour = current_hour
+
+    devices_cfg = settings.get("devices", {})
+    if not devices_cfg:
+        log.debug("Daikin planner: no devices configured")
+        return
+
+    try:
+        # Get prices and solar forecast
+        today_key = now.date().isoformat()
+        prices = _price_cache.get(today_key, {}).get("data", [])
+        if not prices:
+            log.debug("Daikin planner: no prices available yet")
+            return
+
+        # Load solar forecast
+        solar_forecast = {}
+        try:
+            with open(FORECAST_CACHE_FILE, "r", encoding="utf-8") as f:
+                forecast_data = json.load(f)
+                if forecast_data:
+                    solar_forecast = forecast_data.get("data", {})
+        except Exception:
+            pass
+
+        if not solar_forecast:
+            log.debug("Daikin planner: no solar forecast available")
+            return
+
+        # Inject global solar threshold into each device config
+        global_threshold = settings.get("solar_surplus_threshold_w", 500)
+        for device_id in devices_cfg:
+            if "solar_surplus_threshold_w" not in devices_cfg[device_id]:
+                devices_cfg[device_id]["solar_surplus_threshold_w"] = global_threshold
+
+        # Build the plan for next 24 hours
+        plan = daikin_planner.build_daikin_plan(prices, solar_forecast, devices_cfg, now)
+
+        # Apply current hour's setpoints
+        if plan:
+            hour_iso = now.isoformat(timespec="seconds")
+            daikin_session = daikin_onecta.load_daikin_session(DATA_DIR)
+
+            applied = daikin_planner.apply_daikin_plan(
+                plan,
+                hour_iso,
+                daikin_session,
+                DATA_DIR,
+                DAIKIN_CLIENT_ID,
+                DAIKIN_CLIENT_SECRET,
+                daikin_onecta
+            )
+
+            if applied:
+                log.info("Daikin planner: applied plan for %d devices", len(applied))
+
+            # Save the plan to disk
+            plan_with_meta = {
+                "timestamp": now.isoformat(),
+                "plan": plan,
+                "applied": applied
+            }
+            _save_daikin_active_plan(plan_with_meta)
+
+    except Exception as exc:
+        log.error("Daikin planner error: %s", exc)
 
 
 def _start_automation_thread(interval: int = 60) -> None:
@@ -6256,6 +6756,10 @@ def _start_automation_thread(interval: int = 60) -> None:
                 _update_frank_ha_sensors()
             except Exception as exc:
                 log.debug("Frank HA sensor update error: %s", exc)
+            try:
+                _daikin_planner_tick()
+            except Exception as exc:
+                log.warning("Daikin planner tick error: %s", exc)
             _time.sleep(interval)
 
     def pv_loop():

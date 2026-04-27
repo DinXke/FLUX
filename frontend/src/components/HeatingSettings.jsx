@@ -32,6 +32,10 @@ export default function HeatingSettings() {
   const [gridChargeTemp, setGridChargeTemp] = useState(25);
   const [dischargeTemp, setDischargeTemp] = useState(16);
   const [comfortTemp, setComfortTemp] = useState(21);
+  const [plannerSettings, setPlannerSettings] = useState(null);
+  const [activePlan, setActivePlan] = useState(null);
+  const [plannerLoading, setPlannerLoading] = useState(false);
+  const [plannerAvailable, setPlannerAvailable] = useState(true);
 
   useEffect(() => {
     // Load heating settings
@@ -46,6 +50,7 @@ export default function HeatingSettings() {
       .catch(() => {});
 
     refreshDevices();
+    loadPlannerSettings();
   }, []);
 
   const refreshDevices = async () => {
@@ -69,6 +74,52 @@ export default function HeatingSettings() {
         setBoschDevices(devData.devices || []);
       }
     } catch (e) {}
+  };
+
+  const loadPlannerSettings = async () => {
+    try {
+      const res = await apiFetch("api/daikin/planner/settings");
+      if (!res.ok) {
+        if (res.status === 404) {
+          setPlannerAvailable(false);
+        }
+        return;
+      }
+      const data = await res.json();
+      setPlannerSettings(data);
+      setPlannerAvailable(true);
+    } catch (e) {
+      setPlannerAvailable(false);
+    }
+  };
+
+  const savePlannerSettings = async (settings) => {
+    try {
+      const res = await apiFetch("api/daikin/planner/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      const data = await res.json();
+      setPlannerSettings(data);
+      setSuccess("✓ Planner instellingen opgeslagen");
+    } catch (e) {
+      setError("Kon instellingen niet opslaan");
+    }
+  };
+
+  const loadActivePlan = async () => {
+    try {
+      setPlannerLoading(true);
+      const res = await apiFetch("api/daikin/plan");
+      if (!res.ok) return;
+      const data = await res.json();
+      setActivePlan(data);
+    } catch (e) {
+    } finally {
+      setPlannerLoading(false);
+    }
   };
 
   const saveSetting = async (key, value) => {
@@ -265,6 +316,261 @@ export default function HeatingSettings() {
           </div>
         )}
       </div>
+
+      {plannerAvailable && daikinAuth && daikinDevices.length > 0 && (
+        <div className="settings-subsection">
+          <h3>🌞 Daikin Smart Planner</h3>
+          {plannerSettings ? (
+            <div>
+              <Row
+                label="Smart planning actief"
+                desc="Activeer slim plannen op basis van energieprijzen en zonne-overschot"
+              >
+                <Toggle
+                  on={plannerSettings.enabled || false}
+                  onChange={(val) => {
+                    const updated = { ...plannerSettings, enabled: val };
+                    setPlannerSettings(updated);
+                    savePlannerSettings(updated);
+                  }}
+                />
+              </Row>
+
+              <Row label="Zon-overschot drempel (W)" desc="Minimum zonne-overschot voor warmtepompactivatie">
+                <input
+                  type="number"
+                  min="0"
+                  step="100"
+                  value={plannerSettings.solar_surplus_threshold_w || 500}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    const updated = { ...plannerSettings, solar_surplus_threshold_w: val };
+                    setPlannerSettings(updated);
+                    savePlannerSettings(updated);
+                  }}
+                  style={{ width: "90px" }}
+                />
+              </Row>
+
+              <div style={{ marginTop: "16px", borderTop: "1px solid #e0e0e0", paddingTop: "12px" }}>
+                <div className="settings-row-label" style={{ marginBottom: "12px" }}>
+                  Apparaat-instellingen
+                </div>
+
+                {daikinDevices.map((device) => {
+                  const deviceSettings = plannerSettings.devices?.[device.id] || {
+                    enabled: false,
+                    comfort_setpoint: 21,
+                    buffer_setpoint: 24,
+                    min_setpoint: 16,
+                    max_setpoint: 28,
+                    deadline_enabled: false,
+                    deadline_hour: 7,
+                    min_runtime_hours: 2,
+                  };
+
+                  const handleDeviceChange = (field, value) => {
+                    const updated = {
+                      ...plannerSettings,
+                      devices: {
+                        ...plannerSettings.devices,
+                        [device.id]: { ...deviceSettings, [field]: value },
+                      },
+                    };
+                    setPlannerSettings(updated);
+                    savePlannerSettings(updated);
+                  };
+
+                  const bufferComfortWarning = deviceSettings.buffer_setpoint < deviceSettings.comfort_setpoint;
+                  const maxBufferWarning = deviceSettings.max_setpoint < deviceSettings.buffer_setpoint;
+                  const minComfortWarning = deviceSettings.min_setpoint > deviceSettings.comfort_setpoint;
+
+                  return (
+                    <div
+                      key={device.id}
+                      style={{
+                        margin: "12px 0",
+                        padding: "12px",
+                        background: "#f9f9f9",
+                        borderRadius: "6px",
+                        border: "1px solid #e0e0e0",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                        <div className="settings-row-label">{device.name}</div>
+                        <Toggle
+                          on={deviceSettings.enabled}
+                          onChange={(val) => handleDeviceChange("enabled", val)}
+                        />
+                      </div>
+
+                      {deviceSettings.enabled && (
+                        <div>
+                          <Row label="Comfort setpoint (°C)" desc="">
+                            <input
+                              type="number"
+                              min="16"
+                              max="28"
+                              step="0.5"
+                              value={deviceSettings.comfort_setpoint}
+                              onChange={(e) => handleDeviceChange("comfort_setpoint", parseFloat(e.target.value))}
+                              style={{ width: "60px" }}
+                            />
+                          </Row>
+
+                          <Row label="Buffer setpoint (°C)" desc="Setpoint bij zonne-overschot of negatieve prijs">
+                            <input
+                              type="number"
+                              min="16"
+                              max="28"
+                              step="0.5"
+                              value={deviceSettings.buffer_setpoint}
+                              onChange={(e) => handleDeviceChange("buffer_setpoint", parseFloat(e.target.value))}
+                              style={{ width: "60px", borderColor: bufferComfortWarning ? "#e74c3c" : "#ccc" }}
+                            />
+                            {bufferComfortWarning && (
+                              <div style={{ color: "#e74c3c", fontSize: "12px", marginLeft: "8px" }}>
+                                ⚠ Buffer moet ≥ comfort zijn
+                              </div>
+                            )}
+                          </Row>
+
+                          <Row label="Min setpoint (°C)" desc="">
+                            <input
+                              type="number"
+                              min="10"
+                              max="28"
+                              step="0.5"
+                              value={deviceSettings.min_setpoint}
+                              onChange={(e) => handleDeviceChange("min_setpoint", parseFloat(e.target.value))}
+                              style={{ width: "60px", borderColor: minComfortWarning ? "#e74c3c" : "#ccc" }}
+                            />
+                            {minComfortWarning && (
+                              <div style={{ color: "#e74c3c", fontSize: "12px", marginLeft: "8px" }}>
+                                ⚠ Min moet ≤ comfort zijn
+                              </div>
+                            )}
+                          </Row>
+
+                          <Row label="Max setpoint (°C)" desc="">
+                            <input
+                              type="number"
+                              min="16"
+                              max="35"
+                              step="0.5"
+                              value={deviceSettings.max_setpoint}
+                              onChange={(e) => handleDeviceChange("max_setpoint", parseFloat(e.target.value))}
+                              style={{ width: "60px", borderColor: maxBufferWarning ? "#e74c3c" : "#ccc" }}
+                            />
+                            {maxBufferWarning && (
+                              <div style={{ color: "#e74c3c", fontSize: "12px", marginLeft: "8px" }}>
+                                ⚠ Max moet ≥ buffer zijn
+                              </div>
+                            )}
+                          </Row>
+
+                          <div style={{ marginTop: "12px", paddingTop: "8px", borderTop: "1px solid #e0e0e0" }}>
+                            <Row label="Deadline ingeschakeld" desc="">
+                              <Toggle
+                                on={deviceSettings.deadline_enabled}
+                                onChange={(val) => handleDeviceChange("deadline_enabled", val)}
+                              />
+                            </Row>
+
+                            {deviceSettings.deadline_enabled && (
+                              <div>
+                                <Row label="Doeluur (warmte om X uur)" desc="">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="23"
+                                    value={deviceSettings.deadline_hour}
+                                    onChange={(e) => handleDeviceChange("deadline_hour", parseInt(e.target.value))}
+                                    style={{ width: "50px" }}
+                                  />
+                                  uur
+                                </Row>
+
+                                <Row label="Min. draaitijd (uren)" desc="">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="8"
+                                    step="0.5"
+                                    value={deviceSettings.min_runtime_hours}
+                                    onChange={(e) => handleDeviceChange("min_runtime_hours", parseFloat(e.target.value))}
+                                    style={{ width: "50px" }}
+                                  />
+                                </Row>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={loadActivePlan}
+                disabled={plannerLoading}
+                style={{
+                  marginTop: "12px",
+                  padding: "6px 12px",
+                  background: "#3498db",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                }}
+              >
+                {plannerLoading ? "Laden..." : "Huidig plan weergeven"}
+              </button>
+
+              {activePlan && (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    padding: "10px",
+                    background: "#f0f8ff",
+                    borderRadius: "4px",
+                    fontSize: "13px",
+                  }}
+                >
+                  <strong>Huidig uurplan:</strong>
+                  {activePlan.plan && activePlan.plan.length > 0 ? (
+                    <ul style={{ margin: "6px 0 0 0", paddingLeft: "20px" }}>
+                      {activePlan.plan.map((hour, idx) => (
+                        <li key={idx}>
+                          {hour.device}: {hour.setpoint}°C ({hour.reason})
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div style={{ marginTop: "6px", color: "#666" }}>
+                      Geen actief plan — schakel de planner in
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ padding: "10px", color: "#666" }}>
+              <p>Planner instellingen laden...</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!plannerAvailable && daikinAuth && daikinDevices.length > 0 && (
+        <div className="settings-subsection" style={{ opacity: 0.6 }}>
+          <h3>🌞 Daikin Smart Planner</h3>
+          <div style={{ padding: "10px", color: "#999" }}>
+            Planner niet beschikbaar op dit moment
+          </div>
+        </div>
+      )}
 
       <div className="settings-subsection">
         <h3>Bosch Home Connect</h3>

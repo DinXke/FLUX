@@ -13,6 +13,7 @@ import RollingCapSettings from "./RollingCapSettings.jsx";
 import TelegramSettings from "./TelegramSettings.jsx";
 import SmaReaderSettings from "./SmaReaderSettings.jsx";
 import HeatingSettings from "./HeatingSettings.jsx";
+import BoschAppliances from "./BoschAppliances.jsx";
 
 // ---------------------------------------------------------------------------
 // Persisted settings helpers (localStorage)
@@ -444,6 +445,7 @@ const GROUPS = [
       { id: "forecast", label: "☀️ Forecast" },
       { id: "telegram", label: "✈️ Telegram" },
       { id: "heating", label: "🌡️ Verwarming" },
+      { id: "bosch", label: "🏠 Huishoudapparaten" },
     ],
   },
   {
@@ -548,6 +550,7 @@ export default function SettingsPage({ devices, powerMap, onDeviceAdded, onDevic
       {activeTab === "forecast"   && <ForecastSettings />}
       {activeTab === "telegram"   && <TelegramSettings />}
       {activeTab === "heating"    && <HeatingSettings />}
+      {activeTab === "bosch"      && <BoschAppliances />}
       {activeTab === "debug"      && <DebugPanel />}
     </div>
   );
