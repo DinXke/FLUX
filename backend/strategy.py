@@ -168,9 +168,12 @@ def load_strategy_settings() -> dict:
     try:
         with open(STRATEGY_SETTINGS_FILE, "r", encoding="utf-8") as f:
             stored = json.load(f)
-        return {**DEFAULT_SETTINGS, **stored}
+        result = {**DEFAULT_SETTINGS, **stored}
     except Exception:
-        return dict(DEFAULT_SETTINGS)
+        result = dict(DEFAULT_SETTINGS)
+    # SMA does not support Modbus UDP — force TCP to prevent night-mode lockout
+    result["sma_reader_use_udp"] = False
+    return result
 
 
 def save_strategy_settings(patch: dict) -> dict:
