@@ -2914,6 +2914,12 @@ def get_forecast_actuals():
             if e.get("source") == "homeassistant" and e.get("sensor")
         ]
 
+        # Check if SMA Reader is configured as solar source
+        sma_entries = [
+            e for e in flow_cfg2.get("solar_power", [])
+            if e.get("source") in ("sma", "sma_reader")
+        ]
+
         # Also pick up ESPHome solar sensors via InfluxDB if mapped
         influx_src2 = _load_influx_source()
         sol_mapping = influx_src2.get("mappings", {}).get("solar_w")
@@ -2963,18 +2969,55 @@ def get_forecast_actuals():
                 except Exception as exc:
                     log.warning("forecast/actuals flow→influx error: %s", exc)
 
+        # Handle SMA Reader as solar source (fetch from InfluxDB)
+        if sma_entries and influx_src2.get("url") and influx_src2.get("database"):
+            try:
+                conn2    = _load_influx_conn()
+                url2     = influx_src2.get("url") or conn2.get("url", "")
+                version2 = influx_src2.get("version") or conn2.get("version", "v1")
+                db2      = influx_src2.get("database", "")
+                user2    = conn2.get("username", "")
+                pass2    = conn2.get("password", "")
+
+                if url2 and db2 and version2 == "v1":
+                    from datetime import datetime as _dt_sma, timedelta as _td_sma
+                    _d_sma = _dt_sma.strptime(date_str, "%Y-%m-%d")
+                    _s_sma = (_d_sma - _td_sma(hours=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    _e_sma = (_d_sma + _td_sma(hours=38)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    q_sma = (f'SELECT mean("pac_w") AS val FROM "sma_inverter"'
+                             f' WHERE time >= \'{_s_sma}\' AND time < \'{_e_sma}\''
+                             f" GROUP BY time(15m) fill(null)")
+                    data_sma = _influx_v1_query(url2, user2, pass2, q_sma, db=db2)
+                    for res_sma in data_sma.get("results", []):
+                        for ser_sma in res_sma.get("series", []):
+                            for row_sma in ser_sma.get("values", []):
+                                ts_sma, val_sma = row_sma[0], row_sma[1]
+                                if val_sma is None:
+                                    continue
+                                try:
+                                    from datetime import datetime as _dt_sma2
+                                    import pytz as _pyz_sma
+                                    dt_u_sma = _dt_sma2.strptime(ts_sma[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_pyz_sma.utc)
+                                    ts_loc_sma = dt_u_sma.astimezone(_tz2).strftime("%Y-%m-%d %H:%M:%S")
+                                except Exception:
+                                    ts_loc_sma = ts_sma[:19].replace("T", " ")
+                                if ts_loc_sma.startswith(date_str):
+                                    result[ts_loc_sma] = float(val_sma)
+            except Exception as exc:
+                log.warning("forecast/actuals sma error: %s", exc)
+
         # Diagnose empty result: warn when flow_cfg has no usable historical source
-        if not result and not sol_entries and not use_influx_flow:
+        if not result and not sol_entries and not use_influx_flow and not sma_entries:
             all_solar = flow_cfg2.get("solar_power", [])
             if not all_solar:
                 return jsonify({"watts": {}, "warning":
                     "Geen zonnepanelen bron ingesteld in Instellingen → Bronnen."})
-            non_ha = [e.get("source", "?") for e in all_solar if e.get("source") != "homeassistant"]
+            non_ha = [e.get("source", "?") for e in all_solar if e.get("source") not in ("homeassistant", "sma", "sma_reader")]
             if non_ha:
                 return jsonify({"watts": {}, "warning":
-                    f"Historische data is alleen beschikbaar voor Home Assistant entiteiten. "
+                    f"Historische data is alleen beschikbaar voor Home Assistant, SMA Reader en InfluxDB. "
                     f"Huidige bron(nen): {', '.join(set(non_ha))}. "
-                    f"Voeg een HA-sensor toe als zonnepanelen bron, of gebruik InfluxDB."})
+                    f"Voeg een HA-sensor of SMA Reader toe als zonnepanelen bron, of gebruik InfluxDB."})
 
         if not result and sol_entries and ha_s.get("url") and ha_s.get("token"):
             # Fall back to HA history for the solar HA entities
