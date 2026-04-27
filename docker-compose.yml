@@ -44,7 +44,7 @@ services:
       BOSCH_APPLIANCES_SANDBOX: ${BOSCH_APPLIANCES_SANDBOX:-false}
       GRAFANA_EXTERNAL_URL: ${GRAFANA_EXTERNAL_URL:-}
     volumes:
-      - ./data:/data
+      - flux_data:/data
 
   influxdb:
     image: influxdb:2.7
@@ -113,6 +113,7 @@ services:
       start_period: 10s
 
 volumes:
+  flux_data:
   influxdb_data:
   influxdb_config:
   grafana_data:

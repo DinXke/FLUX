@@ -214,7 +214,9 @@ fi
 # ─────────────────────────────────────────────────────────────────────────
 log_title "Preparing data directories..."
 
-mkdir -p data grafana/provisioning/{dashboards,datasources} nginx/ssl
+# Note: ./data is now a Docker named volume (flux_data) for persistence across upgrades.
+# Only create local directories for config that's not persistent (nginx, grafana provisioning).
+mkdir -p grafana/provisioning/{dashboards,datasources} nginx/ssl
 
 # Generate self-signed SSL certificate if not already present
 if [[ ! -f nginx/ssl/cert.pem ]]; then
