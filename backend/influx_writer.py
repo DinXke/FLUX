@@ -131,6 +131,8 @@ def _poll_esphome(devices: dict) -> dict:
         # Extract domain prefix — ESPHome uses both "sensor/name" and "sensor-name".
         sep = entity_id.find("/")
         if sep < 0:
+            sep = entity_id.find(".")  # HA format: number.marstek_charge_to_soc
+        if sep < 0:
             sep = entity_id.find("-")
         domain = entity_id[:sep].lower() if sep >= 0 else ""
         raw    = entity_id[sep + 1:] if sep >= 0 else entity_id
