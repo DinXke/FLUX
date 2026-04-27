@@ -23,6 +23,7 @@ function Toggle({ on, onChange }) {
 export default function HeatingSettings() {
   const [heatingEnabled, setHeatingEnabled] = useState(true);
   const [daikinAuth, setDaikinAuth] = useState(false);
+  const [daikinConfigured, setDaikinConfigured] = useState(false);
   const [daikinDevices, setDaikinDevices] = useState([]);
   const [boschDevices, setBoschDevices] = useState([]);
   const [boschPairingIP, setBoschPairingIP] = useState("");
@@ -38,6 +39,16 @@ export default function HeatingSettings() {
   const [plannerAvailable, setPlannerAvailable] = useState(true);
 
   useEffect(() => {
+    // Handle OAuth2 callback redirect
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("daikin") === "connected") {
+      setSuccess("✓ Daikin Onecta succesvol gekoppeld!");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("daikin") === "error") {
+      setError("Daikin login mislukt. Controleer DAIKIN_CLIENT_SECRET en probeer opnieuw.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
     // Load heating settings
     apiFetch("api/strategy/settings")
       .then((r) => r.json())
@@ -57,6 +68,7 @@ export default function HeatingSettings() {
     try {
       const daikinRes = await apiFetch("api/daikin/status");
       const daikinData = await daikinRes.json();
+      setDaikinConfigured(daikinData.configured !== false);
       if (daikinData.authenticated) {
         setDaikinAuth(true);
         const devRes = await apiFetch("api/daikin/devices");
@@ -305,14 +317,66 @@ export default function HeatingSettings() {
             </button>
           </div>
         ) : (
-          <div style={{ padding: "10px", color: "#666" }}>
-            <p>
-              OAuth2 login moet in de browser worden ingesteld via de Onecta app. Controleer de
-              console voor verdere instructies.
-            </p>
-            <div style={{ fontSize: "12px", color: "#999", marginTop: "8px" }}>
-              Opmerking: Daikin OAuth2 configuratie vereist verdere setup via de Daikin-integratie.
-            </div>
+          <div style={{ padding: "10px" }}>
+            {daikinConfigured ? (
+              <>
+                <p style={{ margin: "0 0 12px", color: "#555", fontSize: "13px" }}>
+                  Koppel je Daikin Onecta account via OAuth2. Je wordt doorgestuurd naar de
+                  Daikin-inlogpagina en teruggeleid naar FLUX.
+                </p>
+                <button
+                  onClick={async () => {
+                    setError(null);
+                    try {
+                      const res = await apiFetch("api/daikin/authorize");
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error || "Kon auth URL niet ophalen");
+                      window.location.href = data.auth_url;
+                    } catch (e) {
+                      setError(e.message);
+                    }
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    background: "#0071CE",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontWeight: "bold",
+                  }}
+                >
+                  🔑 Login met Daikin Onecta
+                </button>
+              </>
+            ) : (
+              <div>
+                <p style={{ margin: "0 0 8px", color: "#555", fontSize: "13px" }}>
+                  Daikin Onecta is nog niet geconfigureerd. Voeg de volgende variabelen toe aan je{" "}
+                  <code>.env</code>:
+                </p>
+                <pre style={{
+                  background: "#f0f0f0", padding: "10px", borderRadius: "4px",
+                  fontSize: "12px", margin: "0 0 8px",
+                }}>
+{`DAIKIN_CLIENT_ID=<jouw client id>
+DAIKIN_CLIENT_SECRET=<jouw client secret>
+DAIKIN_REDIRECT_URI=http://<jouw-flux-ip>:5000/api/daikin/callback`}
+                </pre>
+                <div style={{ fontSize: "12px", color: "#777" }}>
+                  Registreer op{" "}
+                  <a
+                    href="https://developer.cloud.daikineurope.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: "#0071CE" }}
+                  >
+                    developer.cloud.daikineurope.com
+                  </a>{" "}
+                  om je client ID en secret te krijgen.
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

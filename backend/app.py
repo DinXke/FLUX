@@ -1040,6 +1040,10 @@ def frank_status():
 # ---------------------------------------------------------------------------
 DAIKIN_CLIENT_ID = os.environ.get("DAIKIN_CLIENT_ID", "d2c97e4f-aab2-42f5-a863-e8fb0f95c21a")
 DAIKIN_CLIENT_SECRET = os.environ.get("DAIKIN_CLIENT_SECRET", "")
+DAIKIN_REDIRECT_URI = os.environ.get("DAIKIN_REDIRECT_URI", "http://localhost:5000/api/daikin/callback")
+
+# Temporary in-memory PKCE state store (keyed by state param, expires after 10 min)
+_daikin_pkce_store: dict = {}  # state -> {code_verifier, expires_at}
 
 # ---------------------------------------------------------------------------
 # Bosch Home Connect Appliances Integration
@@ -1060,10 +1064,70 @@ def daikin_status():
                 "region": session.get("region", "EU"),
                 "updated_at": session.get("updated_at"),
             })
-        return jsonify({"authenticated": False})
+        configured = bool(DAIKIN_CLIENT_SECRET)
+        return jsonify({"authenticated": False, "configured": configured})
     except Exception as exc:
         log.error("Daikin status error: %s", exc)
         return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/daikin/authorize", methods=["GET"])
+def daikin_authorize():
+    """Return Daikin OAuth2 authorization URL with PKCE."""
+    import secrets as _secrets, time as _time
+    try:
+        if not DAIKIN_CLIENT_SECRET:
+            return jsonify({"error": "DAIKIN_CLIENT_SECRET niet geconfigureerd in .env"}), 400
+
+        # Clean expired entries
+        now = _time.time()
+        expired = [s for s, v in _daikin_pkce_store.items() if v["expires_at"] < now]
+        for s in expired:
+            _daikin_pkce_store.pop(s, None)
+
+        state = _secrets.token_urlsafe(16)
+        code_verifier, code_challenge = daikin_onecta.generate_pkce_pair()
+        _daikin_pkce_store[state] = {"code_verifier": code_verifier, "expires_at": now + 600}
+
+        auth_url = daikin_onecta.get_daikin_auth_url(
+            DAIKIN_CLIENT_ID, DAIKIN_REDIRECT_URI, state, code_challenge
+        )
+        return jsonify({"auth_url": auth_url})
+    except Exception as exc:
+        log.error("Daikin authorize error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/daikin/callback", methods=["GET"])
+def daikin_callback():
+    """OAuth2 callback — exchange code for tokens."""
+    from flask import redirect as flask_redirect
+    code = request.args.get("code")
+    state = request.args.get("state")
+    error = request.args.get("error")
+
+    if error:
+        log.error("Daikin OAuth2 error: %s", error)
+        return flask_redirect("/?daikin=error")
+
+    if not code or not state:
+        return flask_redirect("/?daikin=error")
+
+    pkce = _daikin_pkce_store.pop(state, None)
+    if not pkce:
+        log.error("Daikin OAuth2 state mismatch or expired")
+        return flask_redirect("/?daikin=error")
+
+    try:
+        daikin_onecta.exchange_daikin_code(
+            code, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET,
+            DAIKIN_REDIRECT_URI, pkce["code_verifier"], DATA_DIR,
+        )
+        log.info("Daikin OAuth2 login successful via callback")
+        return flask_redirect("/?daikin=connected")
+    except Exception as exc:
+        log.error("Daikin callback exchange error: %s", exc)
+        return flask_redirect("/?daikin=error")
 
 
 @app.route("/api/daikin/logout", methods=["POST"])

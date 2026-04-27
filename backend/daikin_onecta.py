@@ -2,12 +2,16 @@
 Daikin Onecta OAuth2 integration for heat pump control.
 Handles login, token refresh, device discovery, and setpoint control.
 """
+import base64
+import hashlib
 import json
 import os
+import secrets
 import time
 import logging
 import requests
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
 log = logging.getLogger(__name__)
 
@@ -150,31 +154,66 @@ def daikin_api_request(
         raise
 
 
-def daikin_login(
-    email: str, password: str, data_dir: str, client_id: str
+def generate_pkce_pair() -> tuple[str, str]:
+    """Generate PKCE code_verifier and code_challenge."""
+    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    return code_verifier, code_challenge
+
+
+def get_daikin_auth_url(client_id: str, redirect_uri: str, state: str, code_challenge: str) -> str:
+    """Build the Daikin Onecta OAuth2 authorization URL."""
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "scope": "openid",
+    }
+    return f"{DAIKIN_AUTH_URL}?{urlencode(params)}"
+
+
+def exchange_daikin_code(
+    code: str,
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str,
+    code_verifier: str,
+    data_dir: str,
 ) -> dict:
-    """
-    Login to Daikin Onecta.
-    Returns session dict with tokens.
-    """
-    if not email or not password:
-        raise ValueError("Email and password required")
+    """Exchange authorization code for tokens and persist session."""
+    log.info("Exchanging Daikin authorization code for tokens")
+    resp = requests.post(
+        DAIKIN_TOKEN_URL,
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "code_verifier": code_verifier,
+        },
+        timeout=15,
+    )
+    resp.raise_for_status()
+    body = resp.json()
 
-    try:
-        log.info("Attempting Daikin login for email=%s", email)
+    access_token = body.get("access_token")
+    if not access_token:
+        raise ValueError(f"Token exchange returned no access_token: {body}")
 
-        # Note: Real implementation requires OAuth2 code exchange flow
-        # This is a placeholder that would use the authorization code flow
-        # For now, we'll expect the frontend to handle the OAuth callback
-
-        raise NotImplementedError(
-            "OAuth2 code exchange must be implemented on frontend "
-            "(Daikin uses redirect-based auth, not direct email/password)"
-        )
-
-    except Exception as exc:
-        log.error("Daikin login failed: %s", exc)
-        raise
+    session = {
+        "access_token": access_token,
+        "refresh_token": body.get("refresh_token", ""),
+        "expires_at": time.time() + body.get("expires_in", 3600),
+        "updated_at": datetime.now().isoformat(),
+    }
+    save_daikin_session(data_dir, session)
+    log.info("Daikin OAuth2 login successful")
+    return session
 
 
 def daikin_logout(data_dir: str) -> None:
