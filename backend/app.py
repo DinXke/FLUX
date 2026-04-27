@@ -3604,16 +3604,22 @@ def sma_scan_status():
 
 @app.route("/api/sma/test", methods=["POST"])
 def test_sma_connection():
-    """Trigger an on-demand diagnostic poll and return detailed results."""
+    """Trigger an on-demand diagnostic poll and return detailed results.
+
+    Optional JSON body fields override the configured settings for this test:
+      use_udp (bool) – test UDP vs TCP regardless of the saved setting
+    """
     from sma_modbus import poll_diagnostics
     s       = load_strategy_settings()
     host    = (s.get("sma_reader_host") or "").strip()
     port    = int(s.get("sma_reader_port", 502))
     uid     = int(s.get("sma_reader_unit_id", 3))
-    use_udp = bool(s.get("sma_reader_use_udp", False))
+    body    = request.get_json(silent=True) or {}
+    use_udp = bool(body["use_udp"]) if "use_udp" in body else bool(s.get("sma_reader_use_udp", False))
     if not host:
         return jsonify({"error": "sma_reader_host niet geconfigureerd"}), 400
     result = poll_diagnostics(host, port, uid, use_udp=use_udp)
+    result["protocol_used"] = "udp" if use_udp else "tcp"
     return jsonify(result)
 
 

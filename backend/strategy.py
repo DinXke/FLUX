@@ -171,8 +171,6 @@ def load_strategy_settings() -> dict:
         result = {**DEFAULT_SETTINGS, **stored}
     except Exception:
         result = dict(DEFAULT_SETTINGS)
-    # SMA does not support Modbus UDP — force TCP to prevent night-mode lockout
-    result["sma_reader_use_udp"] = False
     return result
 
 

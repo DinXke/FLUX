@@ -19,10 +19,12 @@ from typing import Optional
 log = logging.getLogger("sma_modbus")
 
 # ---------------------------------------------------------------------------
-# Global Modbus TCP lock — reader and PV limiter share one TCP session slot.
-# SMA Sunny Boy accepts only one simultaneous TCP connection; without this lock
-# the 10-second reader and the 5-second PV limiter writes collide and one of
-# them gets connection-refused, leading to 0-watt writes or stale readings.
+# Global Modbus session lock.
+# SMA Sunny Boy accepts only one simultaneous TCP connection. When the reader
+# uses TCP this lock serialises reader reads and PV-limiter writes so they
+# never race for the same TCP slot. When the reader uses UDP the lock is
+# still acquired (no-op overhead) for safety, but UDP and TCP are independent
+# at the SMA level so no conflict occurs in that mode anyway.
 # ---------------------------------------------------------------------------
 _modbus_lock = threading.Lock()
 
@@ -447,8 +449,11 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
 
 def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_map=None) -> dict:
     """
-    Open a Modbus TCP connection to the SMA inverter, read all registers,
+    Open a Modbus TCP or UDP connection to the SMA inverter, read all registers,
     and return a parsed dict. The connection is closed before returning.
+
+    use_udp=True uses ModbusUdpClient (connectionless; avoids the TCP session
+    conflict when the PV limiter also writes via TCP on the same port).
 
     register_map: list of register config dicts (see _DEFAULT_REGISTER_MAP).
     If None, uses _DEFAULT_REGISTER_MAP.
@@ -456,14 +461,14 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
     if register_map is None:
         register_map = _DEFAULT_REGISTER_MAP
 
-    client = _make_client(host, port, use_udp=False)  # SMA only supports TCP
+    client = _make_client(host, port, use_udp=use_udp)
     if client is None:
         log.error("pymodbus niet geïnstalleerd")
         return {"online": False}
 
     with _modbus_lock:
         if not client.connect():
-            log.warning("SMA Modbus: kan niet verbinden met %s:%d", host, port)
+            log.warning("SMA Modbus: kan niet verbinden met %s:%d (udp=%s)", host, port, use_udp)
             return {"online": False}
 
         data: dict = {"online": True}
