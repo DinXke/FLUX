@@ -6259,12 +6259,20 @@ def _automation_tick() -> None:
 
 
 def _pv_send_modbus(s: dict, target_w: int) -> bool:
-    """Send PV power limit directly to inverter via Modbus TCP.
+    """Send PV power limit directly to inverter via Modbus TCP with retry.
 
-    Uses the shared sma_modbus lock so this write is serialised with the SMA
-    reader background thread — no more competing TCP sessions on the inverter.
+    Opens its own TCP connection with retry backoff so it does not depend on
+    the reader thread's session timing or the write queue.  Up to 5 attempts
+    with 2-second gaps give ample time to clear any post-close refractory
+    period on the SMA inverter.
     """
-    from sma_modbus import write_holding_registers
+    try:
+        from pymodbus.client import ModbusTcpClient
+    except ImportError:
+        log.error("pymodbus niet geïnstalleerd – Modbus PV-limiter niet beschikbaar")
+        return False
+
+    import time as _time
 
     host     = (s.get("pv_limiter_modbus_host") or "").strip()
     port     = int(s.get("pv_limiter_modbus_port", 502))
@@ -6293,7 +6301,31 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
     log.debug("Modbus PV-limiter: %dW → %s:%d reg %d (addr=%d) unit=%d dtype=%s words=%s",
               target_w, host, port, reg_raw, addr, unit_id, dtype, words)
 
-    return write_holding_registers(host, port, unit_id, addr, words)
+    for attempt in range(5):
+        client = ModbusTcpClient(host=host, port=port, timeout=3)
+        try:
+            if not client.connect():
+                log.debug("Modbus PV-limiter: connect mislukt (poging %d/5)", attempt + 1)
+                continue
+            result = client.write_registers(address=addr, values=words, device_id=unit_id)
+            if hasattr(result, "isError") and result.isError():
+                log.warning("Modbus PV-limiter: FC16 fout addr=%d poging %d: %s",
+                            addr, attempt + 1, result)
+                continue
+            log.info("Modbus PV-limiter: %dW geschreven (poging %d)", target_w, attempt + 1)
+            return True
+        except Exception as exc:
+            log.debug("Modbus PV-limiter: uitzondering poging %d: %s", attempt + 1, exc)
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+        _time.sleep(2)
+
+    log.warning("Modbus PV-limiter: alle 5 pogingen mislukt voor %dW naar %s:%d reg %d",
+                target_w, host, port, reg_raw)
+    return False
 
 
 def _pv_send(s: dict, entity: str, use_service: bool, svc_str: str, target_w: int) -> bool:
