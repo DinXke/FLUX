@@ -189,6 +189,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
   const [hwData,     setHwData]     = useState(null);
   const [haData,     setHaData]     = useState({});  // {entity_id: {value, unit}}
   const [influxLive, setInfluxLive] = useState({});
+  const [smaLive,    setSmaLive]    = useState({});
   const [cfg,        setCfg]        = useState(() => loadFlowCfg());
 
   // Reload config when settings page saves it
@@ -218,6 +219,15 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
     } catch { /* InfluxDB not configured */ }
   }, []);
 
+  const pollSma = useCallback(async (currentCfg) => {
+    const hasSma = Object.values(currentCfg).flat().some((sc) => sc?.source === "sma_reader");
+    if (!hasSma) return;
+    try {
+      const r = await apiFetch("api/sma/live");
+      if (r.ok) setSmaLive(await r.json());
+    } catch { /* SMA not configured */ }
+  }, []);
+
   // Poll all HA entity_ids that are referenced in the current config
   const pollHa = useCallback(async (currentCfg) => {
     const entityIds = Object.values(currentCfg)
@@ -238,9 +248,10 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
     pollHw();
     pollHa(cfg);
     pollInflux(cfg);
-    const id = setInterval(() => { pollHw(); pollHa(cfg); pollInflux(cfg); }, 10000);
+    pollSma(cfg);
+    const id = setInterval(() => { pollHw(); pollHa(cfg); pollInflux(cfg); pollSma(cfg); }, 10000);
     return () => clearInterval(id);
-  }, [pollHw, pollHa, pollInflux, cfg]);
+  }, [pollHw, pollHa, pollInflux, pollSma, cfg]);
 
   // ── Aggregate ESPHome defaults ─────────────────────────────────────────────
   let totalAc = null, totalBat = null;
@@ -257,6 +268,17 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
 
   // ── Resolve configured slots ───────────────────────────────────────────────
   const solarPower  = resolveSlot("solar_power", cfg, batteries, hwData, haData, influxLive);
+
+  // Check if SMA is configured as solar source
+  const hasSmaReader = cfg?.solar_power && (Array.isArray(cfg.solar_power)
+    ? cfg.solar_power.some((sc) => sc?.source === "sma_reader")
+    : cfg.solar_power?.source === "sma_reader");
+
+  // Detect solar power limit: status_code === 455 or wmax_lim_w < pac_w (99% threshold)
+  const solarLimited = hasSmaReader && (
+    smaLive?.status_code === 455 ||
+    (smaLive?.wmax_lim_w != null && smaLive?.pac_w != null && smaLive.wmax_lim_w < smaLive.pac_w * 0.99)
+  );
 
   // net_power: positive = import from grid
   const netPowerRaw = resolveSlot("net_power",   cfg, batteries, hwData, haData, influxLive);
@@ -311,7 +333,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
 
   // Solar ↓ Huis
   const solarActive = solarPower != null && solarPower > 5;
-  const solarColor  = "#fbbf24";
+  const solarDisplayColor = solarLimited ? "#f97316" : "#fbbf24";
 
   // SOC color
   const socColor = batSoc == null ? "#64748b"
@@ -357,7 +379,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
         {/* Solar ↓ Huis (only when solar configured) */}
         {solarPower != null && (
           <GlowArrow x1={solX} y1={solArrowY1} x2={huisX} y2={solArrowY2}
-            color={solarColor} active={solarActive} reverse={false} power={solarPower} />
+            color={solarDisplayColor} active={solarActive} reverse={false} power={solarPower} />
         )}
 
         {/* Net ↔ Huis */}
@@ -384,7 +406,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
         {solarPower != null && (
           <FlowLabel x={solX - 38} y={(solArrowY1 + solArrowY2) / 2}
             text={fmt(solarPower)}
-            color={solarActive ? solarColor : "#475569"} />
+            color={solarActive ? solarDisplayColor : "#475569"} />
         )}
 
         {/* Phase voltages below Net link */}
@@ -397,8 +419,8 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
 
         {/* Solar (only when configured) */}
         {solarPower != null && (
-          <GlowNode cx={solX} cy={solY} r={solR} icon="☀️" label="SOLAR"
-            color={solarColor} active={solarActive} />
+          <GlowNode cx={solX} cy={solY} r={solR} icon={solarLimited ? "⚡" : "☀️"} label="SOLAR"
+            color={solarDisplayColor} active={solarActive} />
         )}
 
         {/* Net */}

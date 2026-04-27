@@ -292,7 +292,20 @@ if [[ $WAIT_TIME -ge $MAX_WAIT ]]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────
-# Step 8: Show Access URLs
+# Step 8: Install Auto-Update Cron Job
+# ─────────────────────────────────────────────────────────────────────────
+log_title "Installing auto-update cron job..."
+
+CRON_JOB="*/5 * * * * INSTALL_DIR=$INSTALL_DIR /bin/sh $INSTALL_DIR/update.sh >> $INSTALL_DIR/data/update.log 2>&1"
+CRON_MARKER="flux-auto-update"
+
+( crontab -l 2>/dev/null | grep -v "$CRON_MARKER" ; echo "# $CRON_MARKER" ; echo "$CRON_JOB" ) | crontab -
+
+log_info "Auto-update cron geïnstalleerd (controleert elke 5 min op GitHub updates)"
+log_info "Update log: $INSTALL_DIR/data/update.log"
+
+# ─────────────────────────────────────────────────────────────────────────
+# Step 9: Show Access URLs
 # ─────────────────────────────────────────────────────────────────────────
 
 log_title "Installation Complete!"

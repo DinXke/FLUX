@@ -176,6 +176,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
   const [hwData,     setHwData]     = useState(null);
   const [haData,     setHaData]     = useState({});
   const [influxLive, setInfluxLive] = useState({});
+  const [smaLive,    setSmaLive]    = useState({});
   const [cfg,        setCfg]        = useState(() => loadFlowCfg());
 
   useEffect(() => {
@@ -219,11 +220,20 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
     } catch {}
   }, []);
 
+  const pollSma = useCallback(async (currentCfg) => {
+    const hasSma = Object.values(currentCfg).flat().some((sc) => sc?.source === "sma_reader");
+    if (!hasSma) return;
+    try {
+      const r = await apiFetch("api/sma/live");
+      if (r.ok) setSmaLive(await r.json());
+    } catch {}
+  }, []);
+
   useEffect(() => {
-    pollHw(); pollHa(cfg); pollInflux(cfg);
-    const id = setInterval(() => { pollHw(); pollHa(cfg); pollInflux(cfg); }, 10000);
+    pollHw(); pollHa(cfg); pollInflux(cfg); pollSma(cfg);
+    const id = setInterval(() => { pollHw(); pollHa(cfg); pollInflux(cfg); pollSma(cfg); }, 10000);
     return () => clearInterval(id);
-  }, [pollHw, pollHa, pollInflux, cfg]);
+  }, [pollHw, pollHa, pollInflux, pollSma, cfg]);
 
   // ── ESPHome aggregates ─────────────────────────────────────────────────────
   let totalAc = null, totalBat = null;
@@ -258,6 +268,17 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
     || solarPower != null;
   const showEv = Array.isArray(cfg.ev_power) ? cfg.ev_power.length > 0 : !!cfg.ev_power;
 
+  // Check if SMA is configured as solar source
+  const hasSmaReader = cfg?.solar_power && (Array.isArray(cfg.solar_power)
+    ? cfg.solar_power.some((sc) => sc?.source === "sma_reader")
+    : cfg.solar_power?.source === "sma_reader");
+
+  // Detect solar power limit: status_code === 455 or wmax_lim_w < pac_w (99% threshold)
+  const solarLimited = hasSmaReader && (
+    smaLive?.status_code === 455 ||
+    (smaLive?.wmax_lim_w != null && smaLive?.pac_w != null && smaLive.wmax_lim_w < smaLive.pac_w * 0.99)
+  );
+
   // ── Flow states ────────────────────────────────────────────────────────────
   const netActive   = netDisplayPower != null && Math.abs(netDisplayPower) > 5;
   const netToGrid   = (netDisplayPower ?? 0) > 0;
@@ -268,6 +289,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
   const batColor    = batActive ? (batDisch ? "#f59e0b" : "#3b82f6") : "#334155";
 
   const solarActive = solarPower != null && solarPower > 10;
+  const solarColor  = solarLimited ? "#f97316" : C.solar;
   const evActive    = evPower    != null && evPower    > 10;
 
   const socColor    = batSoc == null ? "#475569"
@@ -346,7 +368,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
         <ConnLine {...batLine} color={batColor} active={batActive}
           reverse={batDisch} power={batDisplayPower} />
         {showSolar && (
-          <ConnLine {...solLine} color={C.solar} active={solarActive}
+          <ConnLine {...solLine} color={solarColor} active={solarActive}
             reverse={false} power={solarPower} />
         )}
         {showEv && (
@@ -357,8 +379,8 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
         {/* Nodes */}
         {showSolar && (
           <NodeCard cx={cSOL.cx} cy={cSOL.cy} w={wSol} h={hSol}
-            icon="☀️" label="SOLAR"
-            power={solarPower} color={C.solar} active={solarActive} />
+            icon={solarLimited ? "⚡" : "☀️"} label="SOLAR"
+            power={solarPower} color={solarColor} active={solarActive} />
         )}
 
         <NodeCard cx={cGRID.cx} cy={cGRID.cy} w={wSat} h={hSat}
