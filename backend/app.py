@@ -6392,11 +6392,9 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
     if use_service and not svc_str:
         return
 
-    # Manual override: bypass price logic entirely (rolling cap still applies as hard cap)
+    # Manual override: bypass price logic AND rolling cap entirely — user explicitly controls output
     if s.get("pv_limiter_manual_override"):
         target_w = int(s.get("pv_limiter_manual_w", 2000))
-        if rc_pv_override is not None:
-            target_w = min(target_w, int(rc_pv_override))
         last_w = auto.get("pv_limiter_last_w")
         if last_w == target_w:
             return
