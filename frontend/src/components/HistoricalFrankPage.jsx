@@ -194,7 +194,7 @@ export default function HistoricalFrankPage() {
             const fromLocal = p.from ? new Date(p.from).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" }) : null;
             const tillLocal = p.till ? new Date(p.till).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" }) : null;
             const timeLabel = fromLocal && tillLocal ? `${fromLocal} – ${tillLocal}` : (p.label || fmtDate(p.date));
-            const pricePerKwh = p.frank_kwh > 0 && p.frank_cost_eur > 0 ? (p.frank_cost_eur / p.frank_kwh) : null;
+            const pricePerKwh = p.frank_kwh > 0 && p.frank_cost_eur !== 0 ? (p.frank_cost_eur / p.frank_kwh) : null;
             return (
               <div style={{ margin: "10px 0", background: "var(--card-bg)", border: "2px solid #3b82f6", borderRadius: 8, overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px", background: "#3b82f620", borderBottom: "1px solid #3b82f640" }}>
@@ -204,8 +204,8 @@ export default function HistoricalFrankPage() {
                 <div style={{ padding: "8px 14px" }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 20px" }}>
                     <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Verbruik: </span><strong>{(p.frank_kwh || 0).toFixed(3)} kWh</strong></div>
-                    {p.frank_cost_eur > 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Kosten: </span><strong>€ {p.frank_cost_eur.toFixed(4)}</strong></div>}
-                    {pricePerKwh && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Prijs/kWh: </span><strong>€ {pricePerKwh.toFixed(4)}</strong></div>}
+                    {p.frank_cost_eur !== 0 && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Kosten: </span><strong style={{ color: p.frank_cost_eur < 0 ? "#22c55e" : undefined }}>€ {p.frank_cost_eur.toFixed(4)}</strong></div>}
+                    {pricePerKwh != null && <div style={{ fontSize: 13 }}><span style={{ color: "var(--text-muted)" }}>Prijs/kWh: </span><strong style={{ color: pricePerKwh < 0 ? "#22c55e" : undefined }}>€ {pricePerKwh.toFixed(4)}</strong></div>}
                   </div>
                 </div>
               </div>
@@ -216,7 +216,7 @@ export default function HistoricalFrankPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, marginTop: 10 }}>
             {[
               { label: "Frank verbruik", value: `${totalFrank.toFixed(2)} kWh`, color: "#3b82f6" },
-              ...(totalCost > 0 ? [{ label: "Frank kosten", value: `€ ${totalCost.toFixed(2)}`, color: "#8b5cf6" }] : []),
+              ...(totalCost !== 0 ? [{ label: "Frank kosten", value: `€ ${totalCost.toFixed(2)}`, color: totalCost < 0 ? "#22c55e" : "#8b5cf6" }] : []),
             ].map(item => (
               <div key={item.label} style={{
                 background: "var(--card-bg)", border: "1px solid var(--border-color)",
