@@ -68,6 +68,8 @@ services:
     image: grafana/grafana:latest
     container_name: smartmarstek-grafana
     restart: unless-stopped
+    labels:
+      com.flux.provisioning-rev: "2026-04-27-uid-fix"
     ports:
       - "3000:3000"
     depends_on:
