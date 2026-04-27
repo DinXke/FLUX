@@ -1484,7 +1484,100 @@ html, body {
   padding: 10px 12px 8px;
 }
 
-/* Per-battery breakdown strip */
+/* ── Dashboard sections (collapsible + draggable) ── */
+.dash-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  transition: opacity 0.15s, box-shadow 0.15s;
+}
+
+.dash-section--dragging {
+  opacity: 0.45;
+}
+
+.dash-section--over {
+  box-shadow: 0 0 0 2px var(--accent, #3b82f6);
+}
+
+.dash-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.dash-section-body--open + .dash-section-header,
+.dash-section-header:has(+ .dash-section-body--open) {
+  border-bottom-color: var(--border);
+}
+
+.dash-section-handle {
+  cursor: grab;
+  color: var(--text-dim, var(--text-muted));
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  user-select: none;
+}
+.dash-section-handle:active { cursor: grabbing; }
+.dash-section-handle:hover  { color: var(--text); }
+
+.dash-section-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  color: var(--text-muted);
+  gap: 8px;
+}
+.dash-section-toggle:hover { color: var(--text); }
+
+.dash-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.dash-section-chevron {
+  font-size: 16px;
+  line-height: 1;
+  transition: transform 0.25s ease;
+  transform: rotate(90deg);
+  display: inline-block;
+  flex-shrink: 0;
+}
+.dash-section-chevron--open { transform: rotate(-90deg); }
+
+.dash-section-extra {
+  flex-shrink: 0;
+}
+
+.dash-section-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+.dash-section-body--open {
+  max-height: 4000px;
+}
+
+.dash-section-inner {
+  padding: 12px 14px 14px;
+}
+
+/* ── Per-battery breakdown strip */
 .home-flow-breakdown {
   display: flex;
   flex-wrap: wrap;
@@ -1513,11 +1606,7 @@ html, body {
    ========================================================= */
 
 .hw-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px 20px;
-  margin-bottom: 20px;
+  padding: 0;
 }
 
 .hw-panel-header {

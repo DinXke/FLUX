@@ -87,11 +87,7 @@ export default function SmaInverterPanel({ refreshTick }) {
   const ageS    = data?.age_s;
 
   return (
-    <div style={{
-      border: "1px solid var(--border)", borderRadius: 12,
-      background: "var(--card)", overflow: "hidden",
-      margin: "0 0 16px",
-    }}>
+    <div style={{ overflow: "hidden" }}>
       {/* Header */}
       <button
         onClick={() => setOpen((o) => !o)}
