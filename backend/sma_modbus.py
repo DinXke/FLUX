@@ -11,6 +11,7 @@ SMA register addressing (SB30-50-1AV-40 / SBn-n-1AV-40):
 """
 
 import logging
+import queue
 import struct
 import threading
 import time
@@ -20,13 +21,34 @@ log = logging.getLogger("sma_modbus")
 
 # ---------------------------------------------------------------------------
 # Global Modbus session lock.
-# SMA Sunny Boy accepts only one simultaneous TCP connection. When the reader
-# uses TCP this lock serialises reader reads and PV-limiter writes so they
-# never race for the same TCP slot. When the reader uses UDP the lock is
-# still acquired (no-op overhead) for safety, but UDP and TCP are independent
-# at the SMA level so no conflict occurs in that mode anyway.
+# SMA Sunny Boy accepts only one simultaneous TCP connection; the lock
+# serialises reads and writes so they never race for the same TCP slot.
 # ---------------------------------------------------------------------------
 _modbus_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Write queue: PV limiter deposits write requests here; the reader background
+# thread drains the queue at the end of each poll cycle using its existing
+# TCP connection.  This avoids opening a second TCP connection for writes and
+# eliminates the SMA's post-close refractory period that caused write failures.
+# ---------------------------------------------------------------------------
+_write_queue: queue.Queue = queue.Queue()
+
+
+class _WriteResult:
+    """Promise-like object the writer waits on for the async write outcome."""
+    def __init__(self):
+        self._event = threading.Event()
+        self.ok: bool = False
+
+    def set(self, ok: bool) -> None:
+        self.ok = ok
+        self._event.set()
+
+    def wait(self, timeout: float = 5.0) -> bool:
+        if not self._event.wait(timeout):
+            return False
+        return self.ok
 
 # ---------------------------------------------------------------------------
 # SMA status codes → human-readable label
@@ -492,6 +514,30 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
                     data.get("status"),
                 )
 
+            # Drain pending writes using this already-open TCP connection.
+            # This avoids a separate connect/disconnect cycle for each write and
+            # eliminates the SMA's post-close refractory period that caused write
+            # failures when the writer tried to reconnect immediately after the
+            # reader disconnected.
+            while not _write_queue.empty():
+                try:
+                    w_addr, w_values, w_unit, w_result = _write_queue.get_nowait()
+                    wr = client.write_registers(address=w_addr, values=w_values, device_id=w_unit)
+                    ok = not (hasattr(wr, "isError") and wr.isError())
+                    if not ok:
+                        log.warning("SMA Modbus write (queued): FC16 fout addr=%d: %s", w_addr, wr)
+                    else:
+                        log.debug("SMA Modbus write (queued) OK  addr=%d  values=%s", w_addr, w_values)
+                    w_result.set(ok)
+                except queue.Empty:
+                    break
+                except Exception as exc:
+                    log.warning("SMA Modbus write (queued) uitzondering: %s", exc)
+                    try:
+                        w_result.set(False)
+                    except Exception:
+                        pass
+
         finally:
             client.close()
 
@@ -501,35 +547,20 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
 def write_holding_registers(host: str, port: int, unit_id: int,
                             addr: int, values: list) -> bool:
     """
-    Write holding registers (FC16) to the SMA inverter via the shared Modbus lock.
-
-    Call this from the PV limiter instead of opening a separate TCP connection, so
-    reads and writes are serialised and never fight for the same TCP session slot.
+    Queue a FC16 write to the SMA inverter.  The write is executed inside the
+    reader background thread's existing TCP session on the next poll cycle
+    (within ~10 s), avoiding a competing second TCP connection.
 
     addr   – 0-based Modbus address (SMA 1-based register number minus 1)
     values – list of 16-bit register words (big-endian, e.g. [high, low] for U32)
-    """
-    client = _make_client(host, port, use_udp=False)
-    if client is None:
-        log.error("pymodbus niet geïnstalleerd – Modbus write mislukt")
-        return False
 
-    with _modbus_lock:
-        if not client.connect():
-            log.warning("SMA Modbus write: kan niet verbinden met %s:%d", host, port)
-            return False
-        try:
-            result = client.write_registers(address=addr, values=values, device_id=unit_id)
-            if hasattr(result, "isError") and result.isError():
-                log.warning("SMA Modbus write: FC16 fout addr=%d: %s", addr, result)
-                return False
-            log.debug("SMA Modbus write OK  addr=%d  values=%s  unit=%d", addr, values, unit_id)
-            return True
-        except Exception as exc:
-            log.warning("SMA Modbus write uitzondering: %s", exc)
-            return False
-        finally:
-            client.close()
+    Blocks until the write completes (or times out after 15 s) and returns the
+    write success flag so the caller can update dedup state correctly.
+    """
+    result = _WriteResult()
+    _write_queue.put((addr, values, unit_id, result))
+    log.debug("SMA Modbus write gepland  addr=%d  values=%s  unit=%d", addr, values, unit_id)
+    return result.wait(timeout=15.0)
 
 
 # ---------------------------------------------------------------------------
