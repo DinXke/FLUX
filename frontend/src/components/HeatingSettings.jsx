@@ -27,6 +27,9 @@ export default function HeatingSettings() {
   const [daikinDevices, setDaikinDevices] = useState([]);
   const [boschDevices, setBoschDevices] = useState([]);
   const [boschPairingIP, setBoschPairingIP] = useState("");
+  const [boschHCAuth, setBoschHCAuth] = useState(false);
+  const [boschHCConfigured, setBoschHCConfigured] = useState(false);
+  const [boschHCDevices, setBoschHCDevices] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -46,6 +49,14 @@ export default function HeatingSettings() {
       window.history.replaceState({}, "", window.location.pathname);
     } else if (params.get("daikin") === "error") {
       setError("Daikin login mislukt. Controleer DAIKIN_CLIENT_SECRET en probeer opnieuw.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    if (params.get("bosch") === "connected") {
+      setSuccess("✓ Bosch Home Connect succesvol gekoppeld!");
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("bosch") === "error") {
+      setError("Bosch login mislukt. Controleer BOSCH_APPLIANCES_CLIENT_ID/SECRET en probeer opnieuw.");
       window.history.replaceState({}, "", window.location.pathname);
     }
 
@@ -84,6 +95,18 @@ export default function HeatingSettings() {
         const devRes = await apiFetch("api/bosch/devices");
         const devData = await devRes.json();
         setBoschDevices(devData.devices || []);
+      }
+    } catch (e) {}
+
+    try {
+      const hcRes = await apiFetch("api/bosch-appliances/status");
+      const hcData = await hcRes.json();
+      setBoschHCConfigured(hcData.configured === true);
+      if (hcData.authenticated) {
+        setBoschHCAuth(true);
+        const devRes = await apiFetch("api/bosch-appliances/devices");
+        const devData = await devRes.json();
+        setBoschHCDevices(devData.appliances || []);
       }
     } catch (e) {}
   };
@@ -638,9 +661,99 @@ DAIKIN_REDIRECT_URI=http://<jouw-flux-ip>:5000/api/daikin/callback`}
 
       <div className="settings-subsection">
         <h3>Bosch Home Connect</h3>
+
+        {/* Cloud OAuth2 section */}
+        {boschHCAuth ? (
+          <div style={{ marginBottom: "12px" }}>
+            <Row label="Home Connect" desc="Cloud-koppeling">
+              <span style={{ color: "green" }}>✓ {boschHCDevices.length} toestel{boschHCDevices.length !== 1 ? "len" : ""}</span>
+            </Row>
+            {boschHCDevices.map((dev) => (
+              <div
+                key={dev.haId || dev.name}
+                style={{
+                  padding: "8px",
+                  margin: "6px 0",
+                  background: "#f5f5f5",
+                  borderRadius: "4px",
+                  fontSize: "13px",
+                }}
+              >
+                <strong>{dev.name || dev.haId}</strong>
+                {dev.brand && <span style={{ color: "#777", marginLeft: "6px" }}>{dev.brand}</span>}
+                {dev.type && <span style={{ color: "#999", marginLeft: "6px" }}>({dev.type})</span>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ padding: "10px", marginBottom: "12px", background: "#fafafa", borderRadius: "4px", border: "1px solid #eee" }}>
+            <div style={{ fontWeight: "bold", fontSize: "13px", marginBottom: "8px" }}>Home Connect cloud</div>
+            {boschHCConfigured ? (
+              <>
+                <p style={{ margin: "0 0 10px", color: "#555", fontSize: "13px" }}>
+                  Koppel je Bosch Home Connect account via OAuth2. Je wordt doorgestuurd naar de
+                  Bosch-inlogpagina en teruggeleid naar FLUX.
+                </p>
+                <button
+                  onClick={async () => {
+                    setError(null);
+                    try {
+                      const res = await apiFetch("api/bosch-appliances/authorize");
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error || "Kon auth URL niet ophalen");
+                      window.location.href = data.auth_url;
+                    } catch (e) {
+                      setError(e.message);
+                    }
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    background: "#00529b",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontWeight: "bold",
+                  }}
+                >
+                  🔑 Login met Bosch Home Connect
+                </button>
+              </>
+            ) : (
+              <div>
+                <p style={{ margin: "0 0 8px", color: "#555", fontSize: "13px" }}>
+                  Bosch Home Connect is nog niet geconfigureerd. Voeg de volgende variabelen toe aan je{" "}
+                  <code>.env</code>:
+                </p>
+                <pre style={{
+                  background: "#f0f0f0", padding: "10px", borderRadius: "4px",
+                  fontSize: "12px", margin: "0 0 8px",
+                }}>
+{`BOSCH_APPLIANCES_CLIENT_ID=<jouw client id>
+BOSCH_APPLIANCES_CLIENT_SECRET=<jouw client secret>
+BOSCH_APPLIANCES_REDIRECT_URI=http://<jouw-flux-ip>:5000/api/bosch-appliances/callback`}
+                </pre>
+                <div style={{ fontSize: "12px", color: "#777" }}>
+                  Registreer op{" "}
+                  <a
+                    href="https://developer.home-connect.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: "#00529b" }}
+                  >
+                    developer.home-connect.com
+                  </a>{" "}
+                  om je client ID en secret te krijgen.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Local bridge section */}
         {boschDevices.length > 0 ? (
           <div>
-            <Row label="Status" desc="">
+            <Row label="Lokale brug" desc="">
               <span style={{ color: "green" }}>✓ {boschDevices.length} apparaten</span>
             </Row>
             {boschDevices.map((dev) => (
@@ -672,7 +785,7 @@ DAIKIN_REDIRECT_URI=http://<jouw-flux-ip>:5000/api/daikin/callback`}
           </div>
         ) : (
           <div>
-            <Row label="Status" desc="">
+            <Row label="Lokale brug" desc="">
               <span style={{ color: "#999" }}>Niet gekoppeld</span>
             </Row>
             <div

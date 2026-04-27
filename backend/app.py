@@ -1347,14 +1347,16 @@ def get_daikin_plan():
 @app.route("/api/bosch-appliances/status", methods=["GET"])
 def bosch_appliances_status():
     try:
+        configured = bool(BOSCH_APPLIANCES_CLIENT_ID and BOSCH_APPLIANCES_CLIENT_SECRET)
         session = bosch_appliances.load_bosch_session(DATA_DIR)
         if session.get("access_token"):
             return jsonify({
                 "authenticated": True,
+                "configured": configured,
                 "sandbox": BOSCH_APPLIANCES_SANDBOX,
                 "updated_at": session.get("updated_at"),
             })
-        return jsonify({"authenticated": False, "sandbox": BOSCH_APPLIANCES_SANDBOX})
+        return jsonify({"authenticated": False, "configured": configured, "sandbox": BOSCH_APPLIANCES_SANDBOX})
     except Exception as exc:
         log.error("Bosch status error: %s", exc)
         return jsonify({"error": str(exc)}), 502
@@ -1378,12 +1380,18 @@ def bosch_appliances_authorize():
 
 @app.route("/api/bosch-appliances/callback", methods=["GET"])
 def bosch_appliances_callback():
-    try:
-        code = request.args.get("code")
-        if not code:
-            return jsonify({"error": "Authorization code required"}), 400
+    from flask import redirect as flask_redirect
+    error = request.args.get("error")
+    if error:
+        log.error("Bosch OAuth2 error: %s", error)
+        return flask_redirect("/?bosch=error")
 
-        result = bosch_appliances.exchange_bosch_appliances_code(
+    code = request.args.get("code")
+    if not code:
+        return flask_redirect("/?bosch=error")
+
+    try:
+        bosch_appliances.exchange_bosch_appliances_code(
             code,
             BOSCH_APPLIANCES_CLIENT_ID,
             BOSCH_APPLIANCES_CLIENT_SECRET,
@@ -1392,10 +1400,10 @@ def bosch_appliances_callback():
             sandbox=BOSCH_APPLIANCES_SANDBOX,
         )
         log.info("Bosch OAuth2 callback success")
-        return jsonify(result)
+        return flask_redirect("/?bosch=connected")
     except Exception as exc:
         log.error("Bosch callback error: %s", exc)
-        return jsonify({"error": str(exc)}), 502
+        return flask_redirect("/?bosch=error")
 
 
 @app.route("/api/bosch-appliances/devices", methods=["GET"])
