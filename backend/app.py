@@ -1039,7 +1039,6 @@ def frank_status():
 # Daikin Onecta Integration
 # ---------------------------------------------------------------------------
 DAIKIN_CLIENT_ID = os.environ.get("DAIKIN_CLIENT_ID", "d2c97e4f-aab2-42f5-a863-e8fb0f95c21a")
-DAIKIN_CLIENT_SECRET = os.environ.get("DAIKIN_CLIENT_SECRET", "")
 DAIKIN_REDIRECT_URI = os.environ.get("DAIKIN_REDIRECT_URI", "http://localhost:5000/api/daikin/callback")
 
 # Temporary in-memory PKCE state store (keyed by state param, expires after 10 min)
@@ -1064,8 +1063,7 @@ def daikin_status():
                 "region": session.get("region", "EU"),
                 "updated_at": session.get("updated_at"),
             })
-        configured = bool(DAIKIN_CLIENT_SECRET)
-        return jsonify({"authenticated": False, "configured": configured})
+        return jsonify({"authenticated": False, "configured": True})
     except Exception as exc:
         log.error("Daikin status error: %s", exc)
         return jsonify({"error": str(exc)}), 502
@@ -1076,9 +1074,6 @@ def daikin_authorize():
     """Return Daikin OAuth2 authorization URL with PKCE."""
     import secrets as _secrets, time as _time
     try:
-        if not DAIKIN_CLIENT_SECRET:
-            return jsonify({"error": "DAIKIN_CLIENT_SECRET niet geconfigureerd in .env"}), 400
-
         # Clean expired entries
         now = _time.time()
         expired = [s for s, v in _daikin_pkce_store.items() if v["expires_at"] < now]
@@ -1120,7 +1115,7 @@ def daikin_callback():
 
     try:
         daikin_onecta.exchange_daikin_code(
-            code, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET,
+            code, DAIKIN_CLIENT_ID,
             DAIKIN_REDIRECT_URI, pkce["code_verifier"], DATA_DIR,
         )
         log.info("Daikin OAuth2 login successful via callback")
@@ -1149,7 +1144,7 @@ def daikin_devices():
             return jsonify({"error": "Not authenticated"}), 401
 
         devices = daikin_onecta.get_daikin_devices(
-            session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET
+            session, DATA_DIR, DAIKIN_CLIENT_ID
         )
         return jsonify({"devices": devices})
     except Exception as exc:
@@ -1173,7 +1168,7 @@ def daikin_set_temperature():
             return jsonify({"error": "Not authenticated"}), 401
 
         result = daikin_onecta.set_daikin_temperature(
-            session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET,
+            session, DATA_DIR, DAIKIN_CLIENT_ID,
             device_id, target_celsius
         )
         daikin_onecta.save_daikin_session(DATA_DIR, session)
@@ -1201,7 +1196,7 @@ def daikin_set_power():
             return jsonify({"error": "Not authenticated"}), 401
 
         result = daikin_onecta.set_daikin_power(
-            session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET,
+            session, DATA_DIR, DAIKIN_CLIENT_ID,
             device_id, power_on
         )
         daikin_onecta.save_daikin_session(DATA_DIR, session)
@@ -5056,7 +5051,7 @@ def _influx_context():
         _daikin_session = daikin_onecta.load_daikin_session(DATA_DIR)
         if _daikin_session.get("access_token"):
             daikin_states = daikin_onecta.get_daikin_devices(
-                _daikin_session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET
+                _daikin_session, DATA_DIR, DAIKIN_CLIENT_ID
             )
     except Exception:
         pass
@@ -6052,14 +6047,14 @@ def _apply_heating_control(action: str, settings: dict) -> None:
         if daikin_session.get("access_token"):
             try:
                 devices = daikin_onecta.get_daikin_devices(
-                    daikin_session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET
+                    daikin_session, DATA_DIR, DAIKIN_CLIENT_ID
                 )
                 for dev in devices:
                     dev_id = dev.get("id")
                     current_setpoint = dev.get("setpoint")
                     if current_setpoint and abs(current_setpoint - target_temp) > 0.5:
                         daikin_onecta.set_daikin_temperature(
-                            daikin_session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET,
+                            daikin_session, DATA_DIR, DAIKIN_CLIENT_ID,
                             dev_id, target_temp
                         )
                         log.info(
@@ -6886,7 +6881,6 @@ def _daikin_planner_tick() -> None:
                 daikin_session,
                 DATA_DIR,
                 DAIKIN_CLIENT_ID,
-                DAIKIN_CLIENT_SECRET,
                 daikin_onecta
             )
 

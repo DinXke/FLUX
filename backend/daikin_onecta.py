@@ -20,9 +20,8 @@ DAIKIN_AUTH_URL = "https://idp.onecta.daikineurope.com/v1/oauth2/authorize"
 DAIKIN_TOKEN_URL = "https://idp.onecta.daikineurope.com/v1/oauth2/token"
 DAIKIN_API_URL = "https://api.onecta.daikineurope.com/v1"
 
-# Daikin OAuth2 credentials (should be moved to config)
+# Daikin OAuth2 public client ID (no client_secret needed — PKCE public client)
 DAIKIN_CLIENT_ID = "d2c97e4f-aab2-42f5-a863-e8fb0f95c21a"
-DAIKIN_CLIENT_SECRET = None  # Set via environment or config
 
 
 def _daikin_session_file(data_dir: str) -> str:
@@ -59,7 +58,7 @@ def _token_expired(access_token: str, expires_at: float, buffer_sec: int = 60) -
     return expires_at < (time.time() + buffer_sec)
 
 
-def _refresh_daikin_token(session: dict, client_id: str, client_secret: str) -> dict:
+def _refresh_daikin_token(session: dict, client_id: str) -> dict:
     """Refresh Daikin access token using refresh_token."""
     refresh_token = session.get("refresh_token")
     if not refresh_token:
@@ -73,7 +72,6 @@ def _refresh_daikin_token(session: dict, client_id: str, client_secret: str) -> 
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
                 "client_id": client_id,
-                "client_secret": client_secret,
             },
             timeout=15,
         )
@@ -101,7 +99,7 @@ def _refresh_daikin_token(session: dict, client_id: str, client_secret: str) -> 
 
 
 def ensure_fresh_daikin_token(
-    session: dict, data_dir: str, client_id: str, client_secret: str
+    session: dict, data_dir: str, client_id: str
 ) -> str:
     """Return a valid access token, auto-renewing if expired."""
     access_token = session.get("access_token", "")
@@ -112,7 +110,7 @@ def ensure_fresh_daikin_token(
 
     log.info("Daikin access token expired — refreshing")
     try:
-        session = _refresh_daikin_token(session, client_id, client_secret)
+        session = _refresh_daikin_token(session, client_id)
         save_daikin_session(data_dir, session)
         return session["access_token"]
     except Exception as exc:
@@ -179,7 +177,6 @@ def get_daikin_auth_url(client_id: str, redirect_uri: str, state: str, code_chal
 def exchange_daikin_code(
     code: str,
     client_id: str,
-    client_secret: str,
     redirect_uri: str,
     code_verifier: str,
     data_dir: str,
@@ -192,7 +189,6 @@ def exchange_daikin_code(
             "grant_type": "authorization_code",
             "code": code,
             "client_id": client_id,
-            "client_secret": client_secret,
             "redirect_uri": redirect_uri,
             "code_verifier": code_verifier,
         },
@@ -228,13 +224,13 @@ def daikin_logout(data_dir: str) -> None:
 
 
 def get_daikin_devices(
-    session: dict, data_dir: str, client_id: str, client_secret: str
+    session: dict, data_dir: str, client_id: str
 ) -> list:
     """
     Fetch list of Daikin heat pump devices.
     Returns list of device dicts with id, name, current_temp, setpoint, power_on, mode.
     """
-    access_token = ensure_fresh_daikin_token(session, data_dir, client_id, client_secret)
+    access_token = ensure_fresh_daikin_token(session, data_dir, client_id)
 
     try:
         # List all devices for this user
@@ -306,7 +302,6 @@ def set_daikin_temperature(
     session: dict,
     data_dir: str,
     client_id: str,
-    client_secret: str,
     device_id: str,
     target_celsius: float,
 ) -> dict:
@@ -314,7 +309,7 @@ def set_daikin_temperature(
     if not 12 <= target_celsius <= 28:
         raise ValueError(f"Temperature out of range: {target_celsius}°C (12-28°C allowed)")
 
-    access_token = ensure_fresh_daikin_token(session, data_dir, client_id, client_secret)
+    access_token = ensure_fresh_daikin_token(session, data_dir, client_id)
 
     try:
         log.info("Setting Daikin device %s to %.1f°C", device_id, target_celsius)
@@ -341,12 +336,11 @@ def set_daikin_power(
     session: dict,
     data_dir: str,
     client_id: str,
-    client_secret: str,
     device_id: str,
     power_on: bool,
 ) -> dict:
     """Turn Daikin device on or off."""
-    access_token = ensure_fresh_daikin_token(session, data_dir, client_id, client_secret)
+    access_token = ensure_fresh_daikin_token(session, data_dir, client_id)
 
     try:
         log.info("Setting Daikin device %s power=%s", device_id, power_on)

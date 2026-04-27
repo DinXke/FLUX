@@ -147,7 +147,6 @@ def apply_daikin_plan(
     session: dict,
     data_dir: str,
     client_id: str,
-    client_secret: str,
     daikin_onecta_module
 ) -> dict:
     """
@@ -159,7 +158,6 @@ def apply_daikin_plan(
         session: Daikin OAuth2 session
         data_dir: Path to data directory
         client_id: Daikin OAuth2 client ID
-        client_secret: Daikin OAuth2 client secret
         daikin_onecta_module: daikin_onecta module reference
 
     Returns:
@@ -187,7 +185,7 @@ def apply_daikin_plan(
                 device_id, setpoint, reason
             )
             daikin_onecta_module.set_daikin_temperature(
-                session, data_dir, client_id, client_secret, device_id, setpoint
+                session, data_dir, client_id, device_id, setpoint
             )
             applied[device_id] = {
                 "setpoint": setpoint,
