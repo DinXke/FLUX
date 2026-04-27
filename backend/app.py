@@ -33,6 +33,7 @@ from config import get_config
 from auth import init_auth, get_auth_manager, require_auth, require_admin, get_current_user
 import daikin_onecta
 import bosch_home_connect
+import bosch_appliances
 
 import requests as _req  # aliased to avoid clash with flask.request
 import urllib3
@@ -1039,6 +1040,14 @@ def frank_status():
 DAIKIN_CLIENT_ID = os.environ.get("DAIKIN_CLIENT_ID", "d2c97e4f-aab2-42f5-a863-e8fb0f95c21a")
 DAIKIN_CLIENT_SECRET = os.environ.get("DAIKIN_CLIENT_SECRET", "")
 
+# ---------------------------------------------------------------------------
+# Bosch Home Connect Appliances Integration
+# ---------------------------------------------------------------------------
+BOSCH_APPLIANCES_CLIENT_ID = os.environ.get("BOSCH_APPLIANCES_CLIENT_ID", "")
+BOSCH_APPLIANCES_CLIENT_SECRET = os.environ.get("BOSCH_APPLIANCES_CLIENT_SECRET", "")
+BOSCH_APPLIANCES_REDIRECT_URI = os.environ.get("BOSCH_APPLIANCES_REDIRECT_URI", "http://localhost:5000/api/bosch-appliances/callback")
+BOSCH_APPLIANCES_SANDBOX = os.environ.get("BOSCH_APPLIANCES_SANDBOX", "false").lower() == "true"
+
 @app.route("/api/daikin/status", methods=["GET"])
 def daikin_status():
     try:
@@ -1137,6 +1146,169 @@ def daikin_set_power():
         return jsonify(result)
     except Exception as exc:
         log.error("Daikin set-power error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+# ---------------------------------------------------------------------------
+# Bosch Home Connect Appliances Integration
+# ---------------------------------------------------------------------------
+
+@app.route("/api/bosch-appliances/status", methods=["GET"])
+def bosch_appliances_status():
+    try:
+        session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if session.get("access_token"):
+            return jsonify({
+                "authenticated": True,
+                "sandbox": BOSCH_APPLIANCES_SANDBOX,
+                "updated_at": session.get("updated_at"),
+            })
+        return jsonify({"authenticated": False, "sandbox": BOSCH_APPLIANCES_SANDBOX})
+    except Exception as exc:
+        log.error("Bosch status error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/authorize", methods=["GET"])
+def bosch_appliances_authorize():
+    try:
+        if not BOSCH_APPLIANCES_CLIENT_ID:
+            return jsonify({"error": "Bosch OAuth2 not configured"}), 400
+        auth_url = bosch_appliances.get_bosch_appliances_auth_url(
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_REDIRECT_URI,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+        return jsonify({"auth_url": auth_url})
+    except Exception as exc:
+        log.error("Bosch authorize error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/callback", methods=["GET"])
+def bosch_appliances_callback():
+    try:
+        code = request.args.get("code")
+        if not code:
+            return jsonify({"error": "Authorization code required"}), 400
+
+        result = bosch_appliances.exchange_bosch_appliances_code(
+            code,
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_CLIENT_SECRET,
+            BOSCH_APPLIANCES_REDIRECT_URI,
+            DATA_DIR,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+        log.info("Bosch OAuth2 callback success")
+        return jsonify(result)
+    except Exception as exc:
+        log.error("Bosch callback error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/devices", methods=["GET"])
+def bosch_appliances_devices():
+    try:
+        session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Not authenticated"}), 401
+
+        appliances = bosch_appliances.get_appliances(
+            session,
+            DATA_DIR,
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_CLIENT_SECRET,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+        return jsonify({"appliances": appliances})
+    except Exception as exc:
+        log.error("Bosch devices error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/start", methods=["POST"])
+@require_admin
+def bosch_appliances_start():
+    try:
+        body = request.get_json(force=True)
+        ha_id = body.get("ha_id", "").strip()
+        program_key = body.get("program_key", "").strip()
+
+        if not ha_id or not program_key:
+            return jsonify({"error": "ha_id and program_key required"}), 400
+
+        session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Not authenticated"}), 401
+
+        result = bosch_appliances.start_appliance_program(
+            ha_id,
+            program_key,
+            session,
+            DATA_DIR,
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_CLIENT_SECRET,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+        bosch_appliances.save_bosch_session(DATA_DIR, session)
+        _tg_notify(f"🏠 Bosch: Started {program_key} on appliance")
+        return jsonify(result)
+    except Exception as exc:
+        log.error("Bosch start error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/stop", methods=["POST"])
+@require_admin
+def bosch_appliances_stop():
+    try:
+        body = request.get_json(force=True)
+        ha_id = body.get("ha_id", "").strip()
+
+        if not ha_id:
+            return jsonify({"error": "ha_id required"}), 400
+
+        session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if not session.get("access_token"):
+            return jsonify({"error": "Not authenticated"}), 401
+
+        result = bosch_appliances.stop_appliance(
+            ha_id,
+            session,
+            DATA_DIR,
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_CLIENT_SECRET,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+        bosch_appliances.save_bosch_session(DATA_DIR, session)
+        _tg_notify(f"🏠 Bosch: Stopped appliance")
+        return jsonify(result)
+    except Exception as exc:
+        log.error("Bosch stop error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/settings", methods=["GET"])
+def bosch_appliances_settings_get():
+    try:
+        settings = bosch_appliances.load_bosch_settings(DATA_DIR)
+        return jsonify(settings)
+    except Exception as exc:
+        log.error("Bosch settings GET error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/bosch-appliances/settings", methods=["POST"])
+@require_admin
+def bosch_appliances_settings_post():
+    try:
+        body = request.get_json(force=True)
+        bosch_appliances.save_bosch_settings(DATA_DIR, body)
+        log.info("Bosch appliances settings updated")
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log.error("Bosch settings POST error: %s", exc)
         return jsonify({"error": str(exc)}), 502
 
 
@@ -5465,6 +5637,65 @@ def _current_slot_action() -> str | None:
     return "neutral"
 
 
+def _trigger_bosch_smart_start(settings: dict) -> None:
+    """
+    Check if Bosch appliances should be smart-started based on solar surplus,
+    negative price, or cheap hours. Runs every minute as part of _automation_tick().
+    """
+    try:
+        session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if not session.get("access_token"):
+            return
+
+        # Get solar surplus (current solar vs consumption)
+        solar_surplus_w = _solar_overproduction_w()
+        if solar_surplus_w is None:
+            solar_surplus_w = 0.0
+
+        # Get current price and calculate average from plan
+        current_price: float | None = None
+        avg_price = 0.15
+        try:
+            slots = _plan_cache.get("slots", [])
+            if slots:
+                tz = ZoneInfo(_entsoe_settings().get("timezone", "Europe/Brussels"))
+                now_h = datetime.now(tz).hour
+                current_slot = next((sl for sl in slots if sl.get("hour") == now_h), None)
+                if current_slot:
+                    current_price = current_slot.get("price_eur_kwh")
+                # Average price across all 24 hours
+                prices = [sl.get("price_eur_kwh") for sl in slots if sl.get("price_eur_kwh") is not None]
+                if prices:
+                    avg_price = sum(prices) / len(prices)
+        except Exception as exc:
+            log.debug("Smart-start: failed to get price info: %s", exc)
+
+        log.debug(
+            "Bosch smart-start check: solar_surplus=%.0fW, current_price=%.4f EUR/kWh, avg=%.4f",
+            solar_surplus_w, current_price or 0, avg_price
+        )
+
+        # Check smart-start conditions and start appliances if applicable
+        result = bosch_appliances.check_bosch_appliances_smart_start(
+            solar_surplus_w,
+            current_price,
+            avg_price,
+            session,
+            DATA_DIR,
+            BOSCH_APPLIANCES_CLIENT_ID,
+            BOSCH_APPLIANCES_CLIENT_SECRET,
+            sandbox=BOSCH_APPLIANCES_SANDBOX,
+        )
+
+        if result.get("ok") and result.get("started"):
+            log.info("Bosch smart-start: %d appliances started (%s)", result.get("count"), result.get("reason"))
+            for app in result.get("started", []):
+                _tg_notify(f"🏠 Bosch appliances: {app.get('program_key')} gestart ({result.get('reason')})")
+
+    except Exception as exc:
+        log.error("Bosch smart-start error: %s", exc)
+
+
 def _apply_heating_control(action: str, settings: dict) -> None:
     """
     Apply heating device control based on current automation action.
@@ -5831,6 +6062,10 @@ def _automation_tick() -> None:
     # Dispatch heating setpoint/valve commands based on current action
     if auto.get("heating_enabled", True):
         _apply_heating_control(effective_action, s_now)
+
+    # ── Bosch Home Connect appliances smart-start ────────────────────────────
+    # Start configured appliances when solar surplus or negative price conditions met
+    _trigger_bosch_smart_start(s_now)
 
     _save_automation(auto)
 
