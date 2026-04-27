@@ -505,6 +505,79 @@ def _collect_and_write(app_context_fn):
     except Exception as exc:
         log.debug("InfluxDB anomaly alerts write skip: %s", exc)
 
+    # ── Electricity price (Frank Energie / ENTSO-E) ──────────────────────────
+    try:
+        price_data = ctx.get("current_price_data", {})
+        if price_data and "buy_eur_kwh" in price_data:
+            from influxdb_client import Point  # type: ignore
+            pp = Point("electricity_price")
+            pp = pp.tag("source", price_data.get("source", "unknown"))
+            pp = pp.field("buy_eur_kwh", float(price_data["buy_eur_kwh"]))
+            if price_data.get("feed_in_eur_kwh") is not None:
+                pp = pp.field("feed_in_eur_kwh", float(price_data["feed_in_eur_kwh"]))
+            pp = pp.time(datetime.now(timezone.utc))
+            write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=pp)
+            log.debug("InfluxDB electricity_price write OK  buy=%.4f src=%s",
+                      price_data["buy_eur_kwh"], price_data.get("source"))
+    except Exception as exc:
+        log.debug("InfluxDB electricity_price write skip: %s", exc)
+
+    # ── Daikin Onecta device states ──────────────────────────────────────────
+    try:
+        daikin_states = ctx.get("daikin_states", [])
+        if daikin_states:
+            from influxdb_client import Point  # type: ignore
+            daikin_count = 0
+            for dev in daikin_states:
+                try:
+                    dev_name = dev.get("name") or dev.get("id", "unknown")
+                    dp = Point("daikin_device")
+                    dp = dp.tag("device_name", dev_name)
+                    dp = dp.tag("mode", dev.get("mode") or "unknown")
+                    if dev.get("current_temp") is not None:
+                        dp = dp.field("current_temp_c", float(dev["current_temp"]))
+                    if dev.get("setpoint") is not None:
+                        dp = dp.field("setpoint_c", float(dev["setpoint"]))
+                    if dev.get("power_on") is not None:
+                        dp = dp.field("power_on", 1 if dev["power_on"] else 0)
+                    dp = dp.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=dp)
+                    daikin_count += 1
+                except Exception as e:
+                    log.debug("Daikin device write error (%s): %s", dev.get("name"), e)
+            if daikin_count > 0:
+                log.debug("InfluxDB daikin_device write OK  count=%d", daikin_count)
+    except Exception as exc:
+        log.debug("InfluxDB daikin_device write skip: %s", exc)
+
+    # ── Bosch Home Connect appliance states ─────────────────────────────────
+    try:
+        bosch_states = ctx.get("bosch_states", [])
+        if bosch_states:
+            from influxdb_client import Point  # type: ignore
+            _STATE_CODE = {"IDLE": 0, "STANDBY": 0, "READY": 1, "RUN": 2, "PAUSE": 3,
+                           "ACTION_REQUIRED": 4, "FINISHED": 5, "ERROR": 6}
+            bosch_count = 0
+            for appl in bosch_states:
+                try:
+                    appl_name = appl.get("name") or appl.get("id", "unknown")
+                    appl_state = (appl.get("state") or "UNKNOWN").upper()
+                    bp = Point("bosch_appliance")
+                    bp = bp.tag("appliance_name", appl_name)
+                    bp = bp.tag("appliance_type", appl.get("type") or "unknown")
+                    bp = bp.tag("state", appl_state)
+                    bp = bp.field("state_code", _STATE_CODE.get(appl_state, -1))
+                    bp = bp.field("running", 1 if appl_state == "RUN" else 0)
+                    bp = bp.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=bp)
+                    bosch_count += 1
+                except Exception as e:
+                    log.debug("Bosch appliance write error (%s): %s", appl.get("name"), e)
+            if bosch_count > 0:
+                log.debug("InfluxDB bosch_appliance write OK  count=%d", bosch_count)
+    except Exception as exc:
+        log.debug("InfluxDB bosch_appliance write skip: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # Background thread entry point

@@ -4938,7 +4938,88 @@ def _influx_context():
     except Exception:
         pass
 
-    return {"devices": devices, "hw_data": hw_data, "ha_data": ha_data, "flow_cfg": flow_cfg, "plan_slots": plan_slots, "solar_forecast": solar_forecast, "anomalies": anomalies}
+    # Current electricity price from price cache (Frank Energie or ENTSO-E)
+    current_price_data = {}
+    try:
+        from datetime import date as _date, datetime as _dt
+        from zoneinfo import ZoneInfo as _ZI
+        _s = _load_settings()
+        _tz = _entsoe_settings().get("timezone", "Europe/Brussels")
+        _now_local = _dt.now(_ZI(_tz))
+        _today_key = _now_local.date().isoformat()
+        _price_src = _s.get("price_source", "entsoe")
+        _markup = 0.0 if _price_src == "frank" else float(_s.get("grid_markup_eur_kwh", 0.133))
+        _feed_in = float(_s.get("feed_in_price_eur_kwh", 0.0))
+
+        _rows = []
+        _cached = _price_cache.get(_today_key)
+        if _cached:
+            _rows = (_cached.get("data") or {}).get("today", [])
+            _src_label = "frank"
+        else:
+            _es = _entsoe_settings()
+            _ec_key = f"entsoe_{_es.get('country','BE')}_{_tz}_{_today_key}"
+            _ec = _entsoe_cache.get(_ec_key)
+            if _ec:
+                _rows = (_ec.get("data") or {}).get("today", [])
+                _src_label = "entsoe"
+            else:
+                _src_label = "unknown"
+
+        for _row in _rows:
+            try:
+                _dt_raw = _dt.fromisoformat(_row["from"])
+                if _dt_raw.tzinfo is None:
+                    from datetime import timezone as _tz_utc
+                    _dt_raw = _dt_raw.replace(tzinfo=_tz_utc.utc)
+                _dt_loc = _dt_raw.astimezone(_ZI(_tz))
+                if _dt_loc.date() == _now_local.date() and _dt_loc.hour == _now_local.hour:
+                    _buy = float(_row["marketPrice"]) + _markup
+                    current_price_data = {
+                        "buy_eur_kwh": round(_buy, 6),
+                        "feed_in_eur_kwh": _feed_in,
+                        "source": _src_label,
+                    }
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # Daikin Onecta device states
+    daikin_states = []
+    try:
+        _daikin_session = daikin_onecta.load_daikin_session(DATA_DIR)
+        if _daikin_session.get("access_token"):
+            daikin_states = daikin_onecta.get_daikin_devices(
+                _daikin_session, DATA_DIR, DAIKIN_CLIENT_ID, DAIKIN_CLIENT_SECRET
+            )
+    except Exception:
+        pass
+
+    # Bosch Home Connect appliance states
+    bosch_states = []
+    try:
+        _bosch_session = bosch_appliances.load_bosch_session(DATA_DIR)
+        if _bosch_session.get("access_token") and BOSCH_APPLIANCES_CLIENT_ID:
+            _bosch_settings = bosch_appliances.load_bosch_settings(DATA_DIR)
+            _sandbox = _bosch_settings.get("sandbox", False)
+            bosch_states = bosch_appliances.get_appliances(
+                _bosch_session, DATA_DIR,
+                BOSCH_APPLIANCES_CLIENT_ID, BOSCH_APPLIANCES_CLIENT_SECRET,
+                sandbox=_sandbox,
+            )
+    except Exception:
+        pass
+
+    return {
+        "devices": devices, "hw_data": hw_data, "ha_data": ha_data,
+        "flow_cfg": flow_cfg, "plan_slots": plan_slots,
+        "solar_forecast": solar_forecast, "anomalies": anomalies,
+        "current_price_data": current_price_data,
+        "daikin_states": daikin_states,
+        "bosch_states": bosch_states,
+    }
 
 
 # ---------------------------------------------------------------------------
