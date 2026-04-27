@@ -19,6 +19,14 @@ from typing import Optional
 log = logging.getLogger("sma_modbus")
 
 # ---------------------------------------------------------------------------
+# Global Modbus TCP lock — reader and PV limiter share one TCP session slot.
+# SMA Sunny Boy accepts only one simultaneous TCP connection; without this lock
+# the 10-second reader and the 5-second PV limiter writes collide and one of
+# them gets connection-refused, leading to 0-watt writes or stale readings.
+# ---------------------------------------------------------------------------
+_modbus_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
 # SMA status codes → human-readable label
 # ---------------------------------------------------------------------------
 
@@ -439,7 +447,7 @@ def _batch_read_registers(client, register_map: list, unit_id: int) -> dict:
 
 def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_map=None) -> dict:
     """
-    Open a Modbus TCP (or UDP) connection to the SMA inverter, read all registers,
+    Open a Modbus TCP connection to the SMA inverter, read all registers,
     and return a parsed dict. The connection is closed before returning.
 
     register_map: list of register config dicts (see _DEFAULT_REGISTER_MAP).
@@ -448,51 +456,75 @@ def _poll(host: str, port: int, unit_id: int, use_udp: bool = False, register_ma
     if register_map is None:
         register_map = _DEFAULT_REGISTER_MAP
 
-    client = _make_client(host, port, use_udp)
+    client = _make_client(host, port, use_udp=False)  # SMA only supports TCP
     if client is None:
         log.error("pymodbus niet geïnstalleerd")
         return {"online": False}
 
-    if not client.connect():
-        log.warning("SMA Modbus: kan niet verbinden met %s:%d (udp=%s)", host, port, use_udp)
-        return {"online": False}
+    with _modbus_lock:
+        if not client.connect():
+            log.warning("SMA Modbus: kan niet verbinden met %s:%d", host, port)
+            return {"online": False}
 
-    data: dict = {"online": True}
-    try:
-        # Read all configured measurement registers in batches to minimise the number
-        # of Modbus round trips (and therefore the TCP session hold time, which matters
-        # when another client such as Loxone also polls the same inverter).
-        # Always write every key (None on failure) so the cache merge never retains
-        # stale values from a previous poll.
-        data.update(_batch_read_registers(client, register_map, unit_id))
+        data: dict = {"online": True}
+        try:
+            data.update(_batch_read_registers(client, register_map, unit_id))
 
-        # Device status — always set (None if unreadable) so cache never shows a stale
-        # status_code from a prior poll alongside a contradictory night_mode from this one.
-        code = _read_status(client, unit_id)
-        data["status_code"] = code
-        data["status"] = _STATUS_LABELS.get(code, f"Code {code}") if code is not None else None
+            code = _read_status(client, unit_id)
+            data["status_code"] = code
+            data["status"] = _STATUS_LABELS.get(code, f"Code {code}") if code is not None else None
 
-        # Night/standby mode: TCP connected but all measurement registers return
-        # Modbus exceptions. Normal SMA behavior during darkness/standby.
-        # Exception: if status says device is actively running, it's a register map
-        # mismatch — measurements are unavailable but device is not in night mode.
-        measurement_keys = ("pac_w", "e_day_wh", "e_total_wh", "grid_v",
-                            "freq_hz", "temp_c", "dc_power_w", "dc_voltage_v", "dc_current_a")
-        has_values = any(data.get(k) is not None for k in measurement_keys)
-        status_running = data.get("status_code") in _RUNNING_STATUS_CODES
-        data["night_mode"] = not has_values and not status_running
-        data["measurements_unavailable"] = not has_values and status_running
-        if not has_values and status_running:
-            log.warning(
-                "SMA status=%s maar meetregisters reageren niet — "
-                "controleer of het apparaattype overeenkomt met het registermap",
-                data.get("status"),
-            )
+            measurement_keys = ("pac_w", "e_day_wh", "e_total_wh", "grid_v",
+                                "freq_hz", "temp_c", "dc_power_w", "dc_voltage_v", "dc_current_a")
+            has_values = any(data.get(k) is not None for k in measurement_keys)
+            status_running = data.get("status_code") in _RUNNING_STATUS_CODES
+            data["night_mode"] = not has_values and not status_running
+            data["measurements_unavailable"] = not has_values and status_running
+            if not has_values and status_running:
+                log.warning(
+                    "SMA status=%s maar meetregisters reageren niet — "
+                    "controleer of het apparaattype overeenkomt met het registermap",
+                    data.get("status"),
+                )
 
-    finally:
-        client.close()
+        finally:
+            client.close()
 
     return data
+
+
+def write_holding_registers(host: str, port: int, unit_id: int,
+                            addr: int, values: list) -> bool:
+    """
+    Write holding registers (FC16) to the SMA inverter via the shared Modbus lock.
+
+    Call this from the PV limiter instead of opening a separate TCP connection, so
+    reads and writes are serialised and never fight for the same TCP session slot.
+
+    addr   – 0-based Modbus address (SMA 1-based register number minus 1)
+    values – list of 16-bit register words (big-endian, e.g. [high, low] for U32)
+    """
+    client = _make_client(host, port, use_udp=False)
+    if client is None:
+        log.error("pymodbus niet geïnstalleerd – Modbus write mislukt")
+        return False
+
+    with _modbus_lock:
+        if not client.connect():
+            log.warning("SMA Modbus write: kan niet verbinden met %s:%d", host, port)
+            return False
+        try:
+            result = client.write_registers(address=addr, values=values, device_id=unit_id)
+            if hasattr(result, "isError") and result.isError():
+                log.warning("SMA Modbus write: FC16 fout addr=%d: %s", addr, result)
+                return False
+            log.debug("SMA Modbus write OK  addr=%d  values=%s  unit=%d", addr, values, unit_id)
+            return True
+        except Exception as exc:
+            log.warning("SMA Modbus write uitzondering: %s", exc)
+            return False
+        finally:
+            client.close()
 
 
 # ---------------------------------------------------------------------------

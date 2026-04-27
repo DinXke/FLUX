@@ -6253,12 +6253,12 @@ def _automation_tick() -> None:
 
 
 def _pv_send_modbus(s: dict, target_w: int) -> bool:
-    """Send PV power limit directly to inverter via Modbus TCP (bypasses HA)."""
-    try:
-        from pymodbus.client import ModbusTcpClient
-    except ImportError:
-        log.error("pymodbus niet geïnstalleerd – Modbus PV-limiter niet beschikbaar")
-        return False
+    """Send PV power limit directly to inverter via Modbus TCP.
+
+    Uses the shared sma_modbus lock so this write is serialised with the SMA
+    reader background thread — no more competing TCP sessions on the inverter.
+    """
+    from sma_modbus import write_holding_registers
 
     host     = (s.get("pv_limiter_modbus_host") or "").strip()
     port     = int(s.get("pv_limiter_modbus_port", 502))
@@ -6272,8 +6272,7 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
         log.warning("Modbus PV-limiter: geen host geconfigureerd")
         return False
 
-    # SMA uses their own 1-based register numbering (30775, 42062, etc.).
-    # The 0-based Modbus address is simply reg_number - 1.
+    # SMA uses 1-based register numbering; pymodbus expects 0-based address.
     addr = reg_raw - 1
 
     if val_mode == "PCT":
@@ -6282,30 +6281,13 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
     else:
         value = max(0, target_w)
 
-    try:
-        client = ModbusTcpClient(host=host, port=port)
-        if not client.connect():
-            log.warning("Modbus PV-limiter: kan niet verbinden met %s:%d", host, port)
-            return False
-        try:
-            # U32: write as 2 registers [high_word, low_word] via FC16
-            # U16: write as 1 register [value & 0xFFFF] via FC16
-            if dtype == "U32":
-                words = [value >> 16, value & 0xFFFF]
-            else:
-                words = [value & 0xFFFF]
-            result = client.write_registers(address=addr, values=words, device_id=unit_id)
-            if hasattr(result, "isError") and result.isError():
-                log.warning("Modbus PV-limiter: write_registers fout: %s", result)
-                return False
-            log.debug("Modbus PV-limiter: %dW → %s:%d reg %d (addr=%d) unit=%d dtype=%s words=%s",
-                      target_w, host, port, reg_raw, addr, unit_id, dtype, words)
-            return True
-        finally:
-            client.close()
-    except Exception as exc:
-        log.warning("Modbus PV-limiter: uitzondering: %s", exc)
-        return False
+    # U32: two 16-bit words [high, low]; U16: one word
+    words = [value >> 16, value & 0xFFFF] if dtype == "U32" else [value & 0xFFFF]
+
+    log.debug("Modbus PV-limiter: %dW → %s:%d reg %d (addr=%d) unit=%d dtype=%s words=%s",
+              target_w, host, port, reg_raw, addr, unit_id, dtype, words)
+
+    return write_holding_registers(host, port, unit_id, addr, words)
 
 
 def _pv_send(s: dict, entity: str, use_service: bool, svc_str: str, target_w: int) -> bool:
