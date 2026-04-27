@@ -74,7 +74,7 @@ DEFAULT_SETTINGS = {
     # PV power limiter (e.g. SMA Sunny Boy via Home Assistant number entity)
     "pv_limiter_enabled":        False,
     "pv_limiter_entity":         "",     # HA entity_id for number.set_value mode
-    "pv_limiter_min_w":          0,      # limit when price is negative/below threshold (W)
+    "pv_limiter_min_w":          50,     # limit when price is negative/below threshold (W); 50W floor prevents accidental 0W
     "pv_limiter_max_w":          4000,   # restore to this value (W) when price OK
     "pv_limiter_threshold_ct":   0.0,    # trigger below this price (ct/kWh); 0 = only negative
     "pv_limiter_margin_w":       200,    # extra buffer above house+bat load to avoid oscillation (legacy)
@@ -286,7 +286,7 @@ def build_plan(
     _pv_enabled   = bool(s.get("pv_limiter_enabled", False))
     _pv_manual    = bool(s.get("pv_limiter_manual_override", False))
     _pv_manual_w  = int(s.get("pv_limiter_manual_w", 2000))
-    _pv_min_w     = int(s.get("pv_limiter_min_w", 0))
+    _pv_min_w     = int(s.get("pv_limiter_min_w", 50))
     _pv_max_w     = int(s.get("pv_limiter_max_w", 4000))
     _pv_thresh    = float(s.get("pv_limiter_threshold_ct", 0.0)) / 100.0  # ct → €/kWh
 
