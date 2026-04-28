@@ -3471,6 +3471,32 @@ def debug_info():
     })
 
 
+@app.route("/api/admin/containers", methods=["GET"])
+def admin_containers():
+    """Docker container status — alleen beschikbaar in STANDALONE_MODE."""
+    if not os.environ.get("STANDALONE_MODE"):
+        return jsonify({"error": "alleen beschikbaar in standalone mode"}), 403
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            ["docker", "ps", "-a", "--format",
+             "{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.RunningFor}}"],
+            timeout=10, text=True
+        )
+        containers = []
+        for line in out.strip().splitlines():
+            parts = line.split("\t")
+            containers.append({
+                "name": parts[0] if len(parts) > 0 else "",
+                "status": parts[1] if len(parts) > 1 else "",
+                "image": parts[2] if len(parts) > 2 else "",
+                "running_for": parts[3] if len(parts) > 3 else "",
+            })
+        return jsonify({"containers": containers})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/debug/soc", methods=["GET"])
 def debug_soc():
     """Diagnose SOC sources: shows what each source returns for bat_soc."""

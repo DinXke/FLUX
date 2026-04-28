@@ -60,6 +60,12 @@ services:
       DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET}
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN}
       DOCKER_INFLUXDB_INIT_RETENTION: ${INFLUX_RETENTION:-0}
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
       - influxdb_data:/var/lib/influxdb2
       - influxdb_config:/etc/influxdb2
@@ -69,22 +75,26 @@ services:
     container_name: smartmarstek-grafana
     restart: unless-stopped
     labels:
-      com.flux.provisioning-rev: "2026-04-27-uid-fix"
+      com.flux.provisioning-rev: "2026-04-28-stable-config"
     ports:
       - "3000:3000"
     depends_on:
-      - influxdb
+      influxdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
-      # Zet GRAFANA_EXTERNAL_URL in .env met trailing slash, bv: https://10.10.30.112/grafana/
-      # Zonder die var gebruikt Grafana hostname detectie (werkt alleen lokaal).
       GF_SERVER_ROOT_URL: "${GRAFANA_EXTERNAL_URL:-%(protocol)s://%(domain)s/grafana/}"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-      GF_INSTALL_PLUGINS:
       INFLUX_ORG: ${INFLUX_ORG}
       INFLUX_BUCKET: ${INFLUX_BUCKET}
       INFLUX_TOKEN: ${INFLUX_TOKEN}

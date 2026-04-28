@@ -4,8 +4,6 @@
 # Gebruik: bash /flux/update.sh
 # Cron:    */5 * * * * /bin/sh /flux/update.sh >> /flux/data/update.log 2>&1
 
-set -e
-
 INSTALL_DIR="${INSTALL_DIR:-/flux}"
 REPO_BRANCH="main"
 COMPOSE_CMD="docker compose"
@@ -28,7 +26,9 @@ echo "$LOG_PREFIX Pull origin/$REPO_BRANCH..."
 git pull origin "$REPO_BRANCH" --quiet
 
 echo "$LOG_PREFIX Herbouwen Docker image..."
-$COMPOSE_CMD build
+if ! $COMPOSE_CMD build; then
+    echo "$LOG_PREFIX WAARSCHUWING: build mislukt — services toch herstarten met bestaand image"
+fi
 
 echo "$LOG_PREFIX Services herstarten (zero-downtime: pull eerst)..."
 $COMPOSE_CMD up -d --remove-orphans
