@@ -48,7 +48,7 @@ export default function HeatingSettings() {
       setSuccess("✓ Daikin Onecta succesvol gekoppeld!");
       window.history.replaceState({}, "", window.location.pathname);
     } else if (params.get("daikin") === "error") {
-      setError("Daikin login mislukt. Controleer DAIKIN_CLIENT_SECRET en probeer opnieuw.");
+      setError("Daikin login mislukt. Controleer DAIKIN_REDIRECT_URI en probeer opnieuw.");
       window.history.replaceState({}, "", window.location.pathname);
     }
 
@@ -382,21 +382,10 @@ export default function HeatingSettings() {
                   background: "#f0f0f0", padding: "10px", borderRadius: "4px",
                   fontSize: "12px", margin: "0 0 8px",
                 }}>
-{`DAIKIN_CLIENT_ID=<jouw client id>
-DAIKIN_CLIENT_SECRET=<jouw client secret>
-DAIKIN_REDIRECT_URI=http://<jouw-flux-ip>:5000/api/daikin/callback`}
+{`DAIKIN_REDIRECT_URI=http://<jouw-flux-ip>:5000/api/daikin/callback`}
                 </pre>
                 <div style={{ fontSize: "12px", color: "#777" }}>
-                  Registreer op{" "}
-                  <a
-                    href="https://developer.cloud.daikineurope.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ color: "#0071CE" }}
-                  >
-                    developer.cloud.daikineurope.com
-                  </a>{" "}
-                  om je client ID en secret te krijgen.
+                  Daikin Onecta gebruikt PKCE (geen client secret nodig). Stel enkel de redirect URI in zodat de callback werkt.
                 </div>
               </div>
             )}
