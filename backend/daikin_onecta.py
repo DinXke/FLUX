@@ -20,8 +20,7 @@ DAIKIN_AUTH_URL = "https://idp.onecta.daikineurope.com/v1/oauth2/authorize"
 DAIKIN_TOKEN_URL = "https://idp.onecta.daikineurope.com/v1/oauth2/token"
 DAIKIN_API_URL = "https://api.onecta.daikineurope.com/v1"
 
-# Daikin OAuth2 public client ID (no client_secret needed — PKCE public client)
-DAIKIN_CLIENT_ID = "d2c97e4f-aab2-42f5-a863-e8fb0f95c21a"
+# Daikin OAuth2 PKCE public client — register at developer.cloud.daikineurope.com
 
 
 def _daikin_session_file(data_dir: str) -> str:

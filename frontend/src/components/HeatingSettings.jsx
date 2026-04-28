@@ -48,7 +48,7 @@ export default function HeatingSettings() {
       setSuccess("✓ Daikin Onecta succesvol gekoppeld!");
       window.history.replaceState({}, "", window.location.pathname);
     } else if (params.get("daikin") === "error") {
-      setError("Daikin login mislukt. Controleer DAIKIN_REDIRECT_URI en probeer opnieuw.");
+      setError("Daikin login mislukt. Controleer DAIKIN_CLIENT_ID en DAIKIN_REDIRECT_URI en probeer opnieuw.");
       window.history.replaceState({}, "", window.location.pathname);
     }
 
@@ -375,17 +375,21 @@ export default function HeatingSettings() {
             ) : (
               <div>
                 <p style={{ margin: "0 0 8px", color: "#555", fontSize: "13px" }}>
-                  Daikin Onecta is nog niet geconfigureerd. Voeg de volgende variabelen toe aan je{" "}
-                  <code>.env</code>:
+                  Registreer een eigen app op{" "}
+                  <a href="https://developer.cloud.daikineurope.com" target="_blank" rel="noreferrer" style={{ color: "#0071CE" }}>
+                    developer.cloud.daikineurope.com
+                  </a>{" "}
+                  en stel deze variabelen in je <code>.env</code> in:
                 </p>
                 <pre style={{
                   background: "#f0f0f0", padding: "10px", borderRadius: "4px",
                   fontSize: "12px", margin: "0 0 8px",
                 }}>
-{`DAIKIN_REDIRECT_URI=http://<jouw-flux-ip>:5000/api/daikin/callback`}
+{`DAIKIN_CLIENT_ID=<jouw client id>
+DAIKIN_REDIRECT_URI=http://<jouw-flux-ip>:5000/api/daikin/callback`}
                 </pre>
                 <div style={{ fontSize: "12px", color: "#777" }}>
-                  Daikin Onecta gebruikt PKCE (geen client secret nodig). Stel enkel de redirect URI in zodat de callback werkt.
+                  Gebruik bij registratie dezelfde redirect URI als hierboven. Geen client secret nodig (PKCE).
                 </div>
               </div>
             )}

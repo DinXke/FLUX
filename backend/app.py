@@ -1038,7 +1038,7 @@ def frank_status():
 # ---------------------------------------------------------------------------
 # Daikin Onecta Integration
 # ---------------------------------------------------------------------------
-DAIKIN_CLIENT_ID = os.environ.get("DAIKIN_CLIENT_ID", "d2c97e4f-aab2-42f5-a863-e8fb0f95c21a")
+DAIKIN_CLIENT_ID = os.environ.get("DAIKIN_CLIENT_ID", "")
 DAIKIN_REDIRECT_URI = os.environ.get("DAIKIN_REDIRECT_URI", "http://localhost:5000/api/daikin/callback")
 
 # Temporary in-memory PKCE state store (keyed by state param, expires after 10 min)
@@ -1063,7 +1063,7 @@ def daikin_status():
                 "region": session.get("region", "EU"),
                 "updated_at": session.get("updated_at"),
             })
-        return jsonify({"authenticated": False, "configured": True})
+        return jsonify({"authenticated": False, "configured": bool(DAIKIN_CLIENT_ID)})
     except Exception as exc:
         log.error("Daikin status error: %s", exc)
         return jsonify({"error": str(exc)}), 502
@@ -1074,6 +1074,9 @@ def daikin_authorize():
     """Return Daikin OAuth2 authorization URL with PKCE."""
     import secrets as _secrets, time as _time
     try:
+        if not DAIKIN_CLIENT_ID:
+            return jsonify({"error": "DAIKIN_CLIENT_ID niet geconfigureerd in .env"}), 400
+
         # Clean expired entries
         now = _time.time()
         expired = [s for s, v in _daikin_pkce_store.items() if v["expires_at"] < now]
