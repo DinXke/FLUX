@@ -386,10 +386,13 @@ export default function HeatingSettings() {
                   fontSize: "12px", margin: "0 0 8px",
                 }}>
 {`DAIKIN_CLIENT_ID=<jouw client id>
-DAIKIN_REDIRECT_URI=http://<jouw-flux-ip>:5000/api/daikin/callback`}
+DAIKIN_REDIRECT_URI=https://<jouw-cloudflare-domein>/api/daikin/callback`}
                 </pre>
+                <div style={{ fontSize: "12px", color: "#e67e22", marginBottom: "4px", fontWeight: "bold" }}>
+                  ⚠️ Daikin vereist HTTPS — gebruik je Cloudflare-domein, geen lokaal IP.
+                </div>
                 <div style={{ fontSize: "12px", color: "#777" }}>
-                  Gebruik bij registratie dezelfde redirect URI als hierboven. Geen client secret nodig (PKCE).
+                  Vul dezelfde redirect URI in bij "Redirect URI" in het Daikin developer portal (Auth Strategy: Onecta OIDC). Geen client secret nodig (PKCE).
                 </div>
               </div>
             )}
