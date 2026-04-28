@@ -141,6 +141,9 @@ def build_prophet_forecast(days_history: int = 32, forecast_days: int = 7) -> di
             }
 
         df = pd.DataFrame(df_data)
+        # Prophet requires timezone-naive ds column — strip at DataFrame level too
+        if hasattr(df["ds"].dt, "tz") and df["ds"].dt.tz is not None:
+            df["ds"] = df["ds"].dt.tz_convert("UTC").dt.tz_localize(None)
         df = df.sort_values("ds").reset_index(drop=True)
 
         log.info("prophet: training on %d hourly points (%s to %s)",
