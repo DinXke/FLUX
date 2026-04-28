@@ -75,7 +75,7 @@ services:
     container_name: smartmarstek-grafana
     restart: unless-stopped
     labels:
-      com.flux.provisioning-rev: "2026-04-28-stable-config"
+      com.flux.provisioning-rev: "2026-04-28-force-restart"
     ports:
       - "3000:3000"
     depends_on:
