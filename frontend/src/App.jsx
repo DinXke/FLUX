@@ -16,6 +16,7 @@ import LoginPage from "./components/LoginPage.jsx";
 import UserManagementPage from "./components/UserManagementPage.jsx";
 import GrafanaPage from "./components/GrafanaPage.jsx";
 import { getToken, clearToken, authHeaders, apiFetch } from "./auth.js";
+import { bootstrapFlowCfg } from "./components/FlowSourcesSettings.jsx";
 
 // ── Dashboard section order + collapse (per user) ────────────────────────────
 
@@ -270,6 +271,7 @@ export default function App() {
           if (res.ok) {
             const user = await res.json();
             setCurrentUser({ email: user.email, role: user.role });
+            bootstrapFlowCfg(apiFetch);
             return;
           }
         } catch { /* network error — skip */ }
@@ -342,6 +344,7 @@ export default function App() {
   function handleLogin(user) {
     setCurrentUser(user);
     setAuthState("app");
+    bootstrapFlowCfg(apiFetch);
   }
 
   function handleLogout() {

@@ -24,6 +24,23 @@ export function saveFlowCfg(cfg) {
   window.dispatchEvent(new Event("marstek_flow_cfg_changed"));
 }
 
+// Called once at app startup. Seeds localStorage from the server copy so
+// settings survive an upgrade even when the browser cache was cleared.
+export async function bootstrapFlowCfg(apiFetchFn) {
+  try {
+    const r = await apiFetchFn("api/flow/cfg");
+    if (!r.ok) return;
+    const serverCfg = await r.json();
+    if (!serverCfg || !Object.keys(serverCfg).length) return;
+    // Only restore from server when localStorage is empty (upgrade scenario).
+    const local = localStorage.getItem(FLOW_CFG_KEY);
+    const localEmpty = !local || local === "{}";
+    if (localEmpty) {
+      saveFlowCfg(serverCfg);
+    }
+  } catch { /* non-fatal */ }
+}
+
 // ---------------------------------------------------------------------------
 // Slot + sensor definitions
 // ---------------------------------------------------------------------------
@@ -338,9 +355,16 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
     });
   };
 
-  const handleSave = () => {
-    try { saveFlowCfg(config); setSaved(true); setError(null); setTimeout(() => setSaved(false), 3000); }
-    catch (e) { setError(e.message); }
+  const handleSave = async () => {
+    try {
+      saveFlowCfg(config);
+      await apiFetch("api/flow/cfg", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+      });
+      setSaved(true); setError(null); setTimeout(() => setSaved(false), 3000);
+    } catch (e) { setError(e.message); }
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
