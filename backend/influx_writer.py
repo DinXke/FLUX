@@ -150,12 +150,18 @@ def _poll_esphome(devices: dict) -> dict:
                 ) as resp:
                     resp.raise_for_status()
                     current_event = None
+                    # Newer ESPHome firmware sends a ping first (connection
+                    # confirmation), then state events, then a second ping.
+                    # Break only after we've seen at least one state event so
+                    # that the initial-ping-before-states pattern is handled.
+                    got_state = False
                     for raw_line in resp.iter_lines(decode_unicode=True):
                         if raw_line.startswith("event:"):
                             current_event = raw_line[6:].strip()
-                            if current_event == "ping":
+                            if current_event == "ping" and got_state:
                                 break   # initial state burst complete
                         elif raw_line.startswith("data:") and current_event == "state":
+                            got_state = True
                             try:
                                 data = _json.loads(raw_line[5:].strip())
                                 key  = _map_name(data.get("id", ""))
@@ -171,7 +177,7 @@ def _poll_esphome(devices: dict) -> dict:
                             except Exception:
                                 pass
         except Exception as exc:
-            log.debug("ESPHome SSE poll failed  dev=%s  err=%s", dev_id, exc)
+            log.warning("ESPHome SSE poll failed  dev=%s  err=%s", dev_id, exc)
         if vals:
             result[dev_id] = vals
             log.debug("ESPHome SSE  dev=%s  fields=%s", dev_id, list(vals.keys()))

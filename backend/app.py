@@ -149,12 +149,14 @@ def _get_esphome_inverter_state(ip: str, port: int):
         ) as resp:
             resp.raise_for_status()
             current_event = None
+            got_state = False
             for raw_line in resp.iter_lines(decode_unicode=True):
                 if raw_line.startswith("event:"):
                     current_event = raw_line[6:].strip()
-                    if current_event == "ping":
+                    if current_event == "ping" and got_state:
                         return None
                 elif raw_line.startswith("data:") and current_event == "state":
+                    got_state = True
                     try:
                         data = _j.loads(raw_line[5:].strip())
                         eid = data.get("id", "").lower()
@@ -3023,6 +3025,54 @@ def debug_info():
         "price_cache_keys": list(_price_cache.keys()),
         "log_tail": [l.rstrip() for l in log_lines],
     })
+
+
+@app.route("/api/debug/esphome-raw", methods=["GET"])
+def debug_esphome_raw():
+    """Read raw SSE stream from each ESPHome device and return all entity data seen."""
+    import requests as _r
+    import json as _j
+
+    devices = load_devices()
+    result = {}
+    for dev_id, dev in devices.items():
+        ip, port = dev.get("ip"), dev.get("port", 80)
+        if not ip:
+            continue
+        entities = []
+        error = None
+        try:
+            with _r.Session() as sess:
+                with sess.get(
+                    f"http://{ip}:{port}/events",
+                    stream=True,
+                    timeout=(5, 20),
+                    headers={"Accept": "text/event-stream", "Cache-Control": "no-cache"},
+                ) as resp:
+                    resp.raise_for_status()
+                    current_event = None
+                    got_state = False
+                    for raw_line in resp.iter_lines(decode_unicode=True):
+                        if raw_line.startswith("event:"):
+                            current_event = raw_line[6:].strip()
+                            if current_event == "ping" and got_state:
+                                break
+                        elif raw_line.startswith("data:") and current_event == "state":
+                            got_state = True
+                            try:
+                                entities.append(_j.loads(raw_line[5:].strip()))
+                            except Exception:
+                                entities.append({"raw": raw_line[5:].strip()})
+        except Exception as exc:
+            error = str(exc)
+        result[dev_id] = {
+            "ip": ip,
+            "name": dev.get("name"),
+            "entity_count": len(entities),
+            "entities": entities,
+            "error": error,
+        }
+    return jsonify(result)
 
 
 @app.route("/api/debug/soc", methods=["GET"])
