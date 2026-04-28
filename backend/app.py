@@ -3680,7 +3680,7 @@ def sma_source():
     for sensor_meta in metadata:
         result.append({
             "key": f"sma::sma::{sensor_meta['key']}",
-            "source": "sma",
+            "source": "sma_reader",
             "deviceId": "sma",
             "sensor": sensor_meta["key"],
             "label": f"SMA — {sensor_meta['label']}",
@@ -4188,17 +4188,21 @@ def get_strategy_plan():
                 # without re-calling Claude (fingerprint check will guard it).
                 pass  # fall through to _compute_forward_plan (fingerprint-gated)
             else:
-                # Rule-based: 5-minute TTL
+                # Rule-based / auto: 30-minute route-level TTL.
+                # _compute_forward_plan also applies a price-fingerprint check
+                # so even after TTL expiry the plan is only rebuilt when prices change.
                 cached_at_str = _plan_cache.get("fetched_at")
                 if cached_at_str:
                     age_s = (datetime.now(timezone.utc)
                              - datetime.fromisoformat(cached_at_str)).total_seconds()
-                    if age_s < 300:
+                    if age_s < 1800:
                         result = dict(_plan_cache["result"])
                         live = _live_soc()
                         if live is not None:
                             result["soc_now"] = live
                         return jsonify(result)
+                # Older than 30 min: fall through to _compute_forward_plan
+                # (fingerprint-gated — will serve cache if prices unchanged).
         try:
             return jsonify(_compute_forward_plan(force_claude=force_refresh))
         except Exception as exc:
@@ -5617,6 +5621,14 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
         _auto_info["actual_engine"] = _selected
 
     else:
+        # Rule-based: only rebuild when prices have actually changed.
+        _cached_fp  = _plan_cache.get("price_fingerprint")
+        _have_cache = bool(_plan_cache.get("result"))
+        if not force_claude and _have_cache and _cached_fp == _price_fp:
+            log.info("_compute_forward_plan: rule_based – prices unchanged (fp=%s), serving cache",
+                     _price_fp)
+            _plan_cache["result"]["soc_now"] = soc_now
+            return _plan_cache["result"]
         s_eff = _apply_device_soc(s)
         plan  = build_plan(prices, solar_wh, consumption_by_hour, soc_now, s_eff)
 
