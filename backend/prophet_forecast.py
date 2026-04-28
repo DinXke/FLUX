@@ -124,6 +124,10 @@ def build_prophet_forecast(days_history: int = 32, forecast_days: int = 7) -> di
                 else:
                     dt = datetime.fromtimestamp(timestamp, tz=pytz.UTC)
 
+                # Prophet requires timezone-naive 'ds' column
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone(pytz.UTC).replace(tzinfo=None)
+
                 df_data.append({
                     "ds": dt,
                     "y": float(value),

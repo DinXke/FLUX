@@ -49,7 +49,7 @@ function filterDay(obj, date) {
 
 // ── Bar chart ─────────────────────────────────────────────────────────────────
 
-function BarChart({ slots, color, unit, maxVal, actuals }) {
+function BarChart({ slots, color, unit, maxVal, actuals, isToday = true }) {
   const now    = new Date();
   const nowStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
   const actualVals = actuals ? Object.values(actuals).filter((v) => v > 0) : [];
@@ -71,7 +71,7 @@ function BarChart({ slots, color, unit, maxVal, actuals }) {
       {slots.map(([ts, val], i) => {
         const h       = fmtHour(ts);
         const pct     = Math.round((val / max) * 100);
-        const isPast  = h <= nowStr;
+        const isPast  = isToday && h <= nowStr;
         const showLabel = i % 4 === 0 || i === slots.length - 1;
         // Find matching actual slot (same HH:MM prefix)
         const actualVal = actuals
@@ -310,11 +310,11 @@ function DayPanel({ title, date, watts, whPeriod, whDay, isToday, actualWatts })
 
       {/* Power (W) chart */}
       <div className="forecast-chart-label">Vermogen (W)</div>
-      <BarChart slots={wSlots}  color="255,214,0"  unit="W"  actuals={actualWatts} />
+      <BarChart slots={wSlots}  color="255,214,0"  unit="W"  actuals={actualWatts} isToday={isToday} />
 
       {/* Energy per period (Wh) chart */}
       <div className="forecast-chart-label" style={{ marginTop: 12 }}>Energie per kwartier (Wh)</div>
-      <BarChart slots={wpSlots} color="74,222,128" unit="Wh" />
+      <BarChart slots={wpSlots} color="74,222,128" unit="Wh" isToday={isToday} />
     </div>
   );
 }
@@ -590,7 +590,7 @@ export default function ForecastPage() {
               Consumptievoorspelling ophalen…
             </div>
           )}
-          {prophetError && (
+          {prophetError && !prophetError.includes("not installed") && (
             <div style={{ marginTop: 24, fontSize: 11, color: "var(--text-muted)", padding: "8px 12px",
               background: "rgba(249,115,22,0.08)", borderRadius: 6, border: "1px solid rgba(249,115,22,0.2)" }}>
               ℹ Consumptievoorspelling: {prophetError}
