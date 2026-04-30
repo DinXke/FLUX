@@ -6,9 +6,15 @@ Handles API key management, model selection, and response parsing for tool use.
 """
 
 import logging
+import time
 from typing import Optional
 
 log = logging.getLogger("llm_provider")
+
+# Seconds to wait between retry attempts for transient errors
+_RETRY_DELAY_S = 3.0
+# Hard timeout (seconds) for a single Claude API call
+_CLAUDE_TIMEOUT_S = 120.0
 
 
 class LLMProvider:
@@ -51,38 +57,57 @@ class ClaudeProvider(LLMProvider):
             log.error("ClaudeProvider: 'anthropic' package not installed")
             return None
 
-        try:
-            client = anthropic.Anthropic(api_key=self.api_key)
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                system=[{
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }],
-                tools=[tool_def],
-                tool_choice={"type": "tool", "name": tool_name},
-                messages=[{
-                    "role": "user",
-                    "content": user_message,
-                }],
-            )
+        client = anthropic.Anthropic(api_key=self.api_key, timeout=_CLAUDE_TIMEOUT_S)
+        last_exc = None
 
-            for block in response.content:
-                if getattr(block, "type", None) == "tool_use" and block.name == tool_name:
-                    return block.input
-            log.error("ClaudeProvider: no tool_use block in response (stop_reason=%s, content_types=%s)",
-                      getattr(response, "stop_reason", "?"),
-                      [getattr(b, "type", "?") for b in response.content])
-            return None
+        for attempt in range(2):  # try once, retry once on transient error
+            try:
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    system=[{
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }],
+                    tools=[tool_def],
+                    tool_choice={"type": "tool", "name": tool_name},
+                    messages=[{
+                        "role": "user",
+                        "content": user_message,
+                    }],
+                )
 
-        except Exception as exc:
-            exc_type = type(exc).__name__
-            log.error("ClaudeProvider: API call failed [%s]: %s", exc_type, exc)
-            # Store exception type so callers can surface it in fallback reason
-            self._last_error = f"{exc_type}: {exc}"
-            return None
+                for block in response.content:
+                    if getattr(block, "type", None) == "tool_use" and block.name == tool_name:
+                        self._last_error = None
+                        return block.input
+
+                log.error(
+                    "ClaudeProvider: no tool_use block in response "
+                    "(attempt=%d stop_reason=%s content_types=%s)",
+                    attempt + 1,
+                    getattr(response, "stop_reason", "?"),
+                    [getattr(b, "type", "?") for b in response.content],
+                )
+                self._last_error = f"geen tool_use in antwoord (stop={getattr(response, 'stop_reason', '?')})"
+                return None  # non-transient: no retry
+
+            except Exception as exc:
+                exc_type = type(exc).__name__
+                last_exc = exc
+                self._last_error = f"{exc_type}: {exc}"
+                log.error("ClaudeProvider: API call failed attempt %d [%s]: %s",
+                          attempt + 1, exc_type, exc)
+                # Only retry on transient errors (connection/rate-limit issues)
+                _transient = ("RateLimit", "APIConnection", "Timeout", "ServiceUnavailable")
+                if attempt == 0 and any(t in exc_type for t in _transient):
+                    log.info("ClaudeProvider: transient error, retrying in %.0fs...", _RETRY_DELAY_S)
+                    time.sleep(_RETRY_DELAY_S)
+                    continue
+                break
+
+        return None
 
 
 class OpenAIProvider(LLMProvider):
