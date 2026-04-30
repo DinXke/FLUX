@@ -6716,7 +6716,9 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
         return
 
     # Manual override: bypass price logic AND rolling cap entirely — user explicitly controls output
+    log.info("PV limiter REACHED MANUAL OVERRIDE CHECK")
     manual_override = s.get("pv_limiter_manual_override")
+    log.info("PV limiter: manual_override=%s use_service=%s entity=%s use_modbus=%s", manual_override, use_service, entity, s.get("pv_limiter_use_modbus"))
     log.debug("PV limiter: manual_override=%s use_service=%s entity=%s use_modbus=%s", manual_override, use_service, entity, s.get("pv_limiter_use_modbus"))
     if manual_override:
         target_w = int(s.get("pv_limiter_manual_w", 2000))
