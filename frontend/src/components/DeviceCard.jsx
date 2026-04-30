@@ -1,4 +1,4 @@
-import { apiFetch } from "../auth.js";
+import { apiFetch, apiUrl } from "../auth.js";
 import React, { useState, useEffect, useRef } from "react";
 import BatteryGauge from "./BatteryGauge.jsx";
 import PowerFlow from "./PowerFlow.jsx";
@@ -525,7 +525,7 @@ export default function DeviceCard({ device, onDelete, onEdit, onPowerUpdate }) 
     setStreamError(null);
 
     console.log(`[DeviceCard] Connecting SSE: /api/devices/${device.id}/stream  (${device.ip}:${device.port})`);
-    const es = new EventSource(`api/devices/${device.id}/stream`);
+    const es = new EventSource(apiUrl(`/api/devices/${device.id}/stream`));
 
     es.addEventListener("state", (e) => {
       try {
