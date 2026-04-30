@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pytz
 from prophet import Prophet
-from zoneinfo import ZoneInfo
 
 log = logging.getLogger("marstek")
 
@@ -54,10 +53,9 @@ from(bucket: "{INFLUX_BUCKET}")
                     continue
 
                 t = record.get_time()
-                # Convert watts to kilowatt-hours (hourly average = W/1000)
-                # Actually for hourly data, if we have W avg over 1h, the energy is W*1h/1000 = W/1000 kWh
-                # But Prophet works better with consistent units, so let's keep it as kW (W/1000)
-                value_kw = float(value_w) / 1000.0
+                # house_w = bat + net + solar - ev; can be slightly negative during solar
+                # surplus transients. Clip to 0 so Prophet trains on actual consumption load.
+                value_kw = max(0.0, float(value_w) / 1000.0)
 
                 result.append({
                     "timestamp": t.isoformat(),
@@ -93,16 +91,16 @@ def save_forecast_cache(forecast_data: dict) -> None:
         json.dump(cache, f, indent=2)
 
 
-def _get_local_tz() -> ZoneInfo:
+def _get_local_tz() -> pytz.BaseTzInfo:
     """Return configured local timezone (from ENTSO-E settings, default Europe/Brussels)."""
     try:
         from config import get_config
         cfg = get_config()
         entsoe = cfg.get("entsoe", {})
         tz_name = entsoe.get("timezone") or "Europe/Brussels"
-        return ZoneInfo(tz_name)
+        return pytz.timezone(tz_name)
     except Exception:
-        return ZoneInfo("Europe/Brussels")
+        return pytz.timezone("Europe/Brussels")
 
 
 def build_prophet_forecast(days_history: int = 32, forecast_days: int = 7) -> dict:
@@ -171,12 +169,13 @@ def build_prophet_forecast(days_history: int = 32, forecast_days: int = 7) -> di
         use_yearly = training_days >= 365
         log.info("prophet: training_days=%.1f, weekly=%s, yearly=%s", training_days, use_weekly, use_yearly)
 
+        # Use default stan backend (not cmdstanpy) — cmdstanpy has threading issues
+        # in Flask worker context (GIL conflicts → corrupted yhat output).
         model = Prophet(
             yearly_seasonality=use_yearly,
             weekly_seasonality=use_weekly,
             daily_seasonality=True,
             interval_width=0.95,
-            stan_backend="CMDSTANPY" if _has_cmdstan() else None,
         )
 
         # Fit on historical data
@@ -194,12 +193,17 @@ def build_prophet_forecast(days_history: int = 32, forecast_days: int = 7) -> di
         last_train_date = df["ds"].max()
         future_forecast = forecast[forecast["ds"] > last_train_date].copy()
 
+        log.info("prophet: future_forecast rows=%d yhat describe: %s",
+                 len(future_forecast),
+                 future_forecast["yhat"].describe().to_dict() if len(future_forecast) > 0 else "empty")
+
         # Format output — convert UTC-naive ds to local timezone so the frontend can
         # filter by local date strings and display correct local hour labels.
-        utc_zone = pytz.UTC
+        # Use pytz.localize + astimezone for correct DST handling (ZoneInfo in Docker
+        # Alpine containers may lack tzdata and default to CET instead of CEST).
         forecast_points = []
         for _, row in future_forecast.iterrows():
-            dt_utc = utc_zone.localize(row["ds"].to_pydatetime())
+            dt_utc = pytz.UTC.localize(row["ds"].to_pydatetime())
             dt_local = dt_utc.astimezone(local_tz)
             forecast_points.append({
                 "timestamp": dt_local.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -251,15 +255,6 @@ def get_prophet_forecast(use_cache: bool = True) -> dict:
 
     # Build fresh forecast
     return build_prophet_forecast()
-
-
-def _has_cmdstan() -> bool:
-    """Check if cmdstanpy is available (optional optimization)."""
-    try:
-        import cmdstanpy
-        return True
-    except ImportError:
-        return False
 
 
 class _suppress_prophet_warnings:
