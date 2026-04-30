@@ -3187,8 +3187,12 @@ def get_forecast_actuals():
             return jsonify({"error": "InfluxDB niet volledig geconfigureerd."}), 400
         try:
             if version == "v1":
-                # Extend UTC range by ±14h to cover any timezone, then filter
-                # results to the target local date after converting to local time
+                # Extend range by ±14h to cover any timezone, then filter by local date.
+                # v1_timestamps_utc (default False): most external SMA tools (SBFspot etc.)
+                # store LOCAL timestamps with Z-suffix in InfluxDB v1, so no UTC→local
+                # conversion is needed.  Set "v1_timestamps_utc": true in influx_source.json
+                # if your v1 database genuinely contains UTC-timestamped data.
+                v1_ts_utc = influx_src.get("v1_timestamps_utc", False)
                 from datetime import datetime as _dt2, timedelta as _td2
                 _d = _dt2.strptime(date_str, "%Y-%m-%d")
                 _start = (_d - _td2(hours=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -3196,8 +3200,6 @@ def get_forecast_actuals():
                 where_parts = [f"time >= '{_start}' AND time < '{_end}'"]
                 if tag_key and tag_val:
                     where_parts.append(f'"{tag_key}" = \'{tag_val}\'')
-                # No tz() in query – InfluxDB v1 tz() support varies; always
-                # receive UTC and convert to local time ourselves.
                 q = (f'SELECT mean("{field}") AS val FROM "{meas}"'
                      f' WHERE {" AND ".join(where_parts)}'
                      f" GROUP BY time(15m) fill(null)")
@@ -3209,11 +3211,14 @@ def get_forecast_actuals():
                             ts_raw, val = row[0], row[1]
                             if val is None:
                                 continue
-                            # Convert UTC → local time
                             try:
-                                dt_utc = _dt2.strptime(ts_raw[:19], "%Y-%m-%dT%H:%M:%S").replace(
-                                    tzinfo=_pytz.utc)
-                                ts = dt_utc.astimezone(_tz_obj).strftime("%Y-%m-%d %H:%M:%S")
+                                if v1_ts_utc:
+                                    dt_utc = _dt2.strptime(ts_raw[:19], "%Y-%m-%dT%H:%M:%S").replace(
+                                        tzinfo=_pytz.utc)
+                                    ts = dt_utc.astimezone(_tz_obj).strftime("%Y-%m-%d %H:%M:%S")
+                                else:
+                                    # Timestamps already in local time (SBFspot convention)
+                                    ts = ts_raw[:19].replace("T", " ")
                             except Exception:
                                 ts = ts_raw[:19].replace("T", " ")
                             if ts.startswith(date_str):
@@ -3336,6 +3341,7 @@ def get_forecast_actuals():
                     q3 = (f'SELECT mean("{field2}") AS val FROM "{meas2}"'
                           f' WHERE {" AND ".join(where3)}'
                           f" GROUP BY time(15m) fill(null)")
+                    _v1_ts_utc2 = influx_src2.get("v1_timestamps_utc", False)
                     data3 = _influx_v1_query(url2, user2, pass2, q3, db=db2)
                     for res3 in data3.get("results", []):
                         for ser3 in res3.get("series", []):
@@ -3344,10 +3350,13 @@ def get_forecast_actuals():
                                 if val3 is None:
                                     continue
                                 try:
-                                    from datetime import datetime as _dti
-                                    import pytz as _pyi
-                                    dt_u = _dti.strptime(ts3[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_pyi.utc)
-                                    ts_loc = dt_u.astimezone(_tz2).strftime("%Y-%m-%d %H:%M:%S")
+                                    if _v1_ts_utc2:
+                                        from datetime import datetime as _dti
+                                        import pytz as _pyi
+                                        dt_u = _dti.strptime(ts3[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_pyi.utc)
+                                        ts_loc = dt_u.astimezone(_tz2).strftime("%Y-%m-%d %H:%M:%S")
+                                    else:
+                                        ts_loc = ts3[:19].replace("T", " ")
                                 except Exception:
                                     ts_loc = ts3[:19].replace("T", " ")
                                 if ts_loc.startswith(date_str):
@@ -3373,6 +3382,7 @@ def get_forecast_actuals():
                     q_sma = (f'SELECT mean("pac_w") AS val FROM "sma_inverter"'
                              f' WHERE time >= \'{_s_sma}\' AND time < \'{_e_sma}\''
                              f" GROUP BY time(15m) fill(null)")
+                    _v1_ts_utc_sma = influx_src2.get("v1_timestamps_utc", False)
                     data_sma = _influx_v1_query(url2, user2, pass2, q_sma, db=db2)
                     for res_sma in data_sma.get("results", []):
                         for ser_sma in res_sma.get("series", []):
@@ -3381,10 +3391,14 @@ def get_forecast_actuals():
                                 if val_sma is None:
                                     continue
                                 try:
-                                    from datetime import datetime as _dt_sma2
-                                    import pytz as _pyz_sma
-                                    dt_u_sma = _dt_sma2.strptime(ts_sma[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_pyz_sma.utc)
-                                    ts_loc_sma = dt_u_sma.astimezone(_tz2).strftime("%Y-%m-%d %H:%M:%S")
+                                    if _v1_ts_utc_sma:
+                                        from datetime import datetime as _dt_sma2
+                                        import pytz as _pyz_sma
+                                        dt_u_sma = _dt_sma2.strptime(ts_sma[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_pyz_sma.utc)
+                                        ts_loc_sma = dt_u_sma.astimezone(_tz2).strftime("%Y-%m-%d %H:%M:%S")
+                                    else:
+                                        # SBFspot and most SMA tools store local timestamps
+                                        ts_loc_sma = ts_sma[:19].replace("T", " ")
                                 except Exception:
                                     ts_loc_sma = ts_sma[:19].replace("T", " ")
                                 if ts_loc_sma.startswith(date_str):
@@ -3409,7 +3423,7 @@ def get_forecast_actuals():
                     f'from(bucket: "{_IB_sma}")\n'
                     f'  |> range(start: {_start_sma}, stop: {_stop_sma})\n'
                     f'  |> filter(fn: (r) => r._measurement == "sma_inverter" and r._field == "pac_w")\n'
-                    f'  |> aggregateWindow(every: 15m, fn: mean, createEmpty: false)'
+                    f'  |> aggregateWindow(every: 15m, fn: mean, createEmpty: false, timeSrc: "_start")'
                 )
                 for _t_sma in _qapi_sma.query(_flux_sma, org=_IO_sma):
                     for _r_sma in _t_sma.records:
@@ -3441,7 +3455,7 @@ def get_forecast_actuals():
                     f'from(bucket: "{_IB}")\n'
                     f'  |> range(start: {_start_v2}, stop: {_stop_v2})\n'
                     f'  |> filter(fn: (r) => r._measurement == "energy_flow" and r._field == "solar_w")\n'
-                    f'  |> aggregateWindow(every: 15m, fn: mean, createEmpty: false)'
+                    f'  |> aggregateWindow(every: 15m, fn: mean, createEmpty: false, timeSrc: "_start")'
                 )
                 for _t_v2 in _qapi_v2.query(_flux_v2, org=_IO):
                     for _r_v2 in _t_v2.records:

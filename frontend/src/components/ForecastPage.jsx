@@ -251,7 +251,9 @@ function DayPanel({ title, date, watts, whPeriod, whDay, isToday, actualWatts })
   let producedWh = null;
   if (isToday) {
     const now = new Date();
-    const nowStr = now.toISOString().replace("T", " ").slice(0, 19);
+    // Use local time to match forecast.solar timestamps (which are in local time)
+    const pad = (n) => String(n).padStart(2, "0");
+    const nowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
     producedWh = wpSlots
       .filter(([k]) => k <= nowStr)
       .reduce((s, [, v]) => s + v, 0);
