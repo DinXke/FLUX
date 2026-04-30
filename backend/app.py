@@ -6631,8 +6631,85 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
     return False
 
 
+def _pv_send_webui(s: dict, target_w: int) -> bool:
+    """Send PV power limit directly to SMA inverter via HTTPS WebUI API.
+
+    Uses the SMA local JSON API (login → setParameter → logout).
+    self-signed cert is accepted (verify=False).
+    """
+    log.info("_pv_send_webui called with target_w=%dW", target_w)
+    import requests as _requests
+    import urllib3 as _urllib3
+
+    _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
+
+    host       = (s.get("pv_limiter_webui_host") or "").strip()
+    password   = (s.get("pv_limiter_webui_password") or "").strip()
+    use_pct    = bool(s.get("pv_limiter_webui_use_pct"))
+    object_id  = (s.get("pv_limiter_webui_object_id") or "6800_00A9D300").strip()
+    max_w      = int(s.get("pv_limiter_max_w", 4000))
+
+    if not host:
+        log.warning("WebUI PV-limiter: geen host geconfigureerd")
+        return False
+    if not password:
+        log.warning("WebUI PV-limiter: geen wachtwoord geconfigureerd")
+        return False
+
+    base = f"https://{host}"
+    session = _requests.Session()
+    session.verify = False
+
+    if use_pct:
+        value = int(round(target_w / max_w * 100)) if max_w > 0 else 0
+        value = max(0, min(100, value))
+    else:
+        value = max(0, target_w)
+
+    sid = None
+    try:
+        resp = session.post(
+            f"{base}/dyn/login.json",
+            json={"right": "usr", "pass": password},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        sid = data.get("result", {}).get("sid")
+        if not sid:
+            log.warning("WebUI PV-limiter: login mislukt (geen sid): %s", data)
+            return False
+
+        resp2 = session.post(
+            f"{base}/dyn/setParameter.json?sid={sid}",
+            json={"destDev": [], "values": [{"objectID": object_id, "value": value}]},
+            timeout=10,
+        )
+        resp2.raise_for_status()
+        result = resp2.json()
+        if result.get("result") is None and result.get("err"):
+            log.warning("WebUI PV-limiter: setParameter fout: %s", result)
+            return False
+
+        log.info("WebUI PV-limiter: %dW (value=%s) geschreven via %s objectID=%s",
+                 target_w, value, host, object_id)
+        return True
+
+    except Exception as exc:
+        log.warning("WebUI PV-limiter: fout bij aanroep %s: %s", host, exc)
+        return False
+    finally:
+        if sid:
+            try:
+                session.post(f"{base}/dyn/logout.json?sid={sid}", timeout=5)
+            except Exception:
+                pass
+
+
 def _pv_send(s: dict, entity: str, use_service: bool, svc_str: str, target_w: int) -> bool:
     """Send target_w to HA via entity mode or service mode."""
+    if s.get("pv_limiter_use_webui"):
+        return _pv_send_webui(s, target_w)
     if s.get("pv_limiter_use_modbus"):
         return _pv_send_modbus(s, target_w)
     if use_service:
@@ -6695,7 +6772,7 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
             auto.pop("pv_limiter_last_w", None)
             return
         # Rolling cap override active even when pv_limiter price logic is disabled
-        if not use_service and not entity and not s.get("pv_limiter_use_modbus"):
+        if not use_service and not entity and not s.get("pv_limiter_use_modbus") and not s.get("pv_limiter_use_webui"):
             return
         if use_service and not svc_str:
             return
@@ -6710,7 +6787,7 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
         return
 
     # In entity mode, entity is required; in service mode, the service string is required
-    if not use_service and not entity and not s.get("pv_limiter_use_modbus"):
+    if not use_service and not entity and not s.get("pv_limiter_use_modbus") and not s.get("pv_limiter_use_webui"):
         return
     if use_service and not svc_str:
         return

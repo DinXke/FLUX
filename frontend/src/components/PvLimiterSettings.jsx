@@ -59,12 +59,13 @@ function EntityPicker({ value, onChange, entities, placeholder }) {
   );
 }
 
-// "entiteit" | "service" | "modbus"
+// "entiteit" | "service" | "modbus" | "webui"
 function ModeSelector({ mode, onChange }) {
   const options = [
     { value: "entiteit", label: "Entiteit" },
     { value: "service",  label: "Service" },
     { value: "modbus",   label: "Modbus TCP/IP" },
+    { value: "webui",    label: "SMA WebUI" },
   ];
   return (
     <div style={{ display: "flex", gap: 4, background: "var(--bg)", borderRadius: 8,
@@ -87,7 +88,7 @@ function ModeSelector({ mode, onChange }) {
 
 export default function PvLimiterSettings() {
   const [enabled,       setEnabled]       = useState(false);
-  const [mode,          setMode]          = useState("entiteit"); // "entiteit" | "service" | "modbus"
+  const [mode,          setMode]          = useState("entiteit"); // "entiteit" | "service" | "modbus" | "webui"
   // Entity mode (number.*)
   const [entity,        setEntity]        = useState("");
   // Service mode
@@ -102,6 +103,11 @@ export default function PvLimiterSettings() {
   const [modbusReg,      setModbusReg]      = useState(42062);
   const [modbusValMode,  setModbusValMode]  = useState("W");
   const [modbusDataType, setModbusDataType] = useState("U32");
+  // SMA WebUI mode
+  const [webuiHost,      setWebuiHost]      = useState("");
+  const [webuiPassword,  setWebuiPassword]  = useState("");
+  const [webuiUsePct,    setWebuiUsePct]    = useState(false);
+  const [webuiObjectId,  setWebuiObjectId]  = useState("6800_00A9D300");
   // Shared
   const [minW,            setMinW]            = useState(0);
   const [maxW,            setMaxW]            = useState(4000);
@@ -131,7 +137,8 @@ export default function PvLimiterSettings() {
         setEnabled(d.pv_limiter_enabled ?? false);
         const useModbus  = d.pv_limiter_use_modbus  ?? false;
         const useService = d.pv_limiter_use_service ?? false;
-        setMode(useModbus ? "modbus" : useService ? "service" : "entiteit");
+        const useWebui   = d.pv_limiter_use_webui   ?? false;
+        setMode(useWebui ? "webui" : useModbus ? "modbus" : useService ? "service" : "entiteit");
         setEntity(d.pv_limiter_entity ?? "");
         setNumSearch(d.pv_limiter_entity ?? "");
         setService(d.pv_limiter_service ?? "");
@@ -145,6 +152,10 @@ export default function PvLimiterSettings() {
         setModbusReg(d.pv_limiter_modbus_register ?? 42062);
         setModbusValMode(d.pv_limiter_modbus_value_mode ?? "W");
         setModbusDataType(d.pv_limiter_modbus_dtype ?? "U32");
+        setWebuiHost(d.pv_limiter_webui_host ?? "");
+        setWebuiPassword(d.pv_limiter_webui_password ?? "");
+        setWebuiUsePct(d.pv_limiter_webui_use_pct ?? false);
+        setWebuiObjectId(d.pv_limiter_webui_object_id ?? "6800_00A9D300");
         setMinW(d.pv_limiter_min_w ?? 0);
         setMaxW(d.pv_limiter_max_w ?? 4000);
         setThresholdCt(d.pv_limiter_threshold_ct ?? 0);
@@ -192,6 +203,11 @@ export default function PvLimiterSettings() {
           pv_limiter_enabled:           enabled,
           pv_limiter_use_service:       mode === "service",
           pv_limiter_use_modbus:        mode === "modbus",
+          pv_limiter_use_webui:         mode === "webui",
+          pv_limiter_webui_host:        webuiHost,
+          pv_limiter_webui_password:    webuiPassword,
+          pv_limiter_webui_use_pct:     webuiUsePct,
+          pv_limiter_webui_object_id:   webuiObjectId,
           pv_limiter_entity:            entity,
           pv_limiter_service:           service,
           pv_limiter_service_param_key: paramKey,
@@ -452,6 +468,64 @@ export default function PvLimiterSettings() {
                 ? `‹target_W / ${maxW}W × 100›`
                 : "‹target_W›"}
             </span></div>
+          </div>
+        </>
+      )}
+
+      {/* ── SMA WebUI mode ── */}
+      {mode === "webui" && (
+        <>
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">IP-adres omvormer</div>
+              <div className="settings-row-desc">Bijv. <code>192.168.1.50</code> — HTTPS port 443 wordt gebruikt (self-signed cert geaccepteerd)</div>
+            </div>
+            <input className="form-input" style={{ width: 180 }}
+              placeholder="192.168.1.50"
+              value={webuiHost} onChange={(e) => setWebuiHost(e.target.value)} />
+          </div>
+
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">WebUI wachtwoord</div>
+              <div className="settings-row-desc">Wachtwoord voor <code>usr</code> (gebruiker) account op de SMA WebUI</div>
+            </div>
+            <input className="form-input" type="password" style={{ width: 180 }}
+              placeholder="••••••••"
+              value={webuiPassword} onChange={(e) => setWebuiPassword(e.target.value)} />
+          </div>
+
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">Object ID</div>
+              <div className="settings-row-desc">
+                SMA parameter-ID voor vermogensbegrenzing. Standaard: <code>6800_00A9D300</code> (absolute watts).
+              </div>
+            </div>
+            <input className="form-input" style={{ width: 180 }}
+              placeholder="6800_00A9D300"
+              value={webuiObjectId} onChange={(e) => setWebuiObjectId(e.target.value)} />
+          </div>
+
+          <div className="settings-row">
+            <div>
+              <div className="settings-row-label">Waarde als percentage</div>
+              <div className="settings-row-desc">
+                Stuur 0–100% i.p.v. absolute watts. Alleen gebruiken als het object-ID een percentage verwacht.
+              </div>
+            </div>
+            <Toggle on={webuiUsePct} onChange={setWebuiUsePct} />
+          </div>
+
+          <div style={{ margin: "0 20px 12px", padding: "10px 14px",
+            background: "#0a0f1a", borderRadius: 6, fontSize: 11,
+            fontFamily: "monospace", color: "#94a3b8", lineHeight: 1.8 }}>
+            <div style={{ color: "#64748b", marginBottom: 2 }}>SMA WebUI API flow:</div>
+            <div>POST <span style={{ color: "#7dd3fc" }}>https://{webuiHost || "‹ip›"}/dyn/login.json</span></div>
+            <div>POST <span style={{ color: "#7dd3fc" }}>https://{webuiHost || "‹ip›"}/dyn/setParameter.json?sid=…</span></div>
+            <div>&nbsp;&nbsp;objectID: <span style={{ color: "#fcd34d" }}>{webuiObjectId || "6800_00A9D300"}</span></div>
+            <div>&nbsp;&nbsp;value: <span style={{ color: "#86efac" }}>{webuiUsePct ? "‹target_W / maxW × 100›" : "‹target_W›"}</span></div>
+            <div>POST <span style={{ color: "#7dd3fc" }}>https://{webuiHost || "‹ip›"}/dyn/logout.json?sid=…</span></div>
           </div>
         </>
       )}
