@@ -61,6 +61,17 @@
     "en": "English",
     "select": "Language"
   },
+  "serverSetup": {
+    "title": "FLUX Server Setup",
+    "description": "Enter your FLUX server URL (e.g. https://flux.scheepers.cloud)",
+    "placeholder": "https://flux.scheepers.cloud",
+    "enterUrl": "Please enter a server URL",
+    "connectionFailed": "Connection failed — check the URL",
+    "connectionError": "Cannot reach server — check the URL and try again",
+    "success": "Connection successful!",
+    "testing": "Testing…",
+    "testConnection": "Test Connection"
+  },
   "auth": {
     "login": "Log in",
     "loggingIn": "Logging in…",

@@ -61,6 +61,17 @@
     "en": "English",
     "select": "Taal"
   },
+  "serverSetup": {
+    "title": "FLUX server instellen",
+    "description": "Voer de URL van je FLUX server in (bijv. https://flux.scheepers.cloud)",
+    "placeholder": "https://flux.scheepers.cloud",
+    "enterUrl": "Voer een server URL in",
+    "connectionFailed": "Verbinding mislukt — controleer de URL",
+    "connectionError": "Kan server niet bereiken — controleer de URL en probeer opnieuw",
+    "success": "Verbinding geslaagd!",
+    "testing": "Testen…",
+    "testConnection": "Verbinding testen"
+  },
   "auth": {
     "login": "Inloggen",
     "loggingIn": "Inloggen…",

@@ -421,7 +421,7 @@ export default function PricesPage() {
     } catch (e) {
       console.error("[PricesPage] loadPrices failed:", e);
       const msg = e.message === "Failed to fetch"
-        ? "Backend niet bereikbaar — is de Flask-server actief op poort 5000?"
+        ? "Backend niet bereikbaar — controleer je serververbinding"
         : e.message;
       setError(msg);
     } finally {
