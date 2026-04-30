@@ -545,7 +545,14 @@ def send_command(device_id):
 import asyncio
 import xml.etree.ElementTree as ET
 import re as _re
-from python_frank_energie import FrankEnergie
+try:
+    from python_frank_energie import FrankEnergie
+except ImportError:
+    log.warning("Frank Energie not installed - Frank price API will be unavailable")
+    FrankEnergie = None
+except Exception as e:
+    log.warning(f"Frank Energie import failed ({e}), Frank price API will be unavailable")
+    FrankEnergie = None
 
 FRANK_SESSION_FILE = os.path.join(BASE_DIR, "frank_session.json")
 _price_cache: dict = {}   # keyed by ISO date string
@@ -993,6 +1000,9 @@ def frank_login():
 
     try:
         log.info("Frank Energie login  email=%s", email)
+
+        if not FrankEnergie:
+            return jsonify({"error": "Frank Energie API not available"}), 503
 
         async def do_login():
             async with FrankEnergie() as fe:
@@ -6589,8 +6599,8 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
         log.warning("Modbus PV-limiter: geen host geconfigureerd")
         return False
 
-    # SMA uses 1-based register numbering; pymodbus expects 0-based address.
-    addr = reg_raw - 1
+    # SMA uses 1-based Modbus addressing: register number == pymodbus address (no -1)
+    addr = reg_raw
 
     if val_mode == "PCT":
         value = int(round(target_w / max_w * 100)) if max_w > 0 else 0
