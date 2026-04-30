@@ -1,34 +1,32 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportHeight="108"
     android:viewportWidth="108">
+    <!-- Battery body outline (scaled from 512px to 108dp viewBox) -->
+    <!-- Original: x=72,y=168,w=336,h=192 in 512 space → scaled to 108 space -->
+    <!-- Scale: 108/512 = 0.2109 -->
+    <!-- Battery: x=15.2,y=35.4,w=70.9,h=40.5, rx=5.1 -->
     <path
-        android:fillType="evenOdd"
-        android:pathData="M32,64C32,64 38.39,52.99 44.13,50.95C51.37,48.37 70.14,49.57 70.14,49.57L108.26,87.69L108,109.01L75.97,107.97L32,64Z"
-        android:strokeColor="#00000000"
-        android:strokeWidth="1">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:endX="78.5885"
-                android:endY="90.9159"
-                android:startX="48.7653"
-                android:startY="61.0927"
-                android:type="linear">
-                <item
-                    android:color="#44000000"
-                    android:offset="0.0" />
-                <item
-                    android:color="#00000000"
-                    android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
+        android:pathData="M15.2,35.4 L86.1,35.4 Q91.2,35.4 91.2,40.5 L91.2,75.9 Q91.2,81.0 86.1,81.0 L15.2,81.0 Q10.1,81.0 10.1,75.9 L10.1,40.5 Q10.1,35.4 15.2,35.4 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#4ade80"
+        android:strokeWidth="4.6" />
+    <!-- Battery terminal nub -->
     <path
-        android:fillColor="#FFFFFF"
-        android:fillType="nonZero"
-        android:pathData="M66.94,46.02L66.94,46.02C72.44,50.07 76,56.61 76,64L32,64C32,56.61 35.56,50.11 40.98,46.06L36.18,41.19C35.45,40.45 35.45,39.3 36.18,38.56C36.91,37.81 38.05,37.81 38.78,38.56L44.25,44.05C47.18,42.57 50.48,41.71 54,41.71C57.48,41.71 60.78,42.57 63.68,44.05L69.11,38.56C69.84,37.81 70.98,37.81 71.71,38.56C72.44,39.3 72.44,40.45 71.71,41.19L66.94,46.02ZM62.94,56.92C64.08,56.92 65,56.01 65,54.88C65,53.76 64.08,52.85 62.94,52.85C61.8,52.85 60.88,53.76 60.88,54.88C60.88,56.01 61.8,56.92 62.94,56.92ZM45.06,56.92C46.2,56.92 47.13,56.01 47.13,54.88C47.13,53.76 46.2,52.85 45.06,52.85C43.92,52.85 43,53.76 43,54.88C43,56.01 43.92,56.92 45.06,56.92Z"
-        android:strokeColor="#00000000"
-        android:strokeWidth="1" />
+        android:pathData="M91.2,47.0 L100.5,47.0 Q102.6,47.0 102.6,49.1 L102.6,59.9 Q102.6,62.0 100.5,62.0 L91.2,62.0 Z"
+        android:fillColor="#4ade80" />
+    <!-- Battery fill (25% opacity) -->
+    <path
+        android:pathData="M19.6,39.9 L59.9,39.9 Q62.5,39.9 62.5,42.5 L62.5,65.7 Q62.5,68.3 59.9,68.3 L19.6,68.3 Q17.0,68.3 17.0,65.7 L17.0,42.5 Q17.0,39.9 19.6,39.9 Z"
+        android:fillColor="#4ade80"
+        android:fillAlpha="0.25" />
+    <!-- Battery fill (solid left portion) -->
+    <path
+        android:pathData="M19.6,39.9 L40.7,39.9 Q43.3,39.9 43.3,42.5 L43.3,65.7 Q43.3,68.3 40.7,68.3 L19.6,68.3 Q17.0,68.3 17.0,65.7 L17.0,42.5 Q17.0,39.9 19.6,39.9 Z"
+        android:fillColor="#4ade80" />
+    <!-- Lightning bolt -->
+    <path
+        android:pathData="M60.3,34.6 L48.9,57.8 L57.3,57.8 L50.2,77.6 L72.1,50.6 L62.8,50.6 L69.6,34.6 Z"
+        android:fillColor="#fbbf24" />
 </vector>
