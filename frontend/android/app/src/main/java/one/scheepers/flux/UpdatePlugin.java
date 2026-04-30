@@ -16,6 +16,7 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONObject;
 
@@ -24,6 +25,7 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
+@CapacitorPlugin(name = "Update")
 public class UpdatePlugin extends Plugin {
 
     private static final String TAG = "UpdatePlugin";
