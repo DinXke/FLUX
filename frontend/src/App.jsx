@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Battery, Zap, Sun, Brain, TrendingUp, Settings, LogOut, Menu, Moon, Palette, Eye } from "lucide-react";
+import { Battery, Zap, Sun, Brain, TrendingUp, Settings, LogOut, Menu, Moon, Palette, Eye, GripVertical } from "lucide-react";
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import DeviceCard from "./components/DeviceCard.jsx";
 import AddDeviceModal from "./components/AddDeviceModal.jsx";
 import PricesPage from "./components/PricesPage.jsx";
@@ -71,27 +75,33 @@ function useDashboardLayout(userEmail) {
   return { layout, toggleCollapse, reorder };
 }
 
-// ── DashboardSection ──────────────────────────────────────────────────────────
+// ── SortableDashboardSection (using @dnd-kit for touch-native support) ──────
 
-function DashboardSection({ title, extra, collapsed, onToggle, dragIdx, dragState, children }) {
-  const { dragging, dragOver, onDragStart, onDragEnter, onDrop, onDragEnd } = dragState;
-  const isDragging = dragging === dragIdx;
-  const isOver     = dragOver === dragIdx && dragging !== dragIdx;
+function SortableDashboardSection({ id, title, extra, collapsed, onToggle, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
 
   return (
     <div
-      className={`dash-section${isDragging ? " dash-section--dragging" : ""}${isOver ? " dash-section--over" : ""}`}
-      onDragOver={(e) => { e.preventDefault(); onDragEnter(dragIdx); }}
-      onDrop={(e)     => { e.preventDefault(); onDrop(dragIdx); }}
+      ref={setNodeRef}
+      style={style}
+      className={`dash-section${isDragging ? " dash-section--dragging" : ""}`}
     >
       <div className="dash-section-header">
         <span
           className="dash-section-handle"
-          draggable
-          onDragStart={() => onDragStart(dragIdx)}
-          onDragEnd={onDragEnd}
+          {...listeners}
+          {...attributes.listeners}
           title="Versleep om te herordenen"
-        >⠿</span>
+          style={{ cursor: isDragging ? "grabbing" : "grab", display: "flex", alignItems: "center" }}
+        >
+          <GripVertical size={18} />
+        </span>
         <button className="dash-section-toggle" onClick={onToggle} aria-expanded={!collapsed}>
           <span className="dash-section-title">{title}</span>
           <span className={`dash-section-chevron${collapsed ? "" : " dash-section-chevron--open"}`}>›</span>
@@ -260,8 +270,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [powerMap, setPowerMap] = useState({});
-  const [dragging, setDragging] = useState(null);
-  const [dragOver, setDragOver] = useState(null);
 
   // ── Background auth probe ──
   useEffect(() => {
@@ -322,14 +330,22 @@ export default function App() {
 
   const { layout, toggleCollapse, reorder } = useDashboardLayout(currentUser?.email);
 
-  const dragState = useMemo(() => ({
-    dragging,
-    dragOver,
-    onDragStart: (idx) => { setDragging(idx); setDragOver(idx); },
-    onDragEnter: (idx) => setDragOver(idx),
-    onDrop:      (toIdx) => { if (dragging !== null) reorder(dragging, toIdx); setDragging(null); setDragOver(null); },
-    onDragEnd:   () => { setDragging(null); setDragOver(null); },
-  }), [dragging, dragOver, reorder]);
+  // Setup @dnd-kit sensors for touch and pointer support
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEnd = useCallback((event) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const activeIdx = layout.order.indexOf(active.id);
+      const overIdx = layout.order.indexOf(over.id);
+      if (activeIdx >= 0 && overIdx >= 0) {
+        reorder(activeIdx, overIdx);
+      }
+    }
+  }, [layout.order, reorder]);
 
   const handlePowerUpdate = useCallback((deviceId, data) => {
     setPowerMap((prev) => {
@@ -513,72 +529,79 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <div className="batteries-page">
-              {layout.order.map((sectionId, idx) => {
-                const collapsed = !!layout.collapsed[sectionId];
-                const sectionProps = {
-                  key: sectionId,
-                  title: sectionId === "flow"       ? t('cards.powerBalance')
-                       : sectionId === "sma"        ? t('sma.panelTitle', 'SMA Omvormer')
-                       : sectionId === "homewizard" ? "HomeWizard"
-                       : t('nav.batteries'),
-                  collapsed,
-                  onToggle:  () => toggleCollapse(sectionId),
-                  dragIdx:   idx,
-                  dragState,
-                };
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <div className="batteries-page">
+                <SortableContext items={layout.order} strategy={verticalListSortingStrategy}>
+                  {layout.order.map((sectionId) => {
+                    const collapsed = !!layout.collapsed[sectionId];
+                    const sectionProps = {
+                      id: sectionId,
+                      title: sectionId === "flow"       ? t('cards.powerBalance')
+                           : sectionId === "sma"        ? t('sma.panelTitle', 'SMA Omvormer')
+                           : sectionId === "homewizard" ? "HomeWizard"
+                           : t('nav.batteries'),
+                      collapsed,
+                      onToggle:  () => toggleCollapse(sectionId),
+                    };
 
-                if (sectionId === "flow") return (
-                  <DashboardSection
-                    {...sectionProps}
-                    extra={
-                      <button
-                        className="home-flow-fullscreen-btn"
-                        onClick={toggleFullscreen}
-                        title="Volledig scherm"
-                        aria-label="Volledig scherm"
-                      >⛶</button>
-                    }
-                  >
-                    <div ref={energyMapRef} style={{ padding: "4px 12px 12px" }}>
-                      <EnergyMap
-                        batteries={homeFlowBatteries}
-                        phaseVoltages={firstWithPhase?.phaseVoltages ?? null}
-                        acVoltage={firstWithVolt?.acVoltage ?? null}
-                      />
-                    </div>
-                  </DashboardSection>
-                );
+                    if (sectionId === "flow") return (
+                      <SortableDashboardSection
+                        key={sectionId}
+                        {...sectionProps}
+                        extra={
+                          <button
+                            className="home-flow-fullscreen-btn"
+                            onClick={toggleFullscreen}
+                            title="Volledig scherm"
+                            aria-label="Volledig scherm"
+                          >⛶</button>
+                        }
+                      >
+                        <div ref={energyMapRef} style={{ padding: "4px 12px 12px" }}>
+                          <EnergyMap
+                            batteries={homeFlowBatteries}
+                            phaseVoltages={firstWithPhase?.phaseVoltages ?? null}
+                            acVoltage={firstWithVolt?.acVoltage ?? null}
+                          />
+                        </div>
+                      </SortableDashboardSection>
+                    );
 
-                if (sectionId === "sma") return (
-                  <DashboardSection {...sectionProps}>
-                    <SmaInverterPanel />
-                  </DashboardSection>
-                );
+                    if (sectionId === "sma") return (
+                      <SortableDashboardSection key={sectionId} {...sectionProps}>
+                        <SmaInverterPanel />
+                      </SortableDashboardSection>
+                    );
 
-                if (sectionId === "homewizard") return (
-                  <DashboardSection {...sectionProps}>
-                    <HomeWizardPanel />
-                  </DashboardSection>
-                );
+                    if (sectionId === "homewizard") return (
+                      <SortableDashboardSection key={sectionId} {...sectionProps}>
+                        <HomeWizardPanel />
+                      </SortableDashboardSection>
+                    );
 
-                return (
-                  <DashboardSection {...sectionProps}>
-                    <div className="device-grid" style={{ padding: "12px 14px 14px" }}>
-                      {devices.map((device) => (
-                        <DeviceCard
-                          key={device.id}
-                          device={device}
-                          onDelete={handleDeviceDeleted}
-                          onEdit={handleDeviceEdited}
-                          onPowerUpdate={handlePowerUpdate}
-                        />
-                      ))}
-                    </div>
-                  </DashboardSection>
-                );
-              })}
-            </div>
+                    return (
+                      <SortableDashboardSection key={sectionId} {...sectionProps}>
+                        <div className="device-grid" style={{ padding: "12px 14px 14px" }}>
+                          {devices.map((device) => (
+                            <DeviceCard
+                              key={device.id}
+                              device={device}
+                              onDelete={handleDeviceDeleted}
+                              onEdit={handleDeviceEdited}
+                              onPowerUpdate={handlePowerUpdate}
+                            />
+                          ))}
+                        </div>
+                      </SortableDashboardSection>
+                    );
+                  })}
+                </SortableContext>
+              </div>
+            </DndContext>
           )
         )}
 
