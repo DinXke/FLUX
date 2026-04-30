@@ -14,6 +14,7 @@ import TelegramSettings from "./TelegramSettings.jsx";
 import SmaReaderSettings from "./SmaReaderSettings.jsx";
 import HeatingSettings from "./HeatingSettings.jsx";
 import BoschAppliances from "./BoschAppliances.jsx";
+import ServerUrlSettings from "./ServerUrlSettings.jsx";
 
 // ---------------------------------------------------------------------------
 // Persisted settings helpers (localStorage)
@@ -419,6 +420,7 @@ const GROUPS = [
     id: "databronnen",
     label: "📡 Data-bronnen",
     tabs: [
+      { id: "serverurl",     label: "🌐 Server URL"     },
       { id: "entsoe",        label: "⚡ ENTSO-E"        },
       { id: "homewizard",    label: "🏠 HomeWizard"     },
       { id: "homeassistant", label: "🔗 Home Assistant" },
@@ -533,6 +535,7 @@ export default function SettingsPage({ devices, powerMap, onDeviceAdded, onDevic
       </div>
 
       {/* ── Tab content ── */}
+      {activeTab === "serverurl"     && <ServerUrlSettings />}
       {activeTab === "entsoe"        && <EntsoESection />}
       {activeTab === "homewizard"    && <HomeWizardSettings />}
       {activeTab === "homeassistant" && <HomeAssistantSettings />}

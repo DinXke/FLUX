@@ -1,0 +1,9 @@
+{
+  "appId": "one.scheepers.flux",
+  "appName": "FLUX",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}
