@@ -16,6 +16,7 @@ import HeatingSettings from "./HeatingSettings.jsx";
 import BoschAppliances from "./BoschAppliances.jsx";
 import ServerUrlSettings from "./ServerUrlSettings.jsx";
 import UISettingsPanel from "./UISettingsPanel.jsx";
+import AboutSettings from "./AboutSettings.jsx";
 
 // ---------------------------------------------------------------------------
 // Persisted settings helpers (localStorage)
@@ -465,6 +466,13 @@ const GROUPS = [
       { id: "debug", label: "🛠️ Debug" },
     ],
   },
+  {
+    id: "about",
+    label: "📱 Over",
+    tabs: [
+      { id: "about", label: "📱 Over de app" },
+    ],
+  },
 ];
 
 function readLS(key, fallback) {
@@ -591,6 +599,7 @@ export default function SettingsPage({
       {activeTab === "heating"    && <HeatingSettings />}
       {activeTab === "bosch"      && <BoschAppliances />}
       {activeTab === "debug"      && <DebugPanel />}
+      {activeTab === "about"      && <AboutSettings />}
     </div>
   );
 }
