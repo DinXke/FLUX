@@ -34,11 +34,11 @@ function fmtW(w) {
   return `${Math.round(w)} W`;
 }
 
-function today()    { return new Date().toISOString().slice(0, 10); }
-function tomorrow() {
-  const d = new Date(); d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+function today()    { return localDateStr(new Date()); }
+function tomorrow() { const d = new Date(); d.setDate(d.getDate() + 1); return localDateStr(d); }
 
 // Filter watts/wh_period to a specific date (YYYY-MM-DD)
 function filterDay(obj, date) {
@@ -121,8 +121,9 @@ function ConsumptionForecastPanel({ prophetData }) {
   }
 
   const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-  const tomorrowStr = new Date(now.getTime() + 24*3600*1000).toISOString().slice(0, 10);
+  const todayStr = localDateStr(now);
+  const d2 = new Date(now); d2.setDate(d2.getDate() + 1);
+  const tomorrowStr = localDateStr(d2);
 
   // Split forecast by day
   const todayForecast = prophetData.data.filter(d => d.timestamp.startsWith(todayStr));

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pytz
 from prophet import Prophet
+from zoneinfo import ZoneInfo
 
 log = logging.getLogger("marstek")
 
@@ -92,14 +93,29 @@ def save_forecast_cache(forecast_data: dict) -> None:
         json.dump(cache, f, indent=2)
 
 
+def _get_local_tz() -> ZoneInfo:
+    """Return configured local timezone (from ENTSO-E settings, default Europe/Brussels)."""
+    try:
+        from config import get_config
+        cfg = get_config()
+        entsoe = cfg.get("entsoe", {})
+        tz_name = entsoe.get("timezone") or "Europe/Brussels"
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("Europe/Brussels")
+
+
 def build_prophet_forecast(days_history: int = 32, forecast_days: int = 7) -> dict:
     """
     Build 7-day hourly consumption forecast using Prophet.
     Trains on 32 days of InfluxDB hourly consumption history.
+    Outputs timestamps in local timezone so frontend date filtering works correctly.
 
     Returns dict with forecast data points.
     """
     try:
+        local_tz = _get_local_tz()
+
         # Query historical consumption data
         consumption = _query_hourly_consumption(days=days_history)
 
@@ -149,13 +165,17 @@ def build_prophet_forecast(days_history: int = 32, forecast_days: int = 7) -> di
         log.info("prophet: training on %d hourly points (%s to %s)",
                  len(df), df["ds"].min(), df["ds"].max())
 
-        # Train Prophet model
-        # Use yearly and weekly seasonality; suppress warnings
+        # Adaptive seasonality: enable components only when enough data exists
+        training_days = round((df["ds"].max() - df["ds"].min()).total_seconds() / 86400, 1)
+        use_weekly = training_days >= 14
+        use_yearly = training_days >= 365
+        log.info("prophet: training_days=%.1f, weekly=%s, yearly=%s", training_days, use_weekly, use_yearly)
+
         model = Prophet(
-            yearly_seasonality=True,
-            weekly_seasonality=True,
+            yearly_seasonality=use_yearly,
+            weekly_seasonality=use_weekly,
             daily_seasonality=True,
-            interval_width=0.95,  # 95% confidence interval
+            interval_width=0.95,
             stan_backend="CMDSTANPY" if _has_cmdstan() else None,
         )
 
@@ -174,12 +194,16 @@ def build_prophet_forecast(days_history: int = 32, forecast_days: int = 7) -> di
         last_train_date = df["ds"].max()
         future_forecast = forecast[forecast["ds"] > last_train_date].copy()
 
-        # Format output
+        # Format output — convert UTC-naive ds to local timezone so the frontend can
+        # filter by local date strings and display correct local hour labels.
+        utc_zone = pytz.UTC
         forecast_points = []
         for _, row in future_forecast.iterrows():
+            dt_utc = utc_zone.localize(row["ds"].to_pydatetime())
+            dt_local = dt_utc.astimezone(local_tz)
             forecast_points.append({
-                "timestamp": row["ds"].isoformat(),
-                "forecast": round(max(0, row["yhat"]), 3),  # Consumption can't be negative
+                "timestamp": dt_local.strftime("%Y-%m-%dT%H:%M:%S"),
+                "forecast": round(max(0, row["yhat"]), 3),
                 "upper": round(max(0, row["yhat_upper"]), 3),
                 "lower": round(max(0, row["yhat_lower"]), 3),
             })
