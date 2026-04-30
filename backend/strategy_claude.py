@@ -1117,10 +1117,13 @@ def build_plan_claude(
     elapsed = round(_time.monotonic() - t0, 2)
 
     if not tool_response:
-        log.error("strategy_claude: API call failed (%.1fs) — falling back", elapsed)
+        _api_err = getattr(provider, "_last_error", None)
+        _fb_reason = f"API-fout: {_api_err}" if _api_err else "API-fout: geen tool response"
+        log.error("strategy_claude: API call failed (%.1fs) %s— falling back",
+                  elapsed, f"[{_api_err}] " if _api_err else "")
         _set_debug(
             fallback=True,
-            fallback_reason="API-fout: geen tool response",
+            fallback_reason=_fb_reason,
             model=model,
             provider=ai_provider,
             elapsed_s=elapsed,
@@ -1144,8 +1147,14 @@ def build_plan_claude(
     # ── Post-processing: failsafe overrides ──────────────────────────────
     # Rule 1: save + solar surplus + battery not full → solar_charge
     # save freezes the hardware completely; solar energy would be lost.
+    # Exception: if there is an upcoming negative/free price window, SAVE is
+    # intentional — it preserves headroom for grid charging.  Do NOT override.
+    _neg_thresh_pp = float(s.get("neg_price_threshold_ct", 0.0)) / 100.0
+    _neg_ahead_pp  = int(s.get("neg_price_lookahead_h", 4))
+    _neg_dis_en_pp = bool(s.get("neg_price_discharge_enabled", True))
+
     _override_count = 0
-    for si in slots_input:
+    for idx, si in enumerate(slots_input):
         key = si["time"]
         if key not in plan_actions:
             continue
@@ -1154,6 +1163,15 @@ def build_plan_claude(
             net_wh  = si.get("net_wh", 0)
             soc_pct = si.get("soc_start_pct", 100)
             if net_wh > 200 and soc_pct < float(s["max_soc"]) - 1:
+                # Don't override if SAVE is holding headroom for an upcoming
+                # negative/free price grid-charge window.
+                _upcoming_neg_pp = _neg_dis_en_pp and any(
+                    (slots_input[j].get("buy_price_eur_kwh") or 1.0) < _neg_thresh_pp
+                    for j in range(idx + 1, min(idx + _neg_ahead_pp + 1, len(slots_input)))
+                )
+                if _upcoming_neg_pp:
+                    log.debug("post-process: %s keep save (upcoming neg price, headroom needed)", key)
+                    continue
                 plan_actions[key] = (
                     SOLAR_CHARGE,
                     f"[auto] save→solar_charge: {net_wh}Wh overschot, SOC {soc_pct}% niet vol",

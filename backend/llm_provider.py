@@ -72,10 +72,16 @@ class ClaudeProvider(LLMProvider):
             for block in response.content:
                 if getattr(block, "type", None) == "tool_use" and block.name == tool_name:
                     return block.input
+            log.error("ClaudeProvider: no tool_use block in response (stop_reason=%s, content_types=%s)",
+                      getattr(response, "stop_reason", "?"),
+                      [getattr(b, "type", "?") for b in response.content])
             return None
 
         except Exception as exc:
-            log.error("ClaudeProvider: API call failed: %s", exc)
+            exc_type = type(exc).__name__
+            log.error("ClaudeProvider: API call failed [%s]: %s", exc_type, exc)
+            # Store exception type so callers can surface it in fallback reason
+            self._last_error = f"{exc_type}: {exc}"
             return None
 
 
