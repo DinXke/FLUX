@@ -3382,18 +3382,50 @@ def get_forecast_actuals():
             except Exception as exc:
                 log.warning("forecast/actuals sma error: %s", exc)
 
+        # Fallback: query InfluxDB v2 (written by influx_writer) for ESPHome sources
+        esphome_entries = [e for e in flow_cfg2.get("solar_power", []) if e.get("source") == "esphome"]
+        if not result and esphome_entries:
+            try:
+                from influx_writer import INFLUX_URL as _IU, INFLUX_TOKEN as _IT, INFLUX_ORG as _IO, INFLUX_BUCKET as _IB
+                from influxdb_client import InfluxDBClient as _IDB  # type: ignore
+                from datetime import date as _date_v2, datetime as _dt_v2
+                from zoneinfo import ZoneInfo as _ZI_v2
+                _tz_v2 = _ZI_v2(tz_name)
+                _d_v2 = _date_v2.fromisoformat(date_str)
+                _start_v2 = _dt_v2(_d_v2.year, _d_v2.month, _d_v2.day, 0, 0, 0, tzinfo=_tz_v2).astimezone(_ZI_v2("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+                _stop_v2  = _dt_v2(_d_v2.year, _d_v2.month, _d_v2.day, 23, 59, 59, tzinfo=_tz_v2).astimezone(_ZI_v2("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+                _client_v2 = _IDB(url=_IU, token=_IT, org=_IO)
+                _qapi_v2 = _client_v2.query_api()
+                _flux_v2 = (
+                    f'from(bucket: "{_IB}")\n'
+                    f'  |> range(start: {_start_v2}, stop: {_stop_v2})\n'
+                    f'  |> filter(fn: (r) => r._measurement == "energy_flow" and r._field == "solar_w")\n'
+                    f'  |> aggregateWindow(every: 15m, fn: mean, createEmpty: false)'
+                )
+                for _t_v2 in _qapi_v2.query(_flux_v2, org=_IO):
+                    for _r_v2 in _t_v2.records:
+                        _v_v2 = _r_v2.get_value()
+                        if _v_v2 is None:
+                            continue
+                        _tl_v2 = _r_v2.get_time().astimezone(_tz_v2)
+                        _slot_v2 = _tl_v2.strftime("%Y-%m-%d %H:%M:%S")
+                        if _slot_v2.startswith(date_str):
+                            result[_slot_v2] = float(_v_v2)
+            except Exception as _exc_v2:
+                log.warning("forecast/actuals esphome→influxv2 error: %s", _exc_v2)
+
         # Diagnose empty result: warn when flow_cfg has no usable historical source
-        if not result and not sol_entries and not use_influx_flow and not sma_entries:
+        if not result and not sol_entries and not use_influx_flow and not sma_entries and not esphome_entries:
             all_solar = flow_cfg2.get("solar_power", [])
             if not all_solar:
                 return jsonify({"watts": {}, "warning":
                     "Geen zonnepanelen bron ingesteld in Instellingen → Bronnen."})
-            non_ha = [e.get("source", "?") for e in all_solar if e.get("source") not in ("homeassistant", "sma", "sma_reader")]
+            non_ha = [e.get("source", "?") for e in all_solar if e.get("source") not in ("homeassistant", "sma", "sma_reader", "esphome")]
             if non_ha:
                 return jsonify({"watts": {}, "warning":
-                    f"Historische data is alleen beschikbaar voor Home Assistant, SMA Reader en InfluxDB. "
+                    f"Historische data is alleen beschikbaar voor Home Assistant, ESPHome, SMA Reader en InfluxDB. "
                     f"Huidige bron(nen): {', '.join(set(non_ha))}. "
-                    f"Voeg een HA-sensor of SMA Reader toe als zonnepanelen bron, of gebruik InfluxDB."})
+                    f"Voeg een HA-sensor, ESPHome of SMA Reader toe als zonnepanelen bron, of gebruik InfluxDB."})
 
         if not result and sol_entries and ha_s.get("url") and ha_s.get("token"):
             # Fall back to HA history for the solar HA entities
