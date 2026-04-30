@@ -721,8 +721,9 @@ _KNOWN_REGS: dict[int, str] = {
     30823: "Uac L3 — netspanning fase 3 (0.01V, U32)",
     30953: "Interne temperatuur (0.1°C, S32)",
     40185: "Max schijnbaar vermogen (VA)",
+    40196: "WMaxLim — PV limiter absolute (W, schrijfbaar)",
     40236: "WMaxLimPct — vermogenslimiet (%)",
-    42062: "WMaxLim — PV limiter absolute (W)",
+    42062: "WMaxLim — PV limiter (niet schrijfbaar zonder GMS)",
     # Alternate register addresses (SBx-1AV-40 older firmware — confirmed via Loxone config)
     30202: "Apparaatstatus hoog-word alt (ENUM, U32 hoog)",
     30203: "Apparaatstatus alt (ENUM, U32 laag of U16)",

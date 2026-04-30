@@ -1,20 +1,19 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { Battery, Zap, Sun, Brain, TrendingUp, Settings, LogOut, Menu, Moon, Palette, Eye } from "lucide-react";
 import DeviceCard from "./components/DeviceCard.jsx";
 import AddDeviceModal from "./components/AddDeviceModal.jsx";
 import PricesPage from "./components/PricesPage.jsx";
 import ForecastPage from "./components/ForecastPage.jsx";
 import StrategyPage from "./components/StrategyPage.jsx";
 import SettingsPage from "./components/SettingsPage.jsx";
-import ProfitPage from "./components/ProfitPage.jsx";
-import HistoricalFrankPage from "./components/HistoricalFrankPage.jsx";
+import AnalysePage from "./components/AnalysePage.jsx";
 import EnergyMap from "./components/EnergyMap.jsx";
 import HomeWizardPanel from "./components/HomeWizardPanel.jsx";
 import SmaInverterPanel from "./components/SmaInverterPanel.jsx";
 import LanguageSwitcher from "./components/LanguageSwitcher.jsx";
 import LoginPage from "./components/LoginPage.jsx";
 import UserManagementPage from "./components/UserManagementPage.jsx";
-import GrafanaPage from "./components/GrafanaPage.jsx";
 import { getToken, clearToken, authHeaders, apiFetch, getServerUrl } from "./auth.js";
 import ServerSetupPage from "./components/ServerSetupPage.jsx";
 import { bootstrapFlowCfg } from "./components/FlowSourcesSettings.jsx";
@@ -385,18 +384,17 @@ export default function App() {
     setPowerMap((p) => { const n = { ...p }; delete n[id]; return n; });
   };
 
+  const [mode] = useViewMode();
+  const isMobile = mode === "mobile";
   const isAdmin = currentUser?.role === "admin";
 
   const NAV_ITEMS = [
-    { id: "batteries", icon: "🔋", label: t('nav.batteries') },
-    { id: "prices",    icon: "⚡", label: t('nav.prices') },
-    { id: "forecast",  icon: "☀️", label: t('nav.forecast') },
-    { id: "strategy",  icon: "🧠", label: t('nav.strategy') },
-    { id: "profit",    icon: "💰", label: t('nav.profit') },
-    { id: "frank",       icon: "📊", label: t('nav.history') },
-    { id: "statistics",  icon: "📈", label: t('nav.statistics') },
-    { id: "settings",    icon: "⚙️", label: t('nav.settings') },
-    ...(isAdmin ? [{ id: "users", icon: "👥", label: t('nav.users') }] : []),
+    { id: "batteries", Icon: Battery, label: t('nav.batteries') },
+    { id: "prices",    Icon: Zap, label: t('nav.prices') },
+    { id: "forecast",  Icon: Sun, label: t('nav.forecast') },
+    { id: "strategy",  Icon: Brain, label: t('nav.strategy') },
+    { id: "analyse",   Icon: TrendingUp, label: t('nav.analyse', 'Analyse') },
+    { id: "settings",  Icon: Settings, label: t('nav.settings') },
   ];
 
   // Build batteries array for HomeFlow
@@ -433,7 +431,7 @@ export default function App() {
       {/* ── Header ── */}
       <header className="app-header">
         <div className="app-header-brand">
-          <span className="app-header-logo">🔋</span>
+          <span className="app-header-logo"><Battery size={24} /></span>
           <div>
             <div className="app-header-title">{t('app.title')}</div>
             <div className="app-header-subtitle app-header-subtitle--desktop">{t('app.subtitle')}</div>
@@ -448,17 +446,21 @@ export default function App() {
               onClick={() => setPage(n.id)}
               aria-current={page === n.id ? "page" : undefined}
             >
-              {n.icon} {n.label}
+              <n.Icon size={18} style={{ marginRight: 4 }} /> {n.label}
             </button>
           ))}
         </nav>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <ViewToggle />
-          <UiModeToggle />
-          <ThemeToggle />
-          <UiVersionToggle />
-          <LanguageSwitcher />
+          {!isMobile && (
+            <>
+              <ViewToggle />
+              <UiModeToggle />
+              <ThemeToggle />
+              <UiVersionToggle />
+              <LanguageSwitcher />
+            </>
+          )}
           {page === "batteries" && (
             <button className="btn btn-primary btn--add-desktop" onClick={() => setShowAdd(true)}>
               {t('buttons.addDesktop')}
@@ -471,7 +473,7 @@ export default function App() {
               title={`${currentUser.email} — ${t('auth.logout')}`}
               style={{ fontSize: 12 }}
             >
-              🔓 {t('auth.logout')}
+              <LogOut size={16} style={{ marginRight: 4 }} /> {t('auth.logout')}
             </button>
           )}
         </div>
@@ -485,7 +487,7 @@ export default function App() {
             onClick={() => setPage(n.id)}
             aria-current={page === n.id ? "page" : undefined}
           >
-            <span className="mobile-nav-icon">{n.icon}</span>
+            <span className="mobile-nav-icon"><n.Icon size={24} /></span>
             <span className="mobile-nav-label">{n.label}</span>
           </button>
         ))}
@@ -583,9 +585,7 @@ export default function App() {
         {page === "prices"    && <PricesPage />}
         {page === "forecast"  && <ForecastPage />}
         {page === "strategy"  && <StrategyPage />}
-        {page === "profit"    && <ProfitPage />}
-        {page === "frank"       && <HistoricalFrankPage />}
-        {page === "statistics"  && <GrafanaPage />}
+        {page === "analyse"   && <AnalysePage />}
 
         {page === "settings" && (
           <SettingsPage
@@ -594,6 +594,27 @@ export default function App() {
             onDeviceAdded={handleDeviceAdded}
             onDeviceEdited={handleDeviceEdited}
             onDeviceDeleted={handleDeviceDeleted}
+            isMobile={isMobile}
+            theme={localStorage.getItem("marstek_theme") || "dark"}
+            onThemeChange={(theme) => {
+              localStorage.setItem("marstek_theme", theme);
+              document.documentElement.setAttribute("data-theme", theme);
+            }}
+            uiMode={localStorage.getItem("marstek_ui_mode") || "classic"}
+            onUiModeChange={(mode) => {
+              localStorage.setItem("marstek_ui_mode", mode);
+              document.documentElement.setAttribute("data-ui-mode", mode);
+            }}
+            uiVersion={localStorage.getItem("marstek_ui") || "old"}
+            onUiVersionChange={(version) => {
+              localStorage.setItem("marstek_ui", version);
+              document.documentElement.setAttribute("data-ui", version);
+            }}
+            viewMode={mode}
+            onViewModeChange={(newMode) => {
+              localStorage.setItem("marstek_view", newMode);
+              document.documentElement.setAttribute("data-view", newMode);
+            }}
           />
         )}
 

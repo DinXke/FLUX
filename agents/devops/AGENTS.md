@@ -56,6 +56,23 @@ Fields: `solar_w, net_w, bat_w, bat_soc, house_w, ev_w, voltage_l1/l2/l3, net_im
 - Grafana 10+
 - Bash, Ubuntu 22.04 LTS
 
+## Server Toegang (10.10.30.112)
+
+Je hebt volledige toegang tot de productieserver voor debugging en deployment.
+
+**Credentials (uit env vars):**
+- Host: `$DEPLOY_HOST` (10.10.30.112)
+- User: `$DEPLOY_USER`
+- Password: `$DEPLOY_SSH_PASSWORD`
+- App path: `$DEPLOY_PATH`
+
+**Toegestane acties:**
+- SSH inloggen om logs te inspecteren en te debuggen
+- `git pull` uitvoeren om de laatste code te deployen
+- Docker containers herstarten (`docker compose restart`, `docker compose up -d`)
+- Logs bekijken (`docker compose logs -f`)
+- Bestanden inspecteren in `$DEPLOY_PATH`
+
 ## Werkwijze
 
 - Git worktrees: `devops/{{issue}}`

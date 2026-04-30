@@ -70,6 +70,30 @@ Beschikbaar via company pool:
 - [SCH-754](/SCH/issues/SCH-754) — Fase 2: Multi-model AI → Backend
 - [SCH-755](/SCH/issues/SCH-755) — Fase 3: Anomaliedetectie + Prophet → Backend
 
+## Server Toegang (10.10.30.112)
+
+Je hebt volledige toegang tot de productieserver voor debugging en troubleshooting.
+
+**Credentials (uit env vars):**
+- Host: `$DEPLOY_HOST` (10.10.30.112)
+- User: `$DEPLOY_USER`
+- Password: `$DEPLOY_SSH_PASSWORD`
+- App path: `$DEPLOY_PATH`
+
+**Toegestane acties:**
+- SSH inloggen om logs te inspecteren en te debuggen
+- `git pull` uitvoeren om de laatste code te deployen
+- Docker containers herstarten (`docker compose restart`, `docker compose up -d`)
+- Logs bekijken (`docker compose logs -f`)
+- Bestanden inspecteren in `$DEPLOY_PATH`
+
+**Werkwijze bij debugging:**
+1. SSH in: `ssh $DEPLOY_USER@$DEPLOY_HOST`
+2. Ga naar app dir: `cd $DEPLOY_PATH`
+3. Controleer logs en status
+4. Pas aan en deploy via git pull + container restart
+5. Werk samen met de [@QualityAssurance](agent://56ce4022-aaff-407b-9afd-d9c526c21581) agent om fixes te valideren
+
 ## Werkwijze
 
 - Gebruik Paperclip skill voor coördinatie

@@ -15,6 +15,7 @@ import SmaReaderSettings from "./SmaReaderSettings.jsx";
 import HeatingSettings from "./HeatingSettings.jsx";
 import BoschAppliances from "./BoschAppliances.jsx";
 import ServerUrlSettings from "./ServerUrlSettings.jsx";
+import UISettingsPanel from "./UISettingsPanel.jsx";
 
 // ---------------------------------------------------------------------------
 // Persisted settings helpers (localStorage)
@@ -417,6 +418,13 @@ function TabApparaten({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDevi
 
 const GROUPS = [
   {
+    id: "uiterlijk",
+    label: "🎨 Uiterlijk",
+    tabs: [
+      { id: "uiterlijk", label: "🎨 Uiterlijk" },
+    ],
+  },
+  {
     id: "databronnen",
     label: "📡 Data-bronnen",
     tabs: [
@@ -477,7 +485,22 @@ function resolveInitialTab(groupId) {
   return group.tabs.some((t) => t.id === saved) ? saved : group.tabs[0].id;
 }
 
-export default function SettingsPage({ devices, powerMap, onDeviceAdded, onDeviceEdited, onDeviceDeleted }) {
+export default function SettingsPage({
+  devices,
+  powerMap,
+  onDeviceAdded,
+  onDeviceEdited,
+  onDeviceDeleted,
+  isMobile,
+  theme,
+  onThemeChange,
+  uiMode,
+  onUiModeChange,
+  uiVersion,
+  onUiVersionChange,
+  viewMode,
+  onViewModeChange,
+}) {
   const [activeGroup, setActiveGroup] = useState(resolveInitialGroup);
   const [activeTab,   setActiveTab]   = useState(() => resolveInitialTab(resolveInitialGroup()));
 
@@ -535,6 +558,19 @@ export default function SettingsPage({ devices, powerMap, onDeviceAdded, onDevic
       </div>
 
       {/* ── Tab content ── */}
+      {activeTab === "uiterlijk" && (
+        <UISettingsPanel
+          isMobile={isMobile}
+          theme={theme}
+          onThemeChange={onThemeChange}
+          uiMode={uiMode}
+          onUiModeChange={onUiModeChange}
+          uiVersion={uiVersion}
+          onUiVersionChange={onUiVersionChange}
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
+        />
+      )}
       {activeTab === "serverurl"     && <ServerUrlSettings />}
       {activeTab === "entsoe"        && <EntsoESection />}
       {activeTab === "homewizard"    && <HomeWizardSettings />}

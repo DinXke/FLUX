@@ -1130,8 +1130,8 @@ html, body {
 .mobile-nav-btn.active { color: var(--accent); }
 .mobile-nav-btn:hover  { color: var(--text); }
 
-.mobile-nav-icon  { font-size: 22px; line-height: 1; }
-.mobile-nav-label { font-size: 10px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.mobile-nav-icon  { font-size: 24px; line-height: 1; display: flex; align-items: center; justify-content: center; }
+.mobile-nav-label { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
 /* ── FAB: shown by default ── */
 .fab {
