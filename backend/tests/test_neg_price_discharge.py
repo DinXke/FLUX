@@ -74,7 +74,7 @@ class TestPreventiveDischarge:
         slots = build_plan(prices, {}, cons, bat_soc_now=80.0,
                            settings=neg_settings(),
                            start_dt=TEST_START, num_slots=8)
-        assert "Preventief" in slot(slots, 0)["reason"] or "negatieve" in slot(slots, 0)["reason"].lower()
+        assert "netladen" in slot(slots, 0)["reason"].lower() or "negatieve" in slot(slots, 0)["reason"].lower()
 
     def test_negative_price_slot_itself_is_grid_charge(self):
         """

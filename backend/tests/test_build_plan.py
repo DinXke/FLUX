@@ -569,7 +569,7 @@ class TestNegativePrice:
                            settings=s, start_dt=TEST_START, num_slots=6)
 
         assert slot(slots, 0)["action"] == DISCHARGE
-        assert "Preventief ontladen" in slot(slots, 0)["reason"]
+        assert "netladen" in slot(slots, 0)["reason"]
 
     def test_no_preventive_discharge_when_disabled(self):
         """neg_price_discharge_enabled=False → no preventive discharge."""

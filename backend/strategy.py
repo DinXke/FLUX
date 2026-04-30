@@ -504,23 +504,31 @@ def build_plan(
         reason  = ""
         charge_kwh = 0.0   # energy added to battery this slot (kWh)
         discharge_kwh = 0.0
-        _hold_bat_for_neg = False  # suppress neutral battery fill when holding for upcoming neg price
-
         # ── Decision logic ───────────────────────────────────────────────────
 
         # When the raw market price is negative, never allow discharge — even if
         # markup pushes the effective buy_price above the threshold.
         _raw_is_neg = price_raw is not None and price_raw < 0
 
-        # Pre-compute upcoming negative price window (used in both solar and non-solar branches).
-        # Only relevant when current price is not already negative.
+        # Pre-compute upcoming negative price window — count hours so we can
+        # calculate exactly how much headroom to reserve for grid charging.
         _upcoming_neg = False
+        _neg_hours = 0
+        _neg_headroom_kwh = 0.0
+        _neg_target_bat_kwh = bat_max
         if neg_dis_en and buy_price is not None and buy_price >= neg_dis_thresh and not _raw_is_neg:
             for j in range(i + 1, min(i + neg_dis_ahead + 1, num_slots)):
                 fp_raw = price_slots.get(all_slots[j].isoformat())
                 if fp_raw is not None and (fp_raw + markup) < neg_dis_thresh:
                     _upcoming_neg = True
-                    break
+                    _neg_hours += 1
+            if _upcoming_neg:
+                # Reserve exactly as much headroom as the inverter can absorb during
+                # the negative window (neg_hours × max_charge_kw × rte), capped at
+                # usable capacity.  This prevents both over- and under-reservation.
+                _neg_headroom_kwh = min(_neg_hours * max_charge_kw * rte,
+                                        bat_max - bat_min)
+                _neg_target_bat_kwh = max(bat_min, bat_max - _neg_headroom_kwh)
 
         if buy_price is not None and (buy_price < neg_dis_thresh or _raw_is_neg):
             # Negative/below-threshold price: always GRID_CHARGE regardless of SOC.
@@ -535,12 +543,36 @@ def build_plan(
 
         elif net_wh > 50:
             if _upcoming_neg:
-                # Upcoming free/negative grid price: don't fill battery from solar.
-                # Export solar surplus to grid and preserve battery headroom so the
-                # inverter can absorb cheap/paid grid energy during that window.
-                action = NEUTRAL
-                reason = f"Negatieve prijs ≤{neg_dis_ahead}u verwacht – zon naar net, ruimte bewaren voor netladen"
-                _hold_bat_for_neg = True
+                # Upcoming free/negative grid price window.  Target the battery to
+                # exactly max_soc − headroom so the inverter can absorb the full
+                # negative-window capacity from the grid.
+                # NEUTRAL is insufficient here because the inverter self-consumption
+                # mode still auto-charges from solar surplus.  Use SAVE (freeze) when
+                # battery is at/above target so solar exports to grid instead.
+                _neg_target_soc = (_neg_target_bat_kwh / cap_kwh) * 100.0
+                if bat_kwh > _neg_target_bat_kwh + 0.1:
+                    # Battery above target: freeze it; solar exports to grid.
+                    action = SAVE
+                    reason = (f"SOC {soc_start:.0f}% > doel {_neg_target_soc:.0f}% – "
+                              f"zon naar net, bewaar {_neg_headroom_kwh:.1f} kWh "
+                              f"voor {_neg_hours}u netladen")
+                else:
+                    # Battery below target: charge from solar only up to target.
+                    absorb_kwh = min(net_wh / 1000.0,
+                                     _neg_target_bat_kwh - bat_kwh,
+                                     max_charge_kw)
+                    if absorb_kwh > 0.05:
+                        bat_kwh   += absorb_kwh * rte
+                        charge_kwh = absorb_kwh
+                        action = SOLAR_CHARGE
+                        reason = (f"Zonneladen tot doel {_neg_target_soc:.0f}% "
+                                  f"(bewaar {_neg_headroom_kwh:.1f} kWh voor "
+                                  f"{_neg_hours}u netladen)")
+                    else:
+                        # Exactly at target: freeze.
+                        action = SAVE
+                        reason = (f"Doel {_neg_target_soc:.0f}% bereikt – "
+                                  f"zon naar net, wachten op {_neg_hours}u netladen")
             else:
                 # Solar excess: charge battery from solar (free)
                 absorb_kwh = min(net_wh / 1000.0, bat_max - bat_kwh, max_charge_kw)
@@ -592,19 +624,32 @@ def build_plan(
                 remaining_solar_today_wh / 1000.0 * rte >= (bat_max - bat_kwh) - 0.1
             )
 
-            if _upcoming_neg and bat_kwh > bat_min + 0.2 and not _raw_is_neg:
-                # Negative price expected within lookahead window: discharge now to
-                # create battery headroom for free/paid grid charging later.
-                # Guard: skip if the current raw market price is already negative —
-                # discharging at negative prices is wasteful (you could be charging).
-                discharge_possible = min(max(0.0, -net_wh) / 1000.0, bat_kwh - bat_min)
-                if discharge_possible > 0.05:
-                    bat_kwh      -= discharge_possible
-                    discharge_kwh = discharge_possible
-                    action = DISCHARGE
-                    reason = f"Preventief ontladen: negatieve prijs ≤{neg_dis_ahead}u verwacht"
+            if _upcoming_neg and not _raw_is_neg:
+                # Negative price expected: steer battery toward the calculated target
+                # so exactly enough headroom is available for grid charging.
+                _neg_target_soc = (_neg_target_bat_kwh / cap_kwh) * 100.0
+                if bat_kwh > _neg_target_bat_kwh + 0.1:
+                    # Above target: discharge toward it (limited to consumption drain).
+                    discharge_possible = min(
+                        max(0.0, -net_wh) / 1000.0,
+                        bat_kwh - _neg_target_bat_kwh,
+                        bat_kwh - bat_min,
+                    )
+                    if discharge_possible > 0.05:
+                        bat_kwh      -= discharge_possible
+                        discharge_kwh = discharge_possible
+                        action = DISCHARGE
+                        reason = (f"Ontladen naar doel {_neg_target_soc:.0f}% – "
+                                  f"bewaar {_neg_headroom_kwh:.1f} kWh voor "
+                                  f"{_neg_hours}u netladen")
+                    else:
+                        action = NEUTRAL
                 else:
-                    action = NEUTRAL
+                    # At or below target: freeze battery, don't charge from grid.
+                    # Wait for the negative window to fill at free/paid rate.
+                    action = SAVE
+                    reason = (f"SOC {soc_start:.0f}% op/onder doel {_neg_target_soc:.0f}% – "
+                              f"wachten op {_neg_hours}u netladen")
 
             elif is_peak_hour and bat_kwh > bat_min + 0.2 and buy_price >= price_median:
                 # Peak hour AND price is at or above the day's median.
@@ -671,9 +716,7 @@ def build_plan(
         # discharge action is set.  Without this the predicted SOC stays flat
         # overnight which is misleading (sluipverbruik drains the battery).
         if action == NEUTRAL:
-            if net_wh >= 0 and not _hold_bat_for_neg:
-                # Normal solar surplus fill. Skipped when holding headroom for
-                # upcoming negative/free grid price (solar exports to grid instead).
+            if net_wh >= 0:
                 surplus_kwh = (net_wh / 1000.0) * rte
                 headroom    = (max_soc * cap_kwh) - bat_kwh
                 store       = min(surplus_kwh, headroom)
