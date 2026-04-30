@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FLUX</string>
+    <string name="title_activity_main">FLUX</string>
+    <string name="package_name">one.scheepers.flux</string>
+    <string name="custom_url_scheme">one.scheepers.flux</string>
+</resources>

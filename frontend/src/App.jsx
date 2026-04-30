@@ -15,7 +15,8 @@ import LanguageSwitcher from "./components/LanguageSwitcher.jsx";
 import LoginPage from "./components/LoginPage.jsx";
 import UserManagementPage from "./components/UserManagementPage.jsx";
 import GrafanaPage from "./components/GrafanaPage.jsx";
-import { getToken, clearToken, authHeaders, apiFetch } from "./auth.js";
+import { getToken, clearToken, authHeaders, apiFetch, getServerUrl } from "./auth.js";
+import ServerSetupPage from "./components/ServerSetupPage.jsx";
 import { bootstrapFlowCfg } from "./components/FlowSourcesSettings.jsx";
 
 // ── Dashboard section order + collapse (per user) ────────────────────────────
@@ -249,7 +250,9 @@ export default function App() {
   // ── Auth state (must come before ALL other hooks) ──
   // Start as "app" immediately so the UI never blocks. Auth check runs in
   // the background and only flips to "login" when the server requires it.
-  const [authState, setAuthState] = useState("app");
+  const isNativeApp = typeof window !== 'undefined' && window.Capacitor?.isNative;
+  const needsServerSetup = isNativeApp && !getServerUrl();
+  const [authState, setAuthState] = useState(needsServerSetup ? "serverSetup" : "app");
   const [currentUser, setCurrentUser] = useState(null);
 
   // ── All page/device state (hooks must be declared before any early return) ──
@@ -341,6 +344,27 @@ export default function App() {
   }, []);
 
   // ── Auth handlers ──
+  function handleServerSetupComplete() {
+    setAuthState("app");
+    // Re-check auth after server URL is configured
+    async function checkAuth() {
+      const token = getToken();
+      if (token) {
+        try {
+          const res = await apiFetch("/api/auth/me", { headers: authHeaders() });
+          if (res.ok) {
+            const user = await res.json();
+            setCurrentUser({ email: user.email, role: user.role });
+            bootstrapFlowCfg(apiFetch);
+            return;
+          }
+        } catch { /* network error — skip */ }
+        clearToken();
+      }
+    }
+    checkAuth();
+  }
+
   function handleLogin(user) {
     setCurrentUser(user);
     setAuthState("app");
@@ -393,6 +417,11 @@ export default function App() {
       document.exitFullscreen?.();
     }
   }, []);
+
+  // ── Server setup screen (Capacitor only) ──
+  if (authState === "serverSetup") {
+    return <ServerSetupPage onComplete={handleServerSetupComplete} />;
+  }
 
   // ── Login screen (after ALL hooks) ──
   if (authState === "login") {
