@@ -259,7 +259,8 @@ export default function App() {
   // ── Auth state (must come before ALL other hooks) ──
   // Start as "app" immediately so the UI never blocks. Auth check runs in
   // the background and only flips to "login" when the server requires it.
-  const isNativeApp = typeof window !== 'undefined' && window.Capacitor?.isNative;
+  const isNativeApp = typeof window !== 'undefined' &&
+    (window.Capacitor?.isNativePlatform?.() || window.Capacitor?.isNative === true);
   const needsServerSetup = isNativeApp && !getServerUrl();
   const [authState, setAuthState] = useState(needsServerSetup ? "serverSetup" : "app");
   const [currentUser, setCurrentUser] = useState(null);
@@ -327,6 +328,20 @@ export default function App() {
 
   useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
+  // ── Auto-update check (Capacitor native only) ──
+  useEffect(() => {
+    if (!isNativeApp || authState !== "app") return;
+    const cap = window.Capacitor;
+    if (!cap) return;
+    cap.Plugins?.UpdatePlugin?.checkForUpdate?.().then(result => {
+      if (result?.hasUpdate && result?.downloadUrl) {
+        const ok = window.confirm(
+          `FLUX update beschikbaar: v${result.latestVersion}\n(huidig: v${result.currentVersion})\n\nNu installeren?`
+        );
+        if (ok) cap.Plugins?.UpdatePlugin?.downloadAndInstall?.({ url: result.downloadUrl });
+      }
+    }).catch(() => { /* update check mislukt, stil negeren */ });
+  }, [isNativeApp, authState]);
 
   const { layout, toggleCollapse, reorder } = useDashboardLayout(currentUser?.email);
 
@@ -360,8 +375,6 @@ export default function App() {
 
   // ── Auth handlers ──
   function handleServerSetupComplete() {
-    setAuthState("app");
-    // Re-check auth after server URL is configured
     async function checkAuth() {
       const token = getToken();
       if (token) {
@@ -371,11 +384,20 @@ export default function App() {
             const user = await res.json();
             setCurrentUser({ email: user.email, role: user.role });
             bootstrapFlowCfg(apiFetch);
+            setAuthState("app");
             return;
           }
-        } catch { /* network error — skip */ }
+        } catch { /* network error */ }
         clearToken();
       }
+      try {
+        const probe = await apiFetch("/api/users");
+        if (probe.status === 401) {
+          setAuthState("login");
+          return;
+        }
+      } catch { /* unreachable — stay on app */ }
+      setAuthState("app");
     }
     checkAuth();
   }

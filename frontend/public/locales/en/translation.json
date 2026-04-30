@@ -1,7 +1,7 @@
 {
   "app": {
-    "title": "Marstek",
-    "subtitle": "ESPHome Battery Monitor"
+    "title": "FLUX",
+    "subtitle": "Energy optimization"
   },
   "nav": {
     "batteries": "Batteries",
@@ -48,7 +48,7 @@
   },
   "empty": {
     "title": "No devices yet",
-    "description": "Add a Marstek battery to start monitoring."
+    "description": "Add a device to start monitoring."
   },
   "cards": {
     "powerBalance": "⚡ Power Balance"
