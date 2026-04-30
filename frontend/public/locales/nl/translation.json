@@ -1,7 +1,7 @@
 {
   "app": {
-    "title": "Marstek",
-    "subtitle": "ESPHome Battery Monitor"
+    "title": "FLUX",
+    "subtitle": "Energie-optimalisatie"
   },
   "nav": {
     "batteries": "Batterijen",
@@ -48,7 +48,7 @@
   },
   "empty": {
     "title": "Nog geen apparaten",
-    "description": "Voeg een Marstek batterij toe om te beginnen met monitoren."
+    "description": "Voeg een apparaat toe om te beginnen met monitoren."
   },
   "cards": {
     "powerBalance": "⚡ Vermogensbalans"

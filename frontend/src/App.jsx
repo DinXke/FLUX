@@ -375,8 +375,6 @@ export default function App() {
 
   // ── Auth handlers ──
   function handleServerSetupComplete() {
-    setAuthState("app");
-    // Re-check auth after server URL is configured
     async function checkAuth() {
       const token = getToken();
       if (token) {
@@ -386,11 +384,20 @@ export default function App() {
             const user = await res.json();
             setCurrentUser({ email: user.email, role: user.role });
             bootstrapFlowCfg(apiFetch);
+            setAuthState("app");
             return;
           }
-        } catch { /* network error — skip */ }
+        } catch { /* network error */ }
         clearToken();
       }
+      try {
+        const probe = await apiFetch("/api/users");
+        if (probe.status === 401) {
+          setAuthState("login");
+          return;
+        }
+      } catch { /* unreachable — stay on app */ }
+      setAuthState("app");
     }
     checkAuth();
   }
