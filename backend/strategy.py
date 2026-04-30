@@ -504,12 +504,23 @@ def build_plan(
         reason  = ""
         charge_kwh = 0.0   # energy added to battery this slot (kWh)
         discharge_kwh = 0.0
+        _hold_bat_for_neg = False  # suppress neutral battery fill when holding for upcoming neg price
 
         # ── Decision logic ───────────────────────────────────────────────────
 
         # When the raw market price is negative, never allow discharge — even if
         # markup pushes the effective buy_price above the threshold.
         _raw_is_neg = price_raw is not None and price_raw < 0
+
+        # Pre-compute upcoming negative price window (used in both solar and non-solar branches).
+        # Only relevant when current price is not already negative.
+        _upcoming_neg = False
+        if neg_dis_en and buy_price is not None and buy_price >= neg_dis_thresh and not _raw_is_neg:
+            for j in range(i + 1, min(i + neg_dis_ahead + 1, num_slots)):
+                fp_raw = price_slots.get(all_slots[j].isoformat())
+                if fp_raw is not None and (fp_raw + markup) < neg_dis_thresh:
+                    _upcoming_neg = True
+                    break
 
         if buy_price is not None and (buy_price < neg_dis_thresh or _raw_is_neg):
             # Negative/below-threshold price: always GRID_CHARGE regardless of SOC.
@@ -523,16 +534,24 @@ def build_plan(
             reason = f"Negatieve prijs ({buy_price*100:.1f}ct) – laden = gratis/betaald"
 
         elif net_wh > 50:
-            # Solar excess: charge battery from solar (free)
-            absorb_kwh = min(net_wh / 1000.0, bat_max - bat_kwh, max_charge_kw)
-            if absorb_kwh > 0.05:
-                bat_kwh   += absorb_kwh * rte
-                charge_kwh = absorb_kwh
-                action = SOLAR_CHARGE
-                reason = f"Zonne-overschot {solar_wh_slot:.0f} Wh"
-            else:
+            if _upcoming_neg:
+                # Upcoming free/negative grid price: don't fill battery from solar.
+                # Export solar surplus to grid and preserve battery headroom so the
+                # inverter can absorb cheap/paid grid energy during that window.
                 action = NEUTRAL
-                reason = "Batterij vol of minimale overschot"
+                reason = f"Negatieve prijs ≤{neg_dis_ahead}u verwacht – zon naar net, ruimte bewaren voor netladen"
+                _hold_bat_for_neg = True
+            else:
+                # Solar excess: charge battery from solar (free)
+                absorb_kwh = min(net_wh / 1000.0, bat_max - bat_kwh, max_charge_kw)
+                if absorb_kwh > 0.05:
+                    bat_kwh   += absorb_kwh * rte
+                    charge_kwh = absorb_kwh
+                    action = SOLAR_CHARGE
+                    reason = f"Zonne-overschot {solar_wh_slot:.0f} Wh"
+                else:
+                    action = NEUTRAL
+                    reason = "Batterij vol of minimale overschot"
 
         elif buy_price is not None:
             # Look ahead: max price in next 8 hours (for charge profitability)
@@ -553,14 +572,7 @@ def build_plan(
 
             is_peak_hour = _is_peak(weekday, hour)
 
-            # Preventive-discharge lookahead: is there a negative price within N hours?
-            _upcoming_neg = False
-            if neg_dis_en and buy_price > neg_dis_thresh:
-                for j in range(i + 1, min(i + neg_dis_ahead + 1, num_slots)):
-                    fp_raw = price_slots.get(all_slots[j].isoformat())
-                    if fp_raw is not None and (fp_raw + markup) < neg_dis_thresh:
-                        _upcoming_neg = True
-                        break
+            # _upcoming_neg already computed above (before solar branch)
 
             # Effective charge cost = buy_price / rte + charge depreciation.
             eff_charge_cost = buy_price / rte + depr   # €/kWh stored
@@ -659,7 +671,9 @@ def build_plan(
         # discharge action is set.  Without this the predicted SOC stays flat
         # overnight which is misleading (sluipverbruik drains the battery).
         if action == NEUTRAL:
-            if net_wh >= 0:
+            if net_wh >= 0 and not _hold_bat_for_neg:
+                # Normal solar surplus fill. Skipped when holding headroom for
+                # upcoming negative/free grid price (solar exports to grid instead).
                 surplus_kwh = (net_wh / 1000.0) * rte
                 headroom    = (max_soc * cap_kwh) - bat_kwh
                 store       = min(surplus_kwh, headroom)

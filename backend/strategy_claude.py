@@ -616,7 +616,8 @@ andere acties kiest, wijkt de werkelijke SOC af. **Gebruik je eigen simulatie.**
 Evalueer elk slot in deze exacte volgorde — eerste toepasselijke regel wint:
 
 1. **buy_price < 0** → `grid_charge` (betaald om te laden — altijd doen)
-2. **net_wh > 200 EN SOC < max EN buy_price ≥ 0.02** → `solar_charge` (gratis zonne-energie)
+2. **net_wh > 200 EN SOC < max EN buy_price ≥ 0.02 EN geen negatieve prijs binnen neg_price_lookahead_h uur** → `solar_charge` (gratis zonne-energie)
+   - **Uitzondering: als er binnen neg_price_lookahead_h uur een negatieve/gratis prijs aankomt → `neutral`** (exporteer zon naar net, bewaar batterijruimte voor gratis netladen). De zonnepanelen leveren dan beter terug dan nu de batterij te vullen.
 3. **grid_charge_potential_eur_kwh > 0 EN SOC < max** → `grid_charge` (winstgevend laden)
 4. **buy_price ≥ p75 EN gesimuleerde SOC > reserve + 10%** → `discharge` (duur uur: gebruik batterij)
    - Uitzondering: er is een slot BINNEN 2 UUR met prijs > huidige × 1.10 → wacht dat slot af.
@@ -703,6 +704,7 @@ Als `historical_context` aanwezig is in de invoer, gebruik dit actief:
 | SOC ≥ max_soc | NOOIT grid_charge |
 | net_wh ≤ 0 | NOOIT solar_charge |
 | buy_price < 0.02 én solar_charge gewenst | Gebruik grid_charge i.p.v. solar_charge |
+| Negatieve prijs binnen neg_price_lookahead_h uur én net_wh > 200 | NOOIT solar_charge — gebruik neutral (zon naar net, ruimte bewaren voor gratis netladen) |
 | SOC ≤ reserve + 5% | NOOIT save (niets te bewaren) |
 | buy_price ≥ p75 EN SOC > reserve + 10% | ALTIJD discharge — nooit save of neutral |
 | grid_charge_potential_eur_kwh = 0 | NOOIT grid_charge (verlieslatend) |
