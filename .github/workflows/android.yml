@@ -38,10 +38,12 @@ jobs:
         run: cd frontend && npx cap sync android
 
       - name: Set up consistent debug keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
         run: |
           mkdir -p ~/.android
-          if [ -n "${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}" | base64 -d > ~/.android/debug.keystore
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
           else
             keytool -genkeypair -v \
               -keystore ~/.android/debug.keystore \
@@ -49,6 +51,8 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000 \
               -storepass android -keypass android \
               -dname "CN=Android Debug,O=Android,C=US"
+            echo "INFO: Sla de keystore op als GitHub Secret om package-conflicts te voorkomen:"
+            base64 -w 0 ~/.android/debug.keystore
           fi
 
       - name: Make Gradle wrapper executable
@@ -56,14 +60,6 @@ jobs:
 
       - name: Build debug APK
         run: cd frontend/android && ./gradlew assembleDebug
-
-      - name: Save keystore as artifact (first run only)
-        if: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 == '' }}
-        run: |
-          echo "=== ANDROID_DEBUG_KEYSTORE_BASE64 ==="
-          base64 -w 0 ~/.android/debug.keystore
-          echo ""
-          echo "Sla bovenstaande waarde op als GitHub Secret: ANDROID_DEBUG_KEYSTORE_BASE64"
 
       - name: Extract version
         id: meta
