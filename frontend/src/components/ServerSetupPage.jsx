@@ -22,7 +22,7 @@ export default function ServerSetupPage({ onComplete }) {
 
     try {
       const testUrl = serverUrl.replace(/\/$/, '');
-      const res = await fetch(`${testUrl}/api/health`, { method: 'GET' });
+      const res = await fetch(`${testUrl}/api/status`, { method: 'GET' });
       if (res.ok) {
         setServerUrl(testUrl);
         setSuccess(true);
