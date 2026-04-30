@@ -3382,6 +3382,37 @@ def get_forecast_actuals():
             except Exception as exc:
                 log.warning("forecast/actuals sma error: %s", exc)
 
+        # Fallback: query InfluxDB v2 for SMA sources (influx_writer writes sma_inverter there)
+        if not result and sma_entries:
+            try:
+                from influx_writer import INFLUX_URL as _IU_sma, INFLUX_TOKEN as _IT_sma, INFLUX_ORG as _IO_sma, INFLUX_BUCKET as _IB_sma
+                from influxdb_client import InfluxDBClient as _IDB_sma  # type: ignore
+                from datetime import date as _date_sma2, datetime as _dt_sma2
+                from zoneinfo import ZoneInfo as _ZI_sma
+                _tz_sma = _ZI_sma(tz_name)
+                _d_sma2 = _date_sma2.fromisoformat(date_str)
+                _start_sma = _dt_sma2(_d_sma2.year, _d_sma2.month, _d_sma2.day, 0, 0, 0, tzinfo=_tz_sma).astimezone(_ZI_sma("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+                _stop_sma  = _dt_sma2(_d_sma2.year, _d_sma2.month, _d_sma2.day, 23, 59, 59, tzinfo=_tz_sma).astimezone(_ZI_sma("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+                _client_sma = _IDB_sma(url=_IU_sma, token=_IT_sma, org=_IO_sma)
+                _qapi_sma = _client_sma.query_api()
+                _flux_sma = (
+                    f'from(bucket: "{_IB_sma}")\n'
+                    f'  |> range(start: {_start_sma}, stop: {_stop_sma})\n'
+                    f'  |> filter(fn: (r) => r._measurement == "sma_inverter" and r._field == "pac_w")\n'
+                    f'  |> aggregateWindow(every: 15m, fn: mean, createEmpty: false)'
+                )
+                for _t_sma in _qapi_sma.query(_flux_sma, org=_IO_sma):
+                    for _r_sma in _t_sma.records:
+                        _v_sma = _r_sma.get_value()
+                        if _v_sma is None:
+                            continue
+                        _tl_sma = _r_sma.get_time().astimezone(_tz_sma)
+                        _slot_sma = _tl_sma.strftime("%Y-%m-%d %H:%M:%S")
+                        if _slot_sma.startswith(date_str):
+                            result[_slot_sma] = float(_v_sma)
+            except Exception as _exc_sma2:
+                log.warning("forecast/actuals sma→influxv2 error: %s", _exc_sma2)
+
         # Fallback: query InfluxDB v2 (written by influx_writer) for ESPHome sources
         esphome_entries = [e for e in flow_cfg2.get("solar_power", []) if e.get("source") == "esphome"]
         if not result and esphome_entries:
@@ -6537,6 +6568,7 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
     with 2-second gaps give ample time to clear any post-close refractory
     period on the SMA inverter.
     """
+    log.info("_pv_send_modbus called with target_w=%dW", target_w)
     try:
         from pymodbus.client import ModbusTcpClient
     except ImportError:
@@ -6548,7 +6580,7 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
     host     = (s.get("pv_limiter_modbus_host") or "").strip()
     port     = int(s.get("pv_limiter_modbus_port", 502))
     unit_id  = int(s.get("pv_limiter_modbus_unit_id", 3))
-    reg_raw  = int(s.get("pv_limiter_modbus_register", 42062))
+    reg_raw  = int(s.get("pv_limiter_modbus_register", 40196))
     val_mode = (s.get("pv_limiter_modbus_value_mode") or "W").upper()
     dtype    = (s.get("pv_limiter_modbus_dtype") or "U32").upper()
     max_w    = int(s.get("pv_limiter_max_w", 4000))
@@ -6684,10 +6716,13 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
         return
 
     # Manual override: bypass price logic AND rolling cap entirely — user explicitly controls output
-    if s.get("pv_limiter_manual_override"):
+    manual_override = s.get("pv_limiter_manual_override")
+    log.debug("PV limiter: manual_override=%s use_service=%s entity=%s use_modbus=%s", manual_override, use_service, entity, s.get("pv_limiter_use_modbus"))
+    if manual_override:
         target_w = int(s.get("pv_limiter_manual_w", 2000))
         last_w = auto.get("pv_limiter_last_w")
         if last_w == target_w:
+            log.debug("PV limiter: skipping manual override (last_w already %dW)", last_w)
             return
         log.debug("PV limiter: manual override → %dW", target_w)
         ok = _pv_send(s, entity, use_service, svc_str, target_w)
@@ -6774,9 +6809,10 @@ def _pv_limiter_tick() -> None:
     if s.get("pv_limiter_enabled") and int(s.get("pv_limiter_min_w", 50)) == 0:
         log.warning("pv_limiter_min_w is 0W — panelen worden op 0W gezet bij lage/negatieve prijzen. "
                     "Stel pv_limiter_min_w in op bijv. 100W om dit te voorkomen.")
-    log.debug("PV limiter tick: enabled=%s entity=%s use_service=%s rc_pv_override=%s",
+    log.debug("PV limiter tick: enabled=%s entity=%s use_service=%s use_modbus=%s manual_override=%s rc_pv_override=%s",
               s.get("pv_limiter_enabled"), s.get("pv_limiter_entity"),
-              s.get("pv_limiter_use_service"), rc_pv_override)
+              s.get("pv_limiter_use_service"), s.get("pv_limiter_use_modbus"),
+              s.get("pv_limiter_manual_override"), rc_pv_override)
     _apply_pv_limiter(s, auto)
     _save_automation(auto)
 
