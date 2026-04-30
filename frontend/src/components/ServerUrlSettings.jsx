@@ -9,7 +9,8 @@ export default function ServerUrlSettings() {
   const [testResult, setTestResult] = useState(null);
   const [error, setError] = useState('');
 
-  const isNativeApp = typeof window !== 'undefined' && window.Capacitor?.isNative;
+  const isNativeApp = typeof window !== 'undefined' &&
+    (window.Capacitor?.isNativePlatform?.() || window.Capacitor?.isNative === true);
 
   // Only show for Capacitor/native app
   if (!isNativeApp) {
@@ -36,7 +37,7 @@ export default function ServerUrlSettings() {
 
     try {
       const testUrl = serverUrl.replace(/\/$/, '');
-      const res = await fetch(`${testUrl}/api/health`, { method: 'GET' });
+      const res = await fetch(`${testUrl}/api/status`, { method: 'GET' });
       if (res.ok) {
         setTestResult('success');
         setError('');
@@ -57,9 +58,9 @@ export default function ServerUrlSettings() {
       setError(t('serverUrl.enterUrl') || 'Please enter a server URL');
       return;
     }
-    setServerUrl(serverUrl);
+    setServerUrl(serverUrl.trim().replace(/\/$/, ''));
     setTestResult('saved');
-    setTimeout(() => setTestResult(null), 3000);
+    setTimeout(() => window.location.reload(), 1000);
   };
 
   return (
