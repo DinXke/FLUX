@@ -318,11 +318,19 @@ export default function App() {
     document.documentElement.setAttribute("data-ui-mode", uiMode);
   }, []);
 
+  const [devicesError, setDevicesError] = useState(null);
   const fetchDevices = useCallback(async () => {
     try {
       const res = await apiFetch("/api/devices");
-      if (res.ok) setDevices(await res.json());
-    } catch { /* keep existing list */ }
+      if (res.ok) {
+        setDevices(await res.json());
+        setDevicesError(null);
+      } else {
+        setDevicesError(`Server fout: ${res.status}`);
+      }
+    } catch (e) {
+      setDevicesError(`Verbinding mislukt: ${e.message}`);
+    }
     finally   { setLoading(false); }
   }, []);
 
@@ -542,13 +550,26 @@ export default function App() {
           ) : devices.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">🔋</div>
-              <div className="empty-state-title">{t('empty.title')}</div>
-              <div className="empty-state-desc">
-                {t('empty.description')}
-              </div>
-              <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
-                {t('buttons.addDevice')}
-              </button>
+              {devicesError ? (
+                <>
+                  <div className="empty-state-title">Verbindingsfout</div>
+                  <div className="empty-state-desc" style={{color:'#f87171',fontFamily:'monospace',fontSize:'0.85em'}}>{devicesError}</div>
+                  {isNativeApp && (
+                    <button className="btn btn-secondary" style={{marginBottom:'0.5rem'}} onClick={() => setAuthState("serverSetup")}>
+                      Server URL wijzigen
+                    </button>
+                  )}
+                  <button className="btn btn-primary" onClick={fetchDevices}>Opnieuw proberen</button>
+                </>
+              ) : (
+                <>
+                  <div className="empty-state-title">{t('empty.title')}</div>
+                  <div className="empty-state-desc">{t('empty.description')}</div>
+                  <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
+                    {t('buttons.addDevice')}
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <DndContext
