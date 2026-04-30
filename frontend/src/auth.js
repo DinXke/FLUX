@@ -30,7 +30,8 @@ export function apiUrl(path) {
   const baseUrl = getServerUrl();
   if (!baseUrl) return path;
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
-  return `${baseUrl}${path}`;
+  const sep = path.startsWith('/') ? '' : '/';
+  return `${baseUrl}${sep}${path}`;
 }
 
 export async function apiFetch(url, opts = {}) {

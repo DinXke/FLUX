@@ -320,7 +320,7 @@ export default function App() {
 
   const fetchDevices = useCallback(async () => {
     try {
-      const res = await apiFetch("api/devices");
+      const res = await apiFetch("/api/devices");
       if (res.ok) setDevices(await res.json());
     } catch { /* keep existing list */ }
     finally   { setLoading(false); }
