@@ -81,7 +81,9 @@
     "password": "Password",
     "subtitle": "Energy management dashboard",
     "loginFailed": "Invalid email or password",
-    "networkError": "Connection error. Please try again."
+    "networkError": "Connection error. Please try again.",
+    "rememberMe": "Remember me",
+    "clearSavedCredentials": "Clear saved credentials"
   },
   "users": {
     "title": "User Management",

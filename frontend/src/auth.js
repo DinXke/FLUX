@@ -1,5 +1,6 @@
 const TOKEN_KEY = 'flux_token';
 const SERVER_KEY = 'flux_server_url';
+const SAVED_CREDENTIALS_KEY = 'flux_saved_credentials';
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY) || null;
@@ -44,4 +45,21 @@ export async function apiFetch(url, opts = {}) {
     window.dispatchEvent(new CustomEvent('auth:expired'));
   }
   return res;
+}
+
+export function getSavedCredentials() {
+  try {
+    const saved = localStorage.getItem(SAVED_CREDENTIALS_KEY);
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveCredentials(email, password) {
+  localStorage.setItem(SAVED_CREDENTIALS_KEY, JSON.stringify({ email, password }));
+}
+
+export function clearSavedCredentials() {
+  localStorage.removeItem(SAVED_CREDENTIALS_KEY);
 }

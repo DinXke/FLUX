@@ -1,13 +1,25 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { setToken, apiFetch } from "../auth.js";
+import { setToken, apiFetch, getSavedCredentials, saveCredentials, clearSavedCredentials } from "../auth.js";
 
 export default function LoginPage({ onLogin }) {
   const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [hasSavedCredentials, setHasSavedCredentials] = useState(false);
+
+  useEffect(() => {
+    const saved = getSavedCredentials();
+    if (saved) {
+      setEmail(saved.email);
+      setPassword(saved.password);
+      setRememberMe(true);
+      setHasSavedCredentials(true);
+    }
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -23,6 +35,11 @@ export default function LoginPage({ onLogin }) {
       if (!res.ok) {
         setError(data.error || t("auth.loginFailed"));
       } else {
+        if (rememberMe) {
+          saveCredentials(email, password);
+        } else {
+          clearSavedCredentials();
+        }
         setToken(data.token);
         onLogin({ email: data.email, role: data.role });
       }
@@ -31,6 +48,14 @@ export default function LoginPage({ onLogin }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleClearCredentials() {
+    clearSavedCredentials();
+    setEmail("");
+    setPassword("");
+    setRememberMe(false);
+    setHasSavedCredentials(false);
   }
 
   return (
@@ -63,6 +88,27 @@ export default function LoginPage({ onLogin }) {
               required
             />
           </div>
+          <div className="login-checkbox-group">
+            <input
+              type="checkbox"
+              id="remember-me"
+              className="login-checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+            />
+            <label htmlFor="remember-me" className="login-checkbox-label">
+              {t("auth.rememberMe")}
+            </label>
+          </div>
+          {hasSavedCredentials && (
+            <button
+              type="button"
+              className="btn btn-text login-clear-btn"
+              onClick={handleClearCredentials}
+            >
+              {t("auth.clearSavedCredentials")}
+            </button>
+          )}
           {error && <p className="login-error">{error}</p>}
           <button
             type="submit"

@@ -81,7 +81,9 @@
     "password": "Wachtwoord",
     "subtitle": "Energiebeheer dashboard",
     "loginFailed": "Ongeldig e-mailadres of wachtwoord",
-    "networkError": "Verbindingsfout. Probeer opnieuw."
+    "networkError": "Verbindingsfout. Probeer opnieuw.",
+    "rememberMe": "Onthouden",
+    "clearSavedCredentials": "Opgeslagen inloggegevens wissen"
   },
   "users": {
     "title": "Gebruikersbeheer",
