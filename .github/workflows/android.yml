@@ -32,6 +32,8 @@ jobs:
         run: cd frontend && npm ci
 
       - name: Build React app
+        env:
+          VITE_APP_VERSION: ${{ github.ref_name }}
         run: cd frontend && npm run build
 
       - name: Sync Capacitor

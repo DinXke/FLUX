@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { checkForUpdate, downloadAndInstall } from "../lib/updater.ts";
 
 export default function AboutSettings() {
-  const [currentVersion, setCurrentVersion] = useState("unknown");
+  const buildVersion = import.meta.env.VITE_APP_VERSION || "onbekend";
+  const [currentVersion, setCurrentVersion] = useState(buildVersion);
   const [latestVersion, setLatestVersion] = useState(null);
   const [hasUpdate, setHasUpdate] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -11,18 +12,22 @@ export default function AboutSettings() {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    // Try to get version on mount (from localStorage if cached)
-    const cached = localStorage.getItem("flux_version_cache");
-    if (cached) {
+    const autoCheck = async () => {
       try {
-        const data = JSON.parse(cached);
-        setCurrentVersion(data.currentVersion);
-        setLatestVersion(data.latestVersion);
-        setHasUpdate(data.hasUpdate);
-      } catch (e) {
-        // ignore cache errors
+        const result = await checkForUpdate();
+        if (result.currentVersion && result.currentVersion !== "unknown") {
+          setCurrentVersion(result.currentVersion);
+        }
+        if (result.latestVersion) {
+          setLatestVersion(result.latestVersion);
+          setHasUpdate(result.hasUpdate);
+          localStorage.setItem("flux_version_cache", JSON.stringify(result));
+        }
+      } catch {
+        // silently ignore — version from build env is shown
       }
-    }
+    };
+    autoCheck();
   }, []);
 
   const handleCheckForUpdate = async () => {
