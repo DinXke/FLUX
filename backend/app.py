@@ -6656,16 +6656,12 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
 
 
 def _pv_send_webui(s: dict, target_w: int) -> bool:
-    """Send PV power limit directly to SMA inverter via HTTPS WebUI API.
+    """Send PV power limit directly to SMA inverter via HTTP WebUI API (port 80).
 
     Uses the SMA local JSON API (login → setParameter → logout).
-    self-signed cert is accepted (verify=False).
     """
     log.info("_pv_send_webui called with target_w=%dW", target_w)
     import requests as _requests
-    import urllib3 as _urllib3
-
-    _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
 
     host       = (s.get("pv_limiter_webui_host") or "").strip()
     password   = (s.get("pv_limiter_webui_password") or "").strip()
@@ -6680,9 +6676,8 @@ def _pv_send_webui(s: dict, target_w: int) -> bool:
         log.warning("WebUI PV-limiter: geen wachtwoord geconfigureerd")
         return False
 
-    base = f"https://{host}"
+    base = f"http://{host}"
     session = _requests.Session()
-    session.verify = False
 
     if use_pct:
         value = int(round(target_w / max_w * 100)) if max_w > 0 else 0
