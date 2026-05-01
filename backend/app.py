@@ -6676,7 +6676,7 @@ def _pv_send_webui(s: dict, target_w: int) -> bool:
         log.warning("WebUI PV-limiter: geen wachtwoord geconfigureerd")
         return False
 
-    base = f"http://{host}"
+    base = f"http://{host}:80"
     session = _requests.Session()
 
     if use_pct:
