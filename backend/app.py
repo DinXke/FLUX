@@ -6689,7 +6689,7 @@ def _pv_send_webui(s: dict, target_w: int) -> bool:
     try:
         resp = session.post(
             f"{base}/dyn/login.json",
-            json={"username": "user", "password": password},
+            json={"right": "usr", "pass": password},
             timeout=10,
         )
         resp.raise_for_status()
