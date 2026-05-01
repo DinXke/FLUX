@@ -2564,6 +2564,9 @@ ENTSOE_ZONES = {
     "NL": "10YNL----------L",
 }
 _entsoe_cache: dict = {}
+# Per-day fetch cache for _fetch_entsoe_day() — TTL 30 min, cleared on settings change.
+_entsoe_fetch_cache: dict = {}
+_ENTSOE_FETCH_CACHE_TTL = 1800
 
 
 def _entsoe_settings() -> dict:
@@ -2633,6 +2636,12 @@ def _fetch_entsoe_day(api_key: str, target_date: date, country: str = "BE",
         tz_name = _entsoe_settings().get("timezone") or "Europe/Brussels"
     tz = ZoneInfo(tz_name)
 
+    _fc_key = f"{target_date.isoformat()}_{country}_{tz_name}"
+    _fc_hit = _entsoe_fetch_cache.get(_fc_key)
+    if _fc_hit and (time.time() - _fc_hit["ts"]) < _ENTSOE_FETCH_CACHE_TTL:
+        log.debug("ENTSO-E fetch cache hit  country=%s  date=%s", country, target_date)
+        return _fc_hit["data"]
+
     local_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=tz)
     local_end   = local_start + timedelta(days=1)
     utc_start   = local_start.astimezone(ZoneInfo("UTC"))
@@ -2663,6 +2672,7 @@ def _fetch_entsoe_day(api_key: str, target_date: date, country: str = "BE",
             result.append({**row, "from": slot_local.isoformat(), "till": till_local.isoformat()})
 
     log.info("ENTSO-E result  country=%s  date=%s  rows=%d", country, target_date, len(result))
+    _entsoe_fetch_cache[_fc_key] = {"data": result, "ts": time.time()}
     return result
 
 
@@ -2700,6 +2710,7 @@ def set_entsoe_settings_route():
     with open(ENTSOE_SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(new_settings, f, indent=2)
     _entsoe_cache.clear()
+    _entsoe_fetch_cache.clear()
     log.info("ENTSO-E settings updated  timezone=%s  country=%s  key_set=%s",
              timezone, country, bool(new_settings.get("apiKey")))
     return jsonify({"ok": True})
@@ -5451,7 +5462,15 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
     def _do_solar():
         if fs.get("lat") and fs.get("lon"):
             try:
-                return _fetch_forecast(fs).get("watt_hours_period", {})
+                _fc_now = time.time()
+                _fc_data = _forecast_cache.get("data")
+                if _fc_data and (_fc_now - _forecast_cache.get("ts", 0)) < _forecast_cache_ttl():
+                    log.debug("_compute_forward_plan: solar from cache")
+                    return _fc_data.get("watt_hours_period", {})
+                result = _fetch_forecast(fs)
+                _forecast_cache["data"] = result
+                _forecast_cache["ts"]   = _fc_now
+                return result.get("watt_hours_period", {})
             except Exception as exc:
                 log.warning("_compute_forward_plan: forecast fetch error: %s", exc)
         return {}
