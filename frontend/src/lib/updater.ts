@@ -2,51 +2,38 @@ import { registerPlugin } from '@capacitor/core';
 import type { Plugin } from '@capacitor/core';
 
 interface UpdatePluginPlugin extends Plugin {
-  checkForUpdate(): Promise<{
-    hasUpdate: boolean;
-    currentVersion: string;
-    latestVersion?: string;
-    downloadUrl?: string;
-    error?: string;
-  }>;
   downloadAndInstall(options: { url: string }): Promise<{ downloading: boolean }>;
 }
 
 const UpdatePlugin = registerPlugin<UpdatePluginPlugin>('Update');
 
-export async function checkForUpdate() {
-  try {
-    // Check if running on Android
-    if (!window.Capacitor?.isPluginAvailable('Update')) {
-      return {
-        hasUpdate: false,
-        currentVersion: 'unknown',
-        error: 'Update plugin not available',
-      };
-    }
+const GITHUB_API = 'https://api.github.com/repos/DinXke/FLUX/releases/latest';
 
-    const result = await UpdatePlugin.checkForUpdate();
-    return result;
+export async function checkForUpdate() {
+  const currentVersion = import.meta.env.VITE_APP_VERSION || 'onbekend';
+  try {
+    const res = await fetch(GITHUB_API);
+    if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+    const data = await res.json();
+    const latestVersion: string = data.tag_name?.replace(/^v/, '') ?? '';
+    const downloadUrl: string =
+      data.assets?.find((a: { name: string; browser_download_url: string }) =>
+        a.name.endsWith('.apk')
+      )?.browser_download_url ?? '';
+    const hasUpdate =
+      !!latestVersion &&
+      !!currentVersion &&
+      currentVersion !== 'onbekend' &&
+      latestVersion !== currentVersion;
+    return { hasUpdate, currentVersion, latestVersion, downloadUrl };
   } catch (error) {
-    console.error('Error checking for update:', error);
-    return {
-      hasUpdate: false,
-      currentVersion: 'unknown',
-      error: String(error),
-    };
+    return { hasUpdate: false, currentVersion, error: String(error) };
   }
 }
 
 export async function downloadAndInstall(url: string) {
-  try {
-    if (!window.Capacitor?.isPluginAvailable('Update')) {
-      throw new Error('Update plugin not available');
-    }
-
-    const result = await UpdatePlugin.downloadAndInstall({ url });
-    return result;
-  } catch (error) {
-    console.error('Error downloading update:', error);
-    throw error;
+  if (!window.Capacitor?.isPluginAvailable('Update')) {
+    throw new Error('Native update plugin niet beschikbaar — installeer de APK handmatig');
   }
+  return UpdatePlugin.downloadAndInstall({ url });
 }

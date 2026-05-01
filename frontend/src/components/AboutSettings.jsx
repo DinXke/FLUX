@@ -37,28 +37,21 @@ export default function AboutSettings() {
 
     try {
       const result = await checkForUpdate();
-      setCurrentVersion(result.currentVersion);
-
+      if (result.currentVersion && result.currentVersion !== "onbekend") {
+        setCurrentVersion(result.currentVersion);
+      }
       if (result.latestVersion) {
         setLatestVersion(result.latestVersion);
         setHasUpdate(result.hasUpdate);
-
-        // Cache the result
-        localStorage.setItem(
-          "flux_version_cache",
-          JSON.stringify(result)
-        );
-
-        if (result.hasUpdate) {
-          setSuccess(true);
-        }
+        localStorage.setItem("flux_version_cache", JSON.stringify(result));
+        if (result.hasUpdate) setSuccess(true);
+        else setError(null);
       }
-
       if (result.error) {
-        setError(result.error);
+        setError("Update-check mislukt: " + result.error);
       }
     } catch (err) {
-      setError(err.message || "Failed to check for update");
+      setError(err.message || "Update-check mislukt");
     } finally {
       setChecking(false);
     }
