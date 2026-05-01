@@ -644,9 +644,32 @@ def build_plan(
                                   f"{_neg_hours}u netladen")
                     else:
                         action = NEUTRAL
+                elif is_peak_hour and bat_kwh > bat_min + 0.2 and buy_price >= price_median:
+                    # At/below target but peak hour: discharge is still OK because the
+                    # upcoming negative window will recharge the battery for free.
+                    discharge_possible = min(max(0.0, -net_wh) / 1000.0, bat_kwh - bat_min)
+                    if discharge_possible > 0.05:
+                        bat_kwh      -= discharge_possible
+                        discharge_kwh = discharge_possible
+                        action = DISCHARGE
+                        reason = (f"Piekuur ontladen ({buy_price*100:.1f}ct) – "
+                                  f"negatief netladen volgt in {_neg_hours}u")
+                    else:
+                        action = NEUTRAL
+                        reason = "Batterij te leeg voor ontladen"
+                elif buy_price > p75 and bat_kwh > bat_min + 0.2:
+                    # Expensive hour above p75: discharge even if below target.
+                    discharge_possible = min(max(0.0, -net_wh) / 1000.0, bat_kwh - bat_min)
+                    if discharge_possible > 0.05:
+                        bat_kwh      -= discharge_possible
+                        discharge_kwh = discharge_possible
+                        action = DISCHARGE
+                        reason = (f"Duur uur ({buy_price*100:.1f}ct) – "
+                                  f"negatief netladen volgt in {_neg_hours}u")
+                    else:
+                        action = NEUTRAL
                 else:
-                    # At or below target: freeze battery, don't charge from grid.
-                    # Wait for the negative window to fill at free/paid rate.
+                    # Not a peak or expensive hour: freeze battery, wait for negative window.
                     action = SAVE
                     reason = (f"SOC {soc_start:.0f}% op/onder doel {_neg_target_soc:.0f}% – "
                               f"wachten op {_neg_hours}u netladen")
