@@ -959,6 +959,7 @@ export default function StrategyPage() {
   const [lastFetch,     setLastFetch]     = useState(null);
   const [viewDate,      setViewDate]      = useState(null); // null = today+tomorrow, string = specific date
   const [planLoadedAt,  setPlanLoadedAt]  = useState(null);
+  const [strategyMode,  setStrategyMode]  = useState(null); // rule_based, auto, claude
 
   const load = useCallback(async (date, force = false) => {
     setLoading(true); setError(null);
@@ -995,6 +996,13 @@ export default function StrategyPage() {
     return () => window.removeEventListener("marstek_flow_cfg_changed", onCfgChange);
   }, []);
 
+  useEffect(() => {
+    apiFetch("api/strategy/settings")
+      .then((r) => r.json())
+      .then((d) => setStrategyMode(d.strategy_mode || "rule_based"))
+      .catch(() => setStrategyMode("rule_based"));
+  }, []);
+
   const today    = plan?.today    || [];
   const tomorrow = plan?.tomorrow || [];
   const consHours = plan?.consumption_by_hour || [];
@@ -1007,6 +1015,15 @@ export default function StrategyPage() {
         <div>
           <div className="strat-title">🧠 Laadstrategie</div>
           <div className="strat-subtitle">
+            {plan && plan.age_s !== undefined && (
+              <>
+                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                  Berekend: {plan.age_s < 60 ? `${Math.round(plan.age_s)}s` : `${Math.round(plan.age_s / 60)}m`} geleden
+                  {plan.price_fingerprint && ` (fp: ${plan.price_fingerprint})`}
+                </span>
+                {" · "}
+              </>
+            )}
             {lastFetch && `Bijgewerkt: ${lastFetch.toLocaleTimeString("nl-BE")} · `}
             {plan && (
               <>
@@ -1057,9 +1074,11 @@ export default function StrategyPage() {
             )}
           </div>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={() => load(viewDate, true)} disabled={loading}>
-          {loading ? "Laden…" : "↺ Vernieuwen"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => load(viewDate, true)} disabled={loading}>
+            {loading ? "Laden…" : "🔄 Herbereken"}
+          </button>
+        </div>
       </div>
 
       {/* Day navigation */}
@@ -1116,7 +1135,11 @@ export default function StrategyPage() {
       {loading && !plan && (
         <div className="loading-overlay" style={{ position: "relative", height: 100 }}>
           <div className="loading-spinner" />
-          <span>Strategie berekenen…</span>
+          <span>
+            {strategyMode === "claude" || (strategyMode === "auto" && plan?.strategy_engine === "claude")
+              ? "🤖 Strategie wordt berekend via AI (~25s)…"
+              : "Strategie berekenen…"}
+          </span>
         </div>
       )}
 
