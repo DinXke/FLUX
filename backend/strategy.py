@@ -669,10 +669,11 @@ def build_plan(
                     else:
                         action = NEUTRAL
                 else:
-                    # Not a peak or expensive hour: freeze battery, wait for negative window.
-                    action = SAVE
-                    reason = (f"SOC {soc_start:.0f}% op/onder doel {_neg_target_soc:.0f}% – "
-                              f"wachten op {_neg_hours}u netladen")
+                    # Not a peak or expensive hour: anti-feed mode, don't charge from grid.
+                    # Battery drains naturally from house consumption (anti-feed).
+                    action = NEUTRAL
+                    reason = (f"Anti-feed – geen netladen, wachten op {_neg_hours}u "
+                              f"negatieve prijs (SoC {soc_start:.0f}% → doel {_neg_target_soc:.0f}%)")
 
             elif is_peak_hour and bat_kwh > bat_min + 0.2 and buy_price >= price_median:
                 # Peak hour AND price is at or above the day's median.
