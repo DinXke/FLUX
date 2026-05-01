@@ -6658,7 +6658,7 @@ def _pv_send_modbus(s: dict, target_w: int) -> bool:
 def _pv_send_webui(s: dict, target_w: int) -> bool:
     """Send PV power limit directly to SMA inverter via HTTP WebUI API (port 80).
 
-    Uses the SMA local JSON API (login → setParameter → logout).
+    Uses the SMA local JSON API (login → setParamValues → logout).
     """
     log.info("_pv_send_webui called with target_w=%dW", target_w)
     import requests as _requests
@@ -6666,7 +6666,7 @@ def _pv_send_webui(s: dict, target_w: int) -> bool:
     host       = (s.get("pv_limiter_webui_host") or "").strip()
     password   = (s.get("pv_limiter_webui_password") or "").strip()
     use_pct    = bool(s.get("pv_limiter_webui_use_pct"))
-    object_id  = (s.get("pv_limiter_webui_object_id") or "6800_00A9D300").strip()
+    object_id  = (s.get("pv_limiter_webui_object_id") or "6802_00832B00").strip()
     max_w      = int(s.get("pv_limiter_max_w", 4000))
 
     if not host:
@@ -6700,14 +6700,14 @@ def _pv_send_webui(s: dict, target_w: int) -> bool:
             return False
 
         resp2 = session.post(
-            f"{base}/dyn/setParameter.json?sid={sid}",
+            f"{base}/dyn/setParamValues.json?sid={sid}",
             json={"destDev": [], "values": [{"objectID": object_id, "value": value}]},
             timeout=10,
         )
         resp2.raise_for_status()
         result = resp2.json()
-        if result.get("result") is None and result.get("err"):
-            log.warning("WebUI PV-limiter: setParameter fout: %s", result)
+        if result.get("err"):
+            log.warning("WebUI PV-limiter: setParamValues fout: %s", result)
             return False
 
         log.info("WebUI PV-limiter: %dW (value=%s) geschreven via %s objectID=%s",
