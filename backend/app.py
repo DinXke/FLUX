@@ -4281,6 +4281,7 @@ def get_strategy_plan():
                         live = _live_soc()
                         if live is not None:
                             result["soc_now"] = live
+                        result["age_s"] = int(age_s)
                         return jsonify(result)
                 # Older than 5 min but still valid: update SoC and serve
                 # without re-calling Claude (fingerprint check will guard it).
@@ -4298,11 +4299,17 @@ def get_strategy_plan():
                         live = _live_soc()
                         if live is not None:
                             result["soc_now"] = live
+                        result["age_s"] = int(age_s)
                         return jsonify(result)
                 # Older than 30 min: fall through to _compute_forward_plan
                 # (fingerprint-gated — will serve cache if prices unchanged).
         try:
-            return jsonify(_compute_forward_plan(force_claude=force_refresh))
+            result = _compute_forward_plan(force_claude=force_refresh)
+            cached_at_str = _plan_cache.get("fetched_at")
+            if cached_at_str:
+                result["age_s"] = int((datetime.now(timezone.utc)
+                                       - datetime.fromisoformat(cached_at_str)).total_seconds())
+            return jsonify(result)
         except Exception as exc:
             log.error("get_strategy_plan: _compute_forward_plan failed: %s", exc, exc_info=True)
             # Serve stale cached plan as fallback so the UI stays functional
@@ -4313,6 +4320,10 @@ def get_strategy_plan():
                 live = _live_soc()
                 if live is not None:
                     result["soc_now"] = live
+                cached_at_str = _plan_cache.get("fetched_at")
+                if cached_at_str:
+                    result["age_s"] = int((datetime.now(timezone.utc)
+                                           - datetime.fromisoformat(cached_at_str)).total_seconds())
                 return jsonify(result)
             return jsonify({"error": f"Strategie kon niet berekend worden: {exc}"}), 500
 
