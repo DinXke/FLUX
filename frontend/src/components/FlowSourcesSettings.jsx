@@ -298,7 +298,7 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
     }
     return collapsed;
   });
-  const [collapsedCustom, setCollapsedCustom] = useState(true); // Default = collapsed
+  const [collapsedCustom, setCollapsedCustom] = useState(false); // Default = open
 
   const loadHw = useCallback(async () => {
     try { const r = await apiFetch("api/homewizard/data"); if (r.ok) setHwData(await r.json()); } catch {}
@@ -487,23 +487,21 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 16 }}>{collapsedCustom ? "▶" : "▼"}</span>
             <div className="settings-row-label" style={{ margin: 0 }}>⚙️ Aangepaste apparaten</div>
-            {!collapsedCustom && (config.custom_nodes ?? []).length > 0 && (
+            {(config.custom_nodes ?? []).length > 0 && (
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                 {(config.custom_nodes ?? []).length} {(config.custom_nodes ?? []).length === 1 ? "apparaat" : "apparaten"}
               </span>
             )}
           </div>
-          {!collapsedCustom && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowPresetPicker(true);
-              }}
-            >
-              + Toevoegen
-            </button>
-          )}
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowPresetPicker(true);
+            }}
+          >
+            + Toevoegen
+          </button>
         </div>
 
         {!collapsedCustom && (
