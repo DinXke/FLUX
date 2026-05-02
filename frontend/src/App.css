@@ -1377,7 +1377,7 @@ html, body {
 .home-flow-body:-webkit-full-screen {
   max-height: none !important;
   overflow: visible;
-  background: #0d1525;
+  background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
