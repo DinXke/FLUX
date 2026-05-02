@@ -15,9 +15,12 @@ FROM $BUILD_FROM
 # System dependencies (no nodejs/npm needed – frontend is pre-built)
 RUN apk add --no-cache \
     gcc \
+    g++ \
     musl-dev \
     libffi-dev \
-    openssl-dev
+    openssl-dev \
+    cmake \
+    make
 
 # Copy pre-built frontend dist from builder stage
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist

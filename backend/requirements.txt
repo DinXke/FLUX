@@ -11,5 +11,6 @@ openai>=1.59.0
 pymodbus>=3.7.0
 numpy>=1.24.0
 pandas>=2.0.0
+prophet>=1.1
 PyJWT>=2.10.0
 bcrypt>=4.1.0
