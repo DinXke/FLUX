@@ -85,8 +85,8 @@ function NodeCard({ cx, cy, w, h, icon, label, power, color, active, soc, socCol
       )}
       {/* Card background */}
       <rect x={x} y={y} width={w} height={h} rx={13}
-        fill={active ? color + "12" : "#141e30"}
-        stroke={active ? color : "#283850"}
+        fill={active ? color + "12" : "var(--bg-card-inner)"}
+        stroke={active ? color : "var(--border)"}
         strokeWidth={active ? 2 : 1.2} />
 
       {/* Icon */}
@@ -95,7 +95,7 @@ function NodeCard({ cx, cy, w, h, icon, label, power, color, active, soc, socCol
 
       {/* Power — dominant */}
       <text x={cx} y={y + h * powerFrac} textAnchor="middle" dominantBaseline="middle"
-        fill={active ? color : "#4a5568"}
+        fill={active ? color : "var(--text-dim)"}
         fontSize={h >= 130 ? 22 : 19}
         fontWeight="800"
         fontFamily="'Courier New',Courier,monospace">
@@ -123,13 +123,13 @@ function NodeCard({ cx, cy, w, h, icon, label, power, color, active, soc, socCol
       {/* Detail label */}
       {detail && (
         <text x={cx} y={y + h * 0.82} textAnchor="middle" dominantBaseline="middle"
-          fill={detailColor || "#536680"} fontSize={10}
+          fill={detailColor || "var(--text-dim)"} fontSize={10}
           fontFamily="Inter,system-ui,sans-serif">{detail}</text>
       )}
 
       {/* Bottom label */}
       <text x={cx} y={y + h * 0.93} textAnchor="middle" dominantBaseline="middle"
-        fill="#415167" fontSize={10} letterSpacing="1.5"
+        fill="var(--text-muted)" fontSize={10} letterSpacing="1.5"
         fontFamily="Inter,system-ui,sans-serif">{label}</text>
     </g>
   );
@@ -149,7 +149,7 @@ function ConnLine({ x1, y1, x2, y2, color, active, reverse, power }) {
     <g>
       {/* Track */}
       <line x1={x1} y1={y1} x2={x2} y2={y2}
-        stroke="rgba(40,56,80,0.8)" strokeWidth={6} strokeLinecap="round" />
+        stroke="var(--border)" strokeWidth={6} strokeLinecap="round" />
       {/* Animated dots */}
       {active && (
         <line x1={x1} y1={y1} x2={x2} y2={y2}
@@ -165,7 +165,7 @@ function ConnLine({ x1, y1, x2, y2, color, active, reverse, power }) {
       {label && (
         <g>
           <rect x={lx - tw / 2} y={ly - 11} width={tw} height={22}
-            fill="#0d1525" stroke={color} strokeWidth={1.3} rx={11} />
+            fill="var(--bg-card)" stroke={color} strokeWidth={1.3} rx={11} />
           <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
             fill={color} fontSize={11.5} fontWeight="700"
             fontFamily="'Courier New',Courier,monospace">{label}</text>
@@ -363,8 +363,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
           </radialGradient>
         </defs>
 
-        <rect width={W} height={H} fill="#0d1525" rx={14} />
-        <rect width={W} height={H} fill="url(#em-bg)" rx={14} />
+        <rect width={W} height={H} fill="var(--bg-card)" rx={14} />
 
         {/* Connections (behind nodes) */}
         <ConnLine {...gridLine} color={netColor} active={netActive}
@@ -398,7 +397,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
           icon="🏠" label="WONING"
           power={housePower} color={C.house}
           active={housePower != null && housePower > 10}
-          detail={phaseStr} detailColor="#536680" />
+          detail={phaseStr} />
 
         <NodeCard cx={cBAT.cx} cy={cBAT.cy} w={wSat} h={hSat}
           icon="🔋" label="BATTERIJ"
