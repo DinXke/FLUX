@@ -588,7 +588,7 @@ def _collect_and_write(app_context_fn):
 
     # ── Custom flow devices (marstek_flow_cfg.devices[]) ────────────────────
     try:
-        cfg_devices = flow_cfg.get("devices", []) if isinstance(flow_cfg, dict) else []
+        cfg_devices = flow_cfg.get("custom_nodes", []) if isinstance(flow_cfg, dict) else []
         if cfg_devices:
             from influxdb_client import Point  # type: ignore
             dev_count = 0
@@ -597,7 +597,8 @@ def _collect_and_write(app_context_fn):
                     dev_id = dev.get("id")
                     if not dev_id:
                         continue
-                    sources = dev.get("sources", [])
+                    raw_src = dev.get("sources") or dev.get("source")
+                    sources = raw_src if isinstance(raw_src, list) else ([raw_src] if raw_src else [])
                     if not sources:
                         continue
                     power_w: Optional[float] = None
@@ -627,7 +628,7 @@ def _collect_and_write(app_context_fn):
                     energy_kwh_delta = power_w * WRITE_INTERVAL / 3600.0 / 1000.0
                     dp = Point("device_power")
                     dp = dp.tag("device_id", dev_id)
-                    dp = dp.tag("device_label", dev.get("label", dev_id))
+                    dp = dp.tag("device_label", dev.get("name") or dev.get("label") or dev_id)
                     dp = dp.tag("device_icon", dev.get("icon", "🔌"))
                     dp = dp.field("power_w", float(power_w))
                     dp = dp.field("energy_kwh_delta", float(energy_kwh_delta))
