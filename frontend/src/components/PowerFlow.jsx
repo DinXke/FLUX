@@ -30,7 +30,7 @@ function Arrow({ x1, y1, x2, y2, color, active, reverse }) {
   const bx2 = sx + ux * as + uy * as * 0.6, by2 = sy + uy * as - ux * as * 0.6;
   return (
     <g>
-      <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="#1e293b" strokeWidth={2.5} />
+      <line x1={sx} y1={sy} x2={ex} y2={ey} stroke="var(--border)" strokeWidth={2.5} />
       {active && (
         <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={color} strokeWidth={2.5}
           strokeDasharray="6 8" opacity={0.85}>
@@ -52,7 +52,7 @@ function Arrow({ x1, y1, x2, y2, color, active, reverse }) {
 function Node({ cx, cy, icon, label, color }) {
   return (
     <g>
-      <circle cx={cx} cy={cy} r={28} fill="#0f172a" stroke={color} strokeWidth={1.5} />
+      <circle cx={cx} cy={cy} r={28} fill="var(--bg-card)" stroke={color} strokeWidth={1.5} />
       <circle cx={cx} cy={cy} r={28} fill={color} opacity={0.06} />
       <text x={cx} y={cy - 5} textAnchor="middle" dominantBaseline="middle" fontSize={16}>{icon}</text>
       <text x={cx} y={cy + 11} textAnchor="middle" dominantBaseline="middle"
