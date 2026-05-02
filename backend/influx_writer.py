@@ -440,17 +440,34 @@ def _collect_and_write(app_context_fn):
         if forecast_data:
             from influxdb_client import Point  # type: ignore
             from datetime import datetime as _dt
+            from zoneinfo import ZoneInfo as _ZI
+
+            # Determine slot duration in hours from sorted timestamps
+            sorted_slots = sorted(forecast_data.keys())
+            slot_duration_h = 0.25  # default: 15-min (API key mode)
+            if len(sorted_slots) >= 2:
+                try:
+                    t0 = _dt.fromisoformat(sorted_slots[0].replace(" ", "T"))
+                    t1 = _dt.fromisoformat(sorted_slots[1].replace(" ", "T"))
+                    diff_h = (t1 - t0).total_seconds() / 3600.0
+                    if diff_h > 0:
+                        slot_duration_h = diff_h
+                except Exception:
+                    pass
+
             written_count = 0
             for slot_time_str, wh in forecast_data.items():
                 try:
                     if not wh:
                         continue
+                    wh_val = float(wh)
+                    forecast_w = wh_val / slot_duration_h
                     p = Point("solar_forecast")
-                    p = p.field("forecasted_wh", float(wh))
+                    p = p.field("forecasted_wh", wh_val)
+                    p = p.field("forecast_solar_w", forecast_w)
                     slot_dt = _dt.fromisoformat(slot_time_str) if "T" in slot_time_str else _dt.fromisoformat(slot_time_str.replace(" ", "T"))
                     if slot_dt.tzinfo is None:
-                        from zoneinfo import ZoneInfo
-                        slot_dt = slot_dt.replace(tzinfo=ZoneInfo("UTC"))
+                        slot_dt = slot_dt.replace(tzinfo=_ZI("UTC"))
                     p = p.time(slot_dt)
                     write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
                     written_count += 1
@@ -458,6 +475,28 @@ def _collect_and_write(app_context_fn):
                     log.debug("Solar forecast write error (%s): %s", slot_time_str, e)
             if written_count > 0:
                 log.debug("InfluxDB solar forecast write OK  count=%d", written_count)
+
+            # Write forecast_accuracy for current moment (forecast vs actual solar_w)
+            try:
+                solar_w_actual = float(fields.get("solar_w", 0) or 0)
+                if solar_w_actual > 10 and sorted_slots:
+                    from datetime import timezone as _tz
+                    now_utc = _dt.now(_tz.utc)
+
+                    def _parse(s):
+                        dt = _dt.fromisoformat(s.replace(" ", "T"))
+                        return dt.replace(tzinfo=_ZI("UTC")) if dt.tzinfo is None else dt
+
+                    nearest = min(sorted_slots, key=lambda s: abs((_parse(s) - now_utc).total_seconds()))
+                    wh_nearest = forecast_data.get(nearest, 0)
+                    if wh_nearest:
+                        forecast_w_now = float(wh_nearest) / slot_duration_h
+                        error_pct = abs(forecast_w_now - solar_w_actual) / max(solar_w_actual, 1.0) * 100.0
+                        acc_p = Point("forecast_accuracy").field("error_percent", error_pct).time(now_utc)
+                        write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=acc_p)
+                        log.debug("InfluxDB forecast_accuracy write OK  error=%.1f%%", error_pct)
+            except Exception as e:
+                log.debug("Forecast accuracy write error: %s", e)
     except Exception as exc:
         log.debug("InfluxDB solar forecast write skip: %s", exc)
 
