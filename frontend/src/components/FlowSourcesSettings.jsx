@@ -68,6 +68,18 @@ export const DEFAULT_CUSTOM_NODE = {
   unit: "W",
 };
 
+// Preset device types with icons
+export const DEVICE_PRESETS = [
+  { label: "Wasmachine",  icon: "🫧" },
+  { label: "Droogkast",   icon: "🌀" },
+  { label: "Airco",       icon: "❄️" },
+  { label: "Vaatwasser",  icon: "🍽️" },
+  { label: "Elektrische oven", icon: "🔥" },
+  { label: "EV-lader",    icon: "🚗" },
+  { label: "Warmtepomp",  icon: "♨️" },
+  { label: "Andere",      icon: "🔌" },
+];
+
 const ESPHOME_SENSORS = [
   { key: "batPower",  label: "Batterijvermogen", unit: "W"  },
   { key: "acPower",   label: "AC vermogen",      unit: "W",  hint: "Positief = terugleveren → gebruik 'Omkeren' als bron voor net-import" },
@@ -206,6 +218,56 @@ function MultiSelect({ options, selected, onChange, unit, currentValues }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Preset Picker Modal
+// ---------------------------------------------------------------------------
+
+function PresetPickerModal({ onClose, onSelect }) {
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Select Device Type">
+        <div className="modal-header">
+          <span className="modal-title">Selecteer apparaattype</span>
+          <button className="btn-icon btn" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="modal-body" style={{ padding: "16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px" }}>
+            {DEVICE_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                className="btn btn-ghost"
+                onClick={() => onSelect(preset)}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "12px",
+                  borderRadius: "6px",
+                  border: "1px solid var(--border)",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "var(--bg-secondary)";
+                  e.currentTarget.style.borderColor = "var(--blue)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                  e.currentTarget.style.borderColor = "var(--border)";
+                }}
+              >
+                <span style={{ fontSize: "32px" }}>{preset.icon}</span>
+                <span style={{ fontSize: "12px", fontWeight: "500", textAlign: "center" }}>{preset.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // InfluxDB slot definitions (unit must match SLOT_DEFS units for filtering)
 const INFLUX_SLOT_META = {
   solar_w: { label: "☀️ Zonnepanelen",        unit: "W" },
@@ -228,6 +290,7 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
   const [smaSources,  setSmaSources]  = useState([]);
   const [saved,       setSaved]       = useState(false);
   const [error,       setError]       = useState(null);
+  const [showPresetPicker, setShowPresetPicker] = useState(false);
 
   const loadHw = useCallback(async () => {
     try { const r = await apiFetch("api/homewizard/data"); if (r.ok) setHwData(await r.json()); } catch {}
@@ -364,6 +427,18 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
     });
   };
 
+  const handlePresetSelect = (preset) => {
+    const newId = `custom_${Date.now()}`;
+    setConfig((prev) => ({
+      ...prev,
+      custom_nodes: [
+        ...(prev.custom_nodes ?? []),
+        { ...DEFAULT_CUSTOM_NODE, id: newId, name: preset.label, icon: preset.icon }
+      ]
+    }));
+    setShowPresetPicker(false);
+  };
+
   const handleSave = async () => {
     try {
       saveFlowCfg(config);
@@ -391,13 +466,7 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
       <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
         <div className="settings-row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div className="settings-row-label">⚙️ Aangepaste apparaten</div>
-          <button className="btn btn-secondary btn-sm" onClick={() => {
-            const newId = `custom_${Date.now()}`;
-            setConfig((prev) => ({
-              ...prev,
-              custom_nodes: [...(prev.custom_nodes ?? []), { ...DEFAULT_CUSTOM_NODE, id: newId }]
-            }));
-          }}>+ Toevoegen</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowPresetPicker(true)}>+ Toevoegen</button>
         </div>
 
         {(config.custom_nodes ?? []).length === 0 ? (
@@ -661,6 +730,13 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
         {saved && <span style={{ fontSize: 12, color: "var(--green)" }}>✓ Opgeslagen</span>}
         {error && <span style={{ fontSize: 12, color: "var(--red)" }}>{error}</span>}
       </div>
+
+      {showPresetPicker && (
+        <PresetPickerModal
+          onClose={() => setShowPresetPicker(false)}
+          onSelect={handlePresetSelect}
+        />
+      )}
     </div>
   );
 }
