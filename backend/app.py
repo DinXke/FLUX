@@ -178,24 +178,25 @@ _BYPASS_STATES = {"ac bypass", "bypass", "fault"}
 def send_esphome_command(ip: str, port: int, domain: str, name: str, value: str) -> dict:
     """
     Send a command to an ESPHome entity identified by its friendly name.
-    ESPHome web server v3 uses the entity name (URL-encoded) in REST paths:
-      SELECT  → POST /select/{name}/set?option={value}
-      NUMBER  → POST /number/{name}/set?value={value}
+    ESPHome web server requires Content-Length on POST requests, so we send
+    the value in the request body (form data) rather than as a URL query param.
+      SELECT  → POST /select/{name}/set  body: option={value}
+      NUMBER  → POST /number/{name}/set  body: value={value}
     """
     encoded_name = quote(name, safe="")
 
     if domain == "select":
         path = f"/select/{encoded_name}/set"
-        params = urlencode({"option": value})
+        body = {"option": value}
     elif domain == "number":
         path = f"/number/{encoded_name}/set"
-        params = urlencode({"value": value})
+        body = {"value": value}
     else:
         return {"ok": False, "error": f"Unsupported domain: {domain}"}
 
-    url = f"http://{ip}:{port}{path}?{params}"
+    url = f"http://{ip}:{port}{path}"
     try:
-        resp = _req.post(url, timeout=10, headers={"User-Agent": "FLUX/1.0"})
+        resp = _req.post(url, data=body, timeout=10, headers={"User-Agent": "FLUX/1.0"})
         return {"ok": resp.ok, "status": resp.status_code}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
@@ -6536,9 +6537,12 @@ def _automation_tick() -> None:
             result = send_esphome_command(device["ip"], device["port"], domain, name, value)
             if result.get("ok"):
                 log.info("Automation: ✓ %s → %s=%s  (device %s)", effective_action, name, value, device_id)
+            elif result.get("status") == 404:
+                # Entity not supported by this firmware version — non-fatal, skip silently
+                log.debug("Automation: entity '%s' niet gevonden op device %s (firmware ondersteunt dit niet)", name, device_id)
             else:
                 log.warning("Automation: ✗ %s → %s=%s  (device %s): %s",
-                            effective_action, name, value, device_id, result.get("error"))
+                            effective_action, name, value, device_id, result.get("error") or result.get("status"))
                 _commands_all_ok = False
                 if not esphome_failed_sent:
                     esphome_failed_sent = True
