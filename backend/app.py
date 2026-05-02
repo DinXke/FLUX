@@ -429,6 +429,8 @@ def update_device(device_id):
     if ip:
         if "min_soc" in body and device.get("min_soc") is not None:
             send_esphome_command(ip, port, "number", "Marstek Reserve", str(device["min_soc"]))
+        if "max_soc" in body and device.get("max_soc") is not None:
+            send_esphome_command(ip, port, "number", "Marstek Charge to SoC", str(device["max_soc"]))
         if "forced_mode" in body:
             mode = device.get("forced_mode")
             if mode:
