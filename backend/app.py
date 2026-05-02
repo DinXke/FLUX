@@ -4804,9 +4804,22 @@ INFLUX_SOURCE_FILE = os.path.join(BASE_DIR, "influx_source.json")
 def _load_influx_source() -> dict:
     try:
         with open(INFLUX_SOURCE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            src = json.load(f)
     except Exception:
         return {}
+    # Auto-detect UTC timestamps: if influx_source points to FLUX's own InfluxDB
+    # (same URL as influx_connection.json), FLUX always writes UTC → force True.
+    # Explicit false in the config always wins (SBFspot local-timestamp setups).
+    if "v1_timestamps_utc" not in src:
+        try:
+            conn = _load_influx_conn()
+            src_url = src.get("url", "").rstrip("/")
+            conn_url = conn.get("url", "").rstrip("/")
+            if src_url and conn_url and src_url == conn_url:
+                src = dict(src, v1_timestamps_utc=True)
+        except Exception:
+            pass
+    return src
 
 
 @app.route("/api/influx/source", methods=["GET"])
