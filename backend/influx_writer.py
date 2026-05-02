@@ -43,6 +43,7 @@ WRITE_INTERVAL = 30   # seconds between writes
 
 _write_api = None
 _influx_ok  = False
+_last_prophet_write: Optional[str] = None  # cached_at timestamp van laatste schrijfbeurt
 
 
 def _get_write_api():
@@ -240,6 +241,84 @@ def _resolve_slot(key: str, cfg: dict, esphome_map: dict,
     if total is None:
         return None
     return total / count if is_avg and count else total
+
+
+# ---------------------------------------------------------------------------
+# Prophet consumption forecast writer
+# ---------------------------------------------------------------------------
+
+def _write_prophet_consumption_forecast(actual_house_w: Optional[float] = None) -> None:
+    """
+    Schrijf Prophet consumption_forecast punten naar InfluxDB.
+    Wordt alleen uitgevoerd als de cache nieuwer is dan de laatste schrijfbeurt.
+    Measurement: consumption_forecast, tag source=prophet.
+    """
+    global _last_prophet_write
+    try:
+        import pytz
+        from prophet_forecast import load_forecast_cache  # type: ignore
+
+        cache = load_forecast_cache()
+        cached_at = cache.get("cached_at")
+        if not cached_at or not cache.get("forecast"):
+            return
+
+        # Sla schrijven over als de cache niet gewijzigd is
+        if _last_prophet_write and _last_prophet_write >= cached_at:
+            return
+
+        forecast_data = cache["forecast"]
+        if forecast_data.get("status") != "success" or not forecast_data.get("data"):
+            return
+
+        write_api = _get_write_api()
+        if write_api is None:
+            return
+
+        from influxdb_client import Point  # type: ignore
+
+        # Lokale tijdzone voor timestamp-conversie (zelfde als prophet_forecast.py)
+        try:
+            from config import get_config  # type: ignore
+            tz_name = get_config().get("entsoe", {}).get("timezone") or "Europe/Brussels"
+        except Exception:
+            tz_name = "Europe/Brussels"
+        local_tz = pytz.timezone(tz_name)
+
+        now_utc = datetime.now(timezone.utc)
+        written_count = 0
+
+        for point in forecast_data["data"]:
+            try:
+                ts_str = point.get("timestamp")
+                forecast_kw = point.get("forecast")
+                if not ts_str or forecast_kw is None:
+                    continue
+
+                # Timestamps zijn lokale tijd zonder tz-info; converteren naar UTC
+                dt_naive = datetime.fromisoformat(ts_str)
+                dt_utc = local_tz.localize(dt_naive).astimezone(pytz.UTC)
+
+                p = Point("consumption_forecast").tag("source", "prophet")
+                p = p.field("forecast_consumption_w", round(float(forecast_kw) * 1000.0, 1))
+
+                # actual_house_w toevoegen voor het huidige uur (±30 min)
+                if actual_house_w is not None and abs((dt_utc - now_utc).total_seconds()) < 1800:
+                    p = p.field("actual_house_w", float(actual_house_w))
+
+                p = p.time(dt_utc)
+                write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                written_count += 1
+            except Exception as e:
+                log.debug("Prophet forecast point write error: %s", e)
+
+        if written_count > 0:
+            _last_prophet_write = cached_at
+            log.info("InfluxDB consumption_forecast write OK  count=%d  cached_at=%s",
+                     written_count, cached_at)
+
+    except Exception as exc:
+        log.debug("InfluxDB prophet forecast write skip: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -595,6 +674,9 @@ def _collect_and_write(app_context_fn):
                 log.debug("InfluxDB daikin_device write OK  count=%d", daikin_count)
     except Exception as exc:
         log.debug("InfluxDB daikin_device write skip: %s", exc)
+
+    # ── Prophet consumption forecast ─────────────────────────────────────────
+    _write_prophet_consumption_forecast(actual_house_w=fields.get("house_w"))
 
     # ── Bosch Home Connect appliance states ─────────────────────────────────
     try:
