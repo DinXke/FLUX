@@ -103,6 +103,30 @@ function resolveSlot(key, cfg, batteries, hwData, haData, influxLive, smaLive) {
 }
 
 // ---------------------------------------------------------------------------
+// Node layout helpers
+// ---------------------------------------------------------------------------
+
+/** Calculate auto-positions for custom nodes around the diagram perimeter */
+function getCustomNodePositions(count, W, H) {
+  if (count === 0) return [];
+  const positions = [];
+  const rightEdge = W - 50;
+  const bottomEdge = H - 40;
+  let x = rightEdge, y = 50;
+  const spacing = 50;
+
+  for (let i = 0; i < count; i++) {
+    positions.push({ cx: Math.max(30, Math.min(x, rightEdge)), cy: Math.max(30, Math.min(y, bottomEdge)) });
+    y += spacing;
+    if (y > bottomEdge) {
+      y = 50;
+      x -= spacing;
+    }
+  }
+  return positions;
+}
+
+// ---------------------------------------------------------------------------
 // SVG sub-components
 // ---------------------------------------------------------------------------
 
@@ -348,11 +372,24 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
 
   const houseColor = housePower != null && housePower > 10 ? "#a78bfa" : "#475569";
 
+  // ── Custom nodes ──────────────────────────────────────────────────────────
+  const customNodes = cfg.custom_nodes ?? [];
+  const customNodeValues = customNodes.map((node) => {
+    if (!node.source) return null;
+    return resolveOne(node.source, batteries, hwData, haData, influxLive, smaLive);
+  });
+
   // ── SVG layout ─────────────────────────────────────────────────────────────
-  const W = 440, H = 165;
+  // Expand canvas if custom nodes present to avoid crowding
+  const baseW = 440, baseH = 165;
+  const W = baseW + (customNodes.length > 0 ? 80 : 0);
+  const H = baseH + (customNodes.length > 3 ? 40 : 0);
   const midY = 112;
   const netX = 55, huisX = 220, batX = 385;
   const solX = 220, solY = 26, solR = 22, nodeR = 28;
+
+  // Custom node positions (calculated after W, H are final)
+  const customNodePositions = getCustomNodePositions(customNodes.length, W, H);
 
   // Arrow endpoints (edge of nodes)
   const netArrowX1 = netX  + nodeR, netArrowX2 = huisX - nodeR;
@@ -443,6 +480,21 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
           color={batDisch ? "#f59e0b" : "#3b82f6"} active={batActive}
           sublabel={batSoc != null ? fmtPct(batSoc) : null}
           sublabelColor={socColor} />
+
+        {/* Custom nodes */}
+        {customNodes.map((node, idx) => {
+          const val = customNodeValues[idx];
+          const active = val != null && Math.abs(val) > 5;
+          const pos = customNodePositions[idx];
+          const color = active ? (val > 0 ? "#f59e0b" : "#3b82f6") : "#334155";
+          return (
+            <GlowNode key={node.id} cx={pos.cx} cy={pos.cy} r={nodeR}
+              icon={node.icon || "⚙️"} label={node.name || "Apparaat"}
+              color={color} active={active}
+              sublabel={val != null ? fmt(val) : null}
+              sublabelColor={active ? color : "#64748b"} />
+          );
+        })}
       </svg>
 
       {/* Per-battery breakdown */}

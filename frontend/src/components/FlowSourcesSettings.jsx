@@ -59,6 +59,15 @@ const SLOT_DEFS = {
 
 export const SLOT_ORDER = ["solar_power","net_power","house_power","bat_power","bat_soc","ev_power","voltage_l1","voltage_l2","voltage_l3"];
 
+// Custom nodes configuration
+export const DEFAULT_CUSTOM_NODE = {
+  id: null,
+  name: "Nieuw apparaat",
+  icon: "⚙️",
+  source: null,
+  unit: "W",
+};
+
 const ESPHOME_SENSORS = [
   { key: "batPower",  label: "Batterijvermogen", unit: "W"  },
   { key: "acPower",   label: "AC vermogen",      unit: "W",  hint: "Positief = terugleveren → gebruik 'Omkeren' als bron voor net-import" },
@@ -376,6 +385,84 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
       </div>
       <div style={{ padding: "4px 20px 12px", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
         Wijs per positie één of meer sensoren toe. Meerdere bronnen worden opgeteld.
+      </div>
+
+      {/* Custom nodes section */}
+      <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+        <div className="settings-row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div className="settings-row-label">⚙️ Aangepaste apparaten</div>
+          <button className="btn btn-secondary btn-sm" onClick={() => {
+            const newId = `custom_${Date.now()}`;
+            setConfig((prev) => ({
+              ...prev,
+              custom_nodes: [...(prev.custom_nodes ?? []), { ...DEFAULT_CUSTOM_NODE, id: newId }]
+            }));
+          }}>+ Toevoegen</button>
+        </div>
+
+        {(config.custom_nodes ?? []).length === 0 ? (
+          <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "8px 0" }}>
+            Geen aangepaste apparaten. Klik "Toevoegen" om er een te creëren.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {config.custom_nodes.map((node, idx) => {
+              // Collect all sensor options for this custom node
+              const allOptions = [...esphomeOptions, ...hwOptions, ...influxOptions, ...smaOptions, ...haOptions];
+              const selected = node.source ? [node.source] : [];
+
+              return (
+                <div key={node.id} className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8, padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "6px" }}>
+                  <div style={{ width: "100%", display: "flex", gap: 8, alignItems: "center" }}>
+                    <input type="text" placeholder="Naam" value={node.name || ""}
+                      onChange={(e) => {
+                        setConfig((prev) => {
+                          const updated = [...prev.custom_nodes];
+                          updated[idx] = { ...node, name: e.target.value };
+                          return { ...prev, custom_nodes: updated };
+                        });
+                      }}
+                      style={{ flex: 1, padding: "6px 8px", fontSize: 12 }}
+                    />
+                    <input type="text" placeholder="Emoji" maxLength="2" value={node.icon || ""}
+                      onChange={(e) => {
+                        setConfig((prev) => {
+                          const updated = [...prev.custom_nodes];
+                          updated[idx] = { ...node, icon: e.target.value };
+                          return { ...prev, custom_nodes: updated };
+                        });
+                      }}
+                      style={{ width: "50px", padding: "6px 8px", fontSize: 14, textAlign: "center" }}
+                    />
+                    <button className="btn btn-ghost btn-sm" onClick={() => {
+                      setConfig((prev) => ({
+                        ...prev,
+                        custom_nodes: prev.custom_nodes.filter((_, i) => i !== idx)
+                      }));
+                    }} style={{ color: "var(--red)" }}>×</button>
+                  </div>
+
+                  <div style={{ width: "100%", fontSize: 11, color: "var(--text-muted)" }}>
+                    Selecteer sensor:
+                  </div>
+                  <MultiSelect
+                    options={allOptions}
+                    selected={selected}
+                    unit="W"
+                    currentValues={{}}
+                    onChange={(newArr) => {
+                      setConfig((prev) => {
+                        const updated = [...prev.custom_nodes];
+                        updated[idx] = { ...node, source: newArr[0] || null };
+                        return { ...prev, custom_nodes: updated };
+                      });
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {SLOT_ORDER.map((slotKey) => {
