@@ -1,0 +1,547 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Power (W)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "W"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "refId": "A",
+          "query": "from(bucket: \"flux\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r._measurement == \"device_power\")\n  |> filter(fn: (r) => r.device_label == \"${device_label}\")\n  |> filter(fn: (r) => r._field == \"power_w\")\n  |> aggregateWindow(every: 5m, fn: mean)\n  |> yield(name: \"power\")"
+        }
+      ],
+      "title": "Vermogen vandaag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Energy (kWh)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "kwh"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 2,
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "refId": "A",
+          "query": "from(bucket: \"flux\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"device_power\")\n  |> filter(fn: (r) => r.device_label == \"${device_label}\")\n  |> filter(fn: (r) => r._field == \"energy_kwh_delta\")\n  |> aggregateWindow(every: 1d, fn: sum, createEmpty: true)\n  |> yield(name: \"daily_energy\")"
+        }
+      ],
+      "title": "Verbruik per dag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 3,
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "refId": "A",
+          "query": "import \"math\"\n\nfrom(bucket: \"flux\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r._measurement == \"device_power\")\n  |> filter(fn: (r) => r.device_label == \"${device_label}\")\n  |> filter(fn: (r) => r._field == \"power_w\")\n  |> aggregateWindow(every: 30s, fn: max)\n  |> filter(fn: (r) => r._value > 50)\n  |> reduce(fn: (r, accumulator) => ({\n      count: accumulator.count + 1\n    }), initial: {count: 0})\n  |> map(fn: (r) => ({r with _value: r.count}))\n  |> yield(name: \"cycle_count\")"
+        }
+      ],
+      "title": "Gebruikscycli vandaag",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "kwh"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 4,
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "refId": "A",
+          "query": "from(bucket: \"flux\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"device_power\")\n  |> filter(fn: (r) => r.device_label == \"${device_label}\")\n  |> filter(fn: (r) => r._field == \"energy_kwh_delta\")\n  |> sum()\n  |> yield(name: \"week_total\")"
+        }
+      ],
+      "title": "Totaal verbruik deze week",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "kwh"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 5,
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "refId": "A",
+          "query": "import \"math\"\n\n// Count cycles: transitions where power goes from <50W to >50W\nfrom(bucket: \"flux\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"device_power\")\n  |> filter(fn: (r) => r.device_label == \"${device_label}\")\n  |> filter(fn: (r) => r._field == \"energy_kwh_delta\")\n  |> sum()\n  |> yield(name: \"total_energy\")\n\nfrom(bucket: \"flux\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"device_power\")\n  |> filter(fn: (r) => r.device_label == \"${device_label}\")\n  |> filter(fn: (r) => r._field == \"power_w\")\n  |> aggregateWindow(every: 30s, fn: max)\n  |> filter(fn: (r) => r._value > 50)\n  |> reduce(fn: (r, accumulator) => ({\n      count: accumulator.count + 1\n    }), initial: {count: 0})\n  |> yield(name: \"cycle_count\")"
+        }
+      ],
+      "title": "Gemiddeld verbruik per cyclus",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Avg Power (W)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "W"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 6,
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "refId": "A",
+          "query": "from(bucket: \"flux\")\n  |> range(start: -28d)\n  |> filter(fn: (r) => r._measurement == \"device_power\")\n  |> filter(fn: (r) => r.device_label == \"${device_label}\")\n  |> filter(fn: (r) => r._field == \"power_w\")\n  |> aggregateWindow(every: 1h, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({r with _time: date.truncate(t: r._time, unit: 1h)}))\n  |> group(columns: [\"_time\"])\n  |> mean()\n  |> yield(name: \"hourly_avg\")"
+        }
+      ],
+      "title": "Gebruikspatroon per uur (28d gemiddelde)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Forecast Power (W)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "W"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 7,
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          },
+          "refId": "A",
+          "query": "from(bucket: \"flux\")\n  |> range(start: -24h, stop: now())\n  |> filter(fn: (r) => r._measurement == \"device_power_forecast\")\n  |> filter(fn: (r) => r.device_label == \"${device_label}\")\n  |> filter(fn: (r) => r._field == \"forecast_power_w\")\n  |> yield(name: \"forecast\")"
+        }
+      ],
+      "title": "Prophet-voorspelling gebruik",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": [
+    "device",
+    "usage",
+    "flux"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "wasmachine",
+          "value": "wasmachine"
+        },
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "definition": "from(bucket: \"flux\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"device_power\")\n  |> group(columns: [\"device_label\"])\n  |> distinct(column: \"device_label\")\n  |> sort()",
+        "description": null,
+        "error": null,
+        "hide": 0,
+        "includeAll": false,
+        "label": "Device",
+        "multi": false,
+        "name": "device_label",
+        "options": [],
+        "query": "from(bucket: \"flux\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"device_power\")\n  |> group(columns: [\"device_label\"])\n  |> distinct(column: \"device_label\")\n  |> sort()",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "tagValuesQuery": "",
+        "tagsQuery": "",
+        "type": "query",
+        "useTags": false
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "7d",
+          "value": "7d"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Time Range",
+        "multi": false,
+        "name": "time_range",
+        "options": [
+          {
+            "selected": false,
+            "text": "1d",
+            "value": "1d"
+          },
+          {
+            "selected": true,
+            "text": "7d",
+            "value": "7d"
+          },
+          {
+            "selected": false,
+            "text": "30d",
+            "value": "30d"
+          },
+          {
+            "selected": false,
+            "text": "90d",
+            "value": "90d"
+          }
+        ],
+        "query": "1d, 7d, 30d, 90d",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "Europe/Amsterdam",
+  "title": "Device Usage",
+  "uid": "device-usage",
+  "version": 1,
+  "weekStart": "monday"
+}
