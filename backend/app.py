@@ -2767,6 +2767,90 @@ def get_entsoe_prices():
 
 
 # ---------------------------------------------------------------------------
+# Energie Advies API — token-beveiligd endpoint voor externe consumers
+# ---------------------------------------------------------------------------
+# Set FLUX_ENERGIE_ADVIES_TOKEN in env to require Bearer token authentication.
+
+def _check_energie_advies_token() -> bool:
+    required = os.environ.get("FLUX_ENERGIE_ADVIES_TOKEN", "").strip()
+    if not required:
+        return True
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:] == required
+    return False
+
+
+@app.route("/api/energie-advies/prices", methods=["GET"])
+def get_energie_advies_prices():
+    """Return Frank electricity prices with negative-price window metadata."""
+    if not _check_energie_advies_token():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    today    = date.today()
+    tomorrow = today + timedelta(days=1)
+
+    cache_key = today.isoformat()
+    cached = _price_cache.get(cache_key)
+    if cached and (time.time() - cached["ts"]) < 300:
+        data = cached["data"]
+    else:
+        session       = _frank_session()
+        auth_token    = session.get("authToken")
+        country       = session.get("country") or _country_from_token(auth_token or "") or "NL"
+        try:
+            today_prices    = _fetch_prices(auth_token, today, tomorrow, country)
+            tomorrow_prices: list = []
+            try:
+                tomorrow_prices = _fetch_prices(auth_token, tomorrow, tomorrow + timedelta(days=1), country)
+            except Exception as exc2:
+                log.warning("energie-advies: tomorrow prices unavailable: %s", exc2)
+            data = {
+                "today":    today_prices,
+                "tomorrow": tomorrow_prices,
+                "loggedIn": bool(auth_token),
+                "email":    session.get("email"),
+            }
+            _price_cache[cache_key] = {"data": data, "ts": time.time()}
+        except Exception as exc:
+            log.error("energie-advies prices error: %s", exc, exc_info=True)
+            return jsonify({"error": str(exc)}), 502
+
+    def _negative_windows(slots: list) -> list:
+        windows: list = []
+        current: dict | None = None
+        for slot in slots:
+            price = slot.get("price_eur_kwh") or slot.get("price")
+            is_neg = price is not None and price < 0
+            hour = slot.get("hour")
+            if is_neg:
+                if current is None:
+                    current = {"start_hour": hour, "end_hour": hour, "min_price": price, "slots": []}
+                current["end_hour"] = hour
+                current["min_price"] = min(current["min_price"], price)
+                current["slots"].append(slot)
+            else:
+                if current is not None:
+                    windows.append(current)
+                    current = None
+        if current is not None:
+            windows.append(current)
+        return windows
+
+    result = {
+        "today":    data.get("today", []),
+        "tomorrow": data.get("tomorrow", []),
+        "loggedIn": data.get("loggedIn"),
+        "email":    data.get("email"),
+        "negative_windows": {
+            "today":    _negative_windows(data.get("today", [])),
+            "tomorrow": _negative_windows(data.get("tomorrow", [])),
+        },
+    }
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
 # Home Assistant integration
 # ---------------------------------------------------------------------------
 
