@@ -586,6 +586,61 @@ def _collect_and_write(app_context_fn):
     except Exception as exc:
         log.debug("InfluxDB bosch_appliance write skip: %s", exc)
 
+    # ── Custom flow devices (marstek_flow_cfg.devices[]) ────────────────────
+    try:
+        cfg_devices = flow_cfg.get("devices", []) if isinstance(flow_cfg, dict) else []
+        if cfg_devices:
+            from influxdb_client import Point  # type: ignore
+            dev_count = 0
+            for dev in cfg_devices:
+                try:
+                    dev_id = dev.get("id")
+                    if not dev_id:
+                        continue
+                    sources = dev.get("sources", [])
+                    if not sources:
+                        continue
+                    power_w: Optional[float] = None
+                    for sc in sources:
+                        source    = sc.get("source")
+                        device_id = sc.get("device_id")
+                        sensor    = sc.get("sensor")
+                        invert    = sc.get("invert", False)
+                        v = None
+                        if source == "esphome":
+                            v = esphome_map.get(device_id, {}).get(sensor)
+                        elif source == "homewizard":
+                            hw_dev = next(
+                                (d for d in (hw_data or {}).get("devices", []) if d["id"] == device_id),
+                                None,
+                            )
+                            v = hw_dev["sensors"].get(sensor, {}).get("value") if hw_dev else None
+                        elif source == "homeassistant":
+                            entry = ha_data.get(sensor)
+                            v = entry.get("value") if entry else None
+                        elif source == "sma":
+                            v = (sma_data or {}).get(sensor)
+                        if v is not None:
+                            power_w = (power_w or 0.0) + float(-v if invert else v)
+                    if power_w is None:
+                        continue
+                    energy_kwh_delta = power_w * WRITE_INTERVAL / 3600.0 / 1000.0
+                    dp = Point("device_power")
+                    dp = dp.tag("device_id", dev_id)
+                    dp = dp.tag("device_label", dev.get("label", dev_id))
+                    dp = dp.tag("device_icon", dev.get("icon", "🔌"))
+                    dp = dp.field("power_w", float(power_w))
+                    dp = dp.field("energy_kwh_delta", float(energy_kwh_delta))
+                    dp = dp.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=dp)
+                    dev_count += 1
+                except Exception as e:
+                    log.debug("Device power write error (%s): %s", dev.get("id"), e)
+            if dev_count > 0:
+                log.debug("InfluxDB device_power write OK  count=%d", dev_count)
+    except Exception as exc:
+        log.debug("InfluxDB device_power write skip: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # Background thread entry point
