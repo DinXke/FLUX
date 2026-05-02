@@ -1,5 +1,5 @@
 import { apiFetch } from "../auth.js";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,11 +48,70 @@ function SensorCard({ label, value, unit, power }) {
 }
 
 // ---------------------------------------------------------------------------
+// Socket toggle
+// ---------------------------------------------------------------------------
+
+function SocketToggle({ device, onToggled }) {
+  const [toggling, setToggling] = useState(false);
+  const [error,    setError]    = useState(null);
+
+  const toggle = async () => {
+    if (toggling || device.switch_lock) return;
+    const newState = !device.power_on;
+    setToggling(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`api/homewizard/devices/${device.id}/state`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ power_on: newState }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Schakelen mislukt.");
+      onToggled(device.id, d.power_on ?? newState);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  const isOn = device.power_on === true;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "8px 0 4px" }}>
+      <button
+        onClick={toggle}
+        disabled={toggling || device.switch_lock || device.power_on === null}
+        style={{
+          display: "flex", alignItems: "center", gap: 7,
+          padding: "5px 12px", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 13,
+          border: "1px solid",
+          background: isOn ? "rgba(34,197,94,.15)" : "rgba(107,114,128,.15)",
+          borderColor: isOn ? "rgba(34,197,94,.4)" : "rgba(107,114,128,.3)",
+          color: isOn ? "var(--green)" : "var(--text-muted)",
+          transition: "all .2s",
+          opacity: toggling ? .6 : 1,
+        }}
+      >
+        <span style={{ fontSize: 16 }}>{isOn ? "🟢" : "⚫"}</span>
+        {toggling ? "…" : (isOn ? "Aan" : "Uit")}
+      </button>
+      {device.switch_lock && (
+        <span style={{ fontSize: 11, color: "var(--amber)" }}>🔒 vergrendeld</span>
+      )}
+      {error && <span style={{ fontSize: 11, color: "var(--red)" }}>{error}</span>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Device block
 // ---------------------------------------------------------------------------
 
-function DeviceBlock({ device }) {
+function DeviceBlock({ device, onSocketToggled }) {
   const sensors = Object.values(device.sensors);
+  const isSocket = device.product_type?.toUpperCase().includes("SKT");
 
   // Group sensors
   const groups = {};
@@ -71,6 +130,9 @@ function DeviceBlock({ device }) {
           {device.error && <span className="hw-device-error">{device.error}</span>}
         </div>
       </div>
+      {isSocket && device.reachable && (
+        <SocketToggle device={device} onToggled={onSocketToggled} />
+      )}
       {sensors.length > 0 && (
         <div className="hw-sensors-grid">
           {sensors.map((s) => (
@@ -94,12 +156,15 @@ function DeviceBlock({ device }) {
 export default function HomeWizardPanel() {
   const [data,     setData]     = useState(null);
   const [lastPoll, setLastPoll] = useState(null);
+  const dataRef = useRef(null);
 
   const poll = useCallback(async () => {
     try {
       const r = await apiFetch("api/homewizard/data");
       if (!r.ok) return;
-      setData(await r.json());
+      const d = await r.json();
+      setData(d);
+      dataRef.current = d;
       setLastPoll(new Date());
     } catch { /* silently skip */ }
   }, []);
@@ -109,6 +174,19 @@ export default function HomeWizardPanel() {
     const id = setInterval(poll, 10000);
     return () => clearInterval(id);
   }, [poll]);
+
+  // Optimistic update after socket toggle so the UI responds instantly
+  const handleSocketToggled = useCallback((deviceId, newPowerOn) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        devices: prev.devices.map((d) =>
+          d.id === deviceId ? { ...d, power_on: newPowerOn } : d
+        ),
+      };
+    });
+  }, []);
 
   // Don't render anything if no devices are configured
   if (!data?.devices?.length) return null;
@@ -125,7 +203,7 @@ export default function HomeWizardPanel() {
       </div>
       <div className="hw-devices-row">
         {data.devices.map((dev) => (
-          <DeviceBlock key={dev.id} device={dev} />
+          <DeviceBlock key={dev.id} device={dev} onSocketToggled={handleSocketToggled} />
         ))}
       </div>
     </div>

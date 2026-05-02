@@ -2074,6 +2074,30 @@ def _hw_data_path(dev: dict) -> str:
     return "/api/v2/measurement" if dev.get("api_version") == 2 else "/api/v1/data"
 
 
+def _hw_state_path(dev: dict) -> str:
+    return "/api/v2/state" if dev.get("api_version") == 2 else "/api/v1/state"
+
+
+def _is_socket(dev: dict) -> bool:
+    """True for HomeWizard Energy Socket (HWE-SKT) devices that support switch control."""
+    return "SKT" in dev.get("product_type", "").upper()
+
+
+def _hw_put(ip: str, path: str, payload: dict, token: str | None = None,
+            timeout: int = 5, api_version: int = 1) -> dict:
+    """PUT request to a HomeWizard device."""
+    if token:
+        resp = _req.put(f"https://{ip}{path}", json=payload, timeout=timeout, verify=False,
+                        headers={"Authorization": f"Bearer {token}", "X-Api-Version": "2"})
+    elif api_version == 2:
+        resp = _req.put(f"https://{ip}{path}", json=payload, timeout=timeout, verify=False,
+                        headers={"X-Api-Version": "2"})
+    else:
+        resp = _req.put(f"http://{ip}{path}", json=payload, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
+
+
 @app.route("/api/homewizard/devices/<device_id>/discover")
 def hw_discover(device_id):
     """Fetch live data and return annotated sensor list for selection UI."""
@@ -2190,6 +2214,51 @@ def hw_pair_v2(device_id):
         return jsonify({"error": str(exc)}), 502
 
 
+@app.route("/api/homewizard/devices/<device_id>/state", methods=["GET"])
+def hw_get_socket_state(device_id):
+    """Get switch state for a HomeWizard Energy Socket (HWE-SKT)."""
+    devices = _hw_devices()
+    if device_id not in devices:
+        return jsonify({"error": "Niet gevonden"}), 404
+    dev = devices[device_id]
+    if not _is_socket(dev):
+        return jsonify({"error": "Dit apparaat ondersteunt geen schakelaarfunctie"}), 422
+    try:
+        state = _hw_fetch(dev["ip"], _hw_state_path(dev),
+                          token=dev.get("token"),
+                          api_version=dev.get("api_version", 1))
+        return jsonify(state)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/homewizard/devices/<device_id>/state", methods=["PUT"])
+@require_admin
+def hw_set_socket_state(device_id):
+    """Toggle switch state for a HomeWizard Energy Socket (HWE-SKT).
+    Body: {"power_on": true|false}
+    """
+    devices = _hw_devices()
+    if device_id not in devices:
+        return jsonify({"error": "Niet gevonden"}), 404
+    dev = devices[device_id]
+    if not _is_socket(dev):
+        return jsonify({"error": "Dit apparaat ondersteunt geen schakelaarfunctie"}), 422
+    body = request.get_json(force=True) or {}
+    if "power_on" not in body:
+        return jsonify({"error": "power_on is vereist (true/false)"}), 400
+    power_on = bool(body["power_on"])
+    try:
+        result = _hw_put(dev["ip"], _hw_state_path(dev), {"power_on": power_on},
+                         token=dev.get("token"),
+                         api_version=dev.get("api_version", 1))
+        log.info("HomeWizard socket toggled  id=%s  power_on=%s", device_id, power_on)
+        return jsonify(result)
+    except Exception as exc:
+        log.warning("HomeWizard socket toggle failed  id=%s  err=%s", device_id, exc)
+        return jsonify({"error": str(exc)}), 502
+
+
 @app.route("/api/homewizard/data")
 def hw_data():
     """Poll all HomeWizard devices and return selected sensor values."""
@@ -2205,6 +2274,8 @@ def hw_data():
             "appliance_icon":  dev.get("appliance_icon", ""),
             "reachable":       False,
             "sensors":         {},
+            "power_on":        None,   # populated for HWE-SKT sockets
+            "switch_lock":     False,
             "error":           None,
         }
         try:
@@ -2222,6 +2293,16 @@ def hw_data():
                         "group": meta["group"],
                         "power": meta.get("power", False),
                     }
+            # Fetch switch state for energy sockets
+            if _is_socket(dev):
+                try:
+                    state = _hw_fetch(dev["ip"], _hw_state_path(dev),
+                                      token=dev.get("token"),
+                                      api_version=dev.get("api_version", 1))
+                    entry["power_on"]    = state.get("power_on")
+                    entry["switch_lock"] = state.get("switch_lock", False)
+                except Exception as exc:
+                    log.debug("HomeWizard socket state failed  id=%s  err=%s", dev["id"], exc)
         except Exception as exc:
             entry["error"] = str(exc)
             log.warning("HomeWizard poll failed  id=%s  err=%s", dev["id"], exc)

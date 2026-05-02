@@ -346,14 +346,45 @@ export default function HomeWizardSettings() {
   const [selectorDev, setSelectorDev] = useState(null);
   const [showScan,   setShowScan]   = useState(false);
   const [pairDev,    setPairDev]    = useState(null);
+  const [socketStates, setSocketStates] = useState({});  // deviceId → {power_on, loading, error}
 
   const load = useCallback(() => {
     apiFetch("api/homewizard/devices")
       .then((r) => r.json())
-      .then(setDevices)
+      .then((devs) => {
+        setDevices(devs);
+        // Fetch initial socket state for HWE-SKT devices
+        devs.filter((d) => d.product_type?.toUpperCase().includes("SKT")).forEach((d) => {
+          apiFetch(`api/homewizard/devices/${d.id}/state`)
+            .then((r) => r.json())
+            .then((s) => {
+              if (!s.error) {
+                setSocketStates((prev) => ({ ...prev, [d.id]: { power_on: s.power_on, switch_lock: s.switch_lock } }));
+              }
+            })
+            .catch(() => {});
+        });
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const toggleSocket = async (deviceId, currentOn) => {
+    const newOn = !currentOn;
+    setSocketStates((prev) => ({ ...prev, [deviceId]: { ...prev[deviceId], loading: true, error: null } }));
+    try {
+      const res = await apiFetch(`api/homewizard/devices/${deviceId}/state`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ power_on: newOn }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Schakelen mislukt.");
+      setSocketStates((prev) => ({ ...prev, [deviceId]: { power_on: d.power_on ?? newOn, loading: false, error: null } }));
+    } catch (e) {
+      setSocketStates((prev) => ({ ...prev, [deviceId]: { ...prev[deviceId], loading: false, error: e.message } }));
+    }
+  };
 
   useEffect(() => { load(); }, [load]);
 
@@ -447,6 +478,9 @@ export default function HomeWizardSettings() {
                   {d.api_version === 2 && !d.token &&
                     <span style={{ marginLeft: 8, color: "var(--amber)", fontSize: 11 }}>⚠ Niet gekoppeld</span>
                   }
+                  {socketStates[d.id]?.error &&
+                    <span style={{ marginLeft: 8, color: "var(--red)", fontSize: 11 }}>⚠ {socketStates[d.id].error}</span>
+                  }
                 </div>
                 {/* Appliance icon picker – shown for all devices so any HW device can
                     appear as a consumer node in the flow display */}
@@ -471,6 +505,22 @@ export default function HomeWizardSettings() {
                   <button className="btn btn-ghost btn-sm" style={{ color: "var(--amber)" }}
                     onClick={() => setPairDev(d)}>🔐 Koppelen</button>
                 )}
+                {d.product_type?.toUpperCase().includes("SKT") && (() => {
+                  const ss = socketStates[d.id];
+                  const isOn = ss?.power_on === true;
+                  const locked = ss?.switch_lock;
+                  return (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={ss?.loading || locked || !ss}
+                      style={{ color: isOn ? "var(--green)" : "var(--text-muted)" }}
+                      onClick={() => toggleSocket(d.id, ss?.power_on)}
+                      title={locked ? "Schakelaar vergrendeld" : (isOn ? "Klik om uit te zetten" : "Klik om aan te zetten")}
+                    >
+                      {ss?.loading ? "…" : (isOn ? "🟢 Aan" : "⚫ Uit")}
+                    </button>
+                  );
+                })()}
                 <button className="btn btn-ghost btn-sm" onClick={() => setSelectorDev(d)}>☑ Sensoren</button>
                 {confirmDel === d.id ? (
                   <>
