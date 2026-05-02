@@ -6343,8 +6343,10 @@ def _automation_tick() -> None:
 
     action = _current_slot_action()
     if action is None:
-        log.debug("Automation: no plan cached yet – skipping")
+        log.warning("Automation: geen strategie-plan beschikbaar – sla tick over (controleer plan via /api/strategy/plan)")
         return
+
+    log.debug("Automation: huidig uur-actie=%s (plan-slot)", action)
 
     # ── Solar overproduction override ────────────────────────────────────────
     # If the plan says "save" (battery passive) but solar production currently
@@ -6421,19 +6423,29 @@ def _automation_tick() -> None:
     # inverter na een eigen reset/terugval naar anti-feed automatisch herstelt.
     _REAPPLY_INTERVAL_S = 300
     _force_reapply = False
-    if prev_action is not None and last_applied_str:
-        try:
-            _elapsed = (
-                datetime.now(timezone.utc) - datetime.fromisoformat(last_applied_str)
-            ).total_seconds()
-            if _elapsed >= _REAPPLY_INTERVAL_S:
-                _force_reapply = True
-                log.info(
-                    "Automation: periodieke hertoepassing (actie=%s, verstreken=%.0fs)",
-                    prev_action, _elapsed,
-                )
-        except Exception:
-            pass
+    if prev_action is not None:
+        if not last_applied_str:
+            # Commando's waren eerder bepaald maar bevestiging ontbreekt
+            # (last_applied niet gezet, bijv. na JSON-reset of eerste fout).
+            # Altijd opnieuw proberen zodat het inverter alsnog wordt bijgestuurd.
+            _force_reapply = True
+            log.info(
+                "Automation: last_applied ontbreekt maar prev_action=%s – forceer hertoepassing",
+                prev_action,
+            )
+        else:
+            try:
+                _elapsed = (
+                    datetime.now(timezone.utc) - datetime.fromisoformat(last_applied_str)
+                ).total_seconds()
+                if _elapsed >= _REAPPLY_INTERVAL_S:
+                    _force_reapply = True
+                    log.info(
+                        "Automation: periodieke hertoepassing (actie=%s, verstreken=%.0fs)",
+                        prev_action, _elapsed,
+                    )
+            except Exception:
+                pass
 
     if effective_action == prev_action and not _force_reapply:
         log.debug("Automation: actie ongewijzigd (%s) – geen commando's gestuurd", effective_action)
@@ -6447,7 +6459,11 @@ def _automation_tick() -> None:
     devices       = load_devices()
 
     if not devices:
-        log.debug("Automation: no devices configured")
+        log.warning(
+            "Automation: geen batterij-apparaten geconfigureerd – kan actie '%s' niet uitvoeren. "
+            "Voeg een apparaat toe via Instellingen → Apparaten.",
+            effective_action,
+        )
         return
 
     # For grid_charge: also set Forcible Charge Power (W per battery) and Charge to SoC.
@@ -6837,14 +6853,27 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
 
     # In entity mode, entity is required; in service mode, the service string is required
     if not use_service and not entity and not s.get("pv_limiter_use_modbus") and not s.get("pv_limiter_use_webui"):
+        log.warning(
+            "PV limiter is ingeschakeld maar er is geen uitvoermethode geconfigureerd "
+            "(entity, service, modbus en webui zijn allemaal leeg). "
+            "Stel pv_limiter_entity, pv_limiter_use_modbus of pv_limiter_use_webui in."
+        )
+        auto["pv_limiter_config_error"] = (
+            "Geen uitvoermethode geconfigureerd (entity/modbus/webui/service leeg)"
+        )
         return
     if use_service and not svc_str:
+        log.warning(
+            "PV limiter: use_service=True maar pv_limiter_service is leeg – kan geen commando sturen."
+        )
+        auto["pv_limiter_config_error"] = "use_service=True maar service-string is leeg"
         return
 
+    # Configuratie is OK: verwijder eventuele eerdere config-fout
+    auto.pop("pv_limiter_config_error", None)
+
     # Manual override: bypass price logic AND rolling cap entirely — user explicitly controls output
-    log.info("PV limiter REACHED MANUAL OVERRIDE CHECK")
     manual_override = s.get("pv_limiter_manual_override")
-    log.info("PV limiter: manual_override=%s use_service=%s entity=%s use_modbus=%s", manual_override, use_service, entity, s.get("pv_limiter_use_modbus"))
     log.debug("PV limiter: manual_override=%s use_service=%s entity=%s use_modbus=%s", manual_override, use_service, entity, s.get("pv_limiter_use_modbus"))
     if manual_override:
         target_w = int(s.get("pv_limiter_manual_w", 2000))
@@ -7343,6 +7372,17 @@ def rolling_cap_status():
 def get_automation():
     data = _load_automation()
     data["current_action"] = _current_slot_action()
+    # Voeg live diagnose-info toe zodat de UI configuratieproblemen kan tonen
+    s = load_strategy_settings()
+    pv_enabled = s.get("pv_limiter_enabled", False)
+    pv_entity  = (s.get("pv_limiter_entity") or "").strip()
+    pv_modbus  = s.get("pv_limiter_use_modbus", False)
+    pv_webui   = s.get("pv_limiter_use_webui", False)
+    pv_service = s.get("pv_limiter_use_service", False)
+    pv_svc_str = (s.get("pv_limiter_service") or "").strip()
+    if pv_enabled and not pv_entity and not pv_modbus and not pv_webui and not (pv_service and pv_svc_str):
+        data.setdefault("pv_limiter_config_error",
+                        "Geen uitvoermethode geconfigureerd (entity/modbus/webui/service leeg)")
     return jsonify(data)
 
 
