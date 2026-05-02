@@ -291,6 +291,14 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
   const [saved,       setSaved]       = useState(false);
   const [error,       setError]       = useState(null);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
+  const [collapsedSlots, setCollapsedSlots] = useState(() => {
+    const collapsed = {};
+    for (const slotKey of SLOT_ORDER) {
+      collapsed[slotKey] = true; // Default = collapsed
+    }
+    return collapsed;
+  });
+  const [collapsedCustom, setCollapsedCustom] = useState(true); // Default = collapsed
 
   const loadHw = useCallback(async () => {
     try { const r = await apiFetch("api/homewizard/data"); if (r.ok) setHwData(await r.json()); } catch {}
@@ -464,79 +472,113 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
 
       {/* Custom nodes section */}
       <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-        <div className="settings-row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div className="settings-row-label">⚙️ Aangepaste apparaten</div>
-          <button className="btn btn-secondary btn-sm" onClick={() => setShowPresetPicker(true)}>+ Toevoegen</button>
+        <div
+          onClick={() => setCollapsedCustom((prev) => !prev)}
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: collapsedCustom ? 0 : 12,
+            padding: "10px 0",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 16 }}>{collapsedCustom ? "▶" : "▼"}</span>
+            <div className="settings-row-label" style={{ margin: 0 }}>⚙️ Aangepaste apparaten</div>
+            {!collapsedCustom && (config.custom_nodes ?? []).length > 0 && (
+              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                {(config.custom_nodes ?? []).length} {(config.custom_nodes ?? []).length === 1 ? "apparaat" : "apparaten"}
+              </span>
+            )}
+          </div>
+          {!collapsedCustom && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowPresetPicker(true);
+              }}
+            >
+              + Toevoegen
+            </button>
+          )}
         </div>
 
-        {(config.custom_nodes ?? []).length === 0 ? (
-          <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "8px 0" }}>
-            Geen aangepaste apparaten. Klik "Toevoegen" om er een te creëren.
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {config.custom_nodes.map((node, idx) => {
-              // Collect all sensor options for this custom node
-              const allOptions = [...esphomeOptions, ...hwOptions, ...influxOptions, ...smaOptions, ...haOptions];
-              const selected = node.source ? [node.source] : [];
+        {!collapsedCustom && (
+          <>
+            {(config.custom_nodes ?? []).length === 0 ? (
+              <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "8px 0" }}>
+                Geen aangepaste apparaten. Klik "Toevoegen" om er een te creëren.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {config.custom_nodes.map((node, idx) => {
+                  // Collect all sensor options for this custom node
+                  const allOptions = [...esphomeOptions, ...hwOptions, ...influxOptions, ...smaOptions, ...haOptions];
+                  const selected = node.source ? [node.source] : [];
 
-              return (
-                <div key={node.id} className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8, padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "6px" }}>
-                  <div style={{ width: "100%", display: "flex", gap: 8, alignItems: "center" }}>
-                    <input type="text" placeholder="Naam" value={node.name || ""}
-                      onChange={(e) => {
-                        setConfig((prev) => {
-                          const updated = [...prev.custom_nodes];
-                          updated[idx] = { ...node, name: e.target.value };
-                          return { ...prev, custom_nodes: updated };
-                        });
-                      }}
-                      style={{ flex: 1, padding: "6px 8px", fontSize: 12 }}
-                    />
-                    <input type="text" placeholder="Emoji" maxLength="2" value={node.icon || ""}
-                      onChange={(e) => {
-                        setConfig((prev) => {
-                          const updated = [...prev.custom_nodes];
-                          updated[idx] = { ...node, icon: e.target.value };
-                          return { ...prev, custom_nodes: updated };
-                        });
-                      }}
-                      style={{ width: "50px", padding: "6px 8px", fontSize: 14, textAlign: "center" }}
-                    />
-                    <button className="btn btn-ghost btn-sm" onClick={() => {
-                      setConfig((prev) => ({
-                        ...prev,
-                        custom_nodes: prev.custom_nodes.filter((_, i) => i !== idx)
-                      }));
-                    }} style={{ color: "var(--red)" }}>×</button>
-                  </div>
+                  return (
+                    <div key={node.id} className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8, padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "6px" }}>
+                      <div style={{ width: "100%", display: "flex", gap: 8, alignItems: "center" }}>
+                        <input type="text" placeholder="Naam" value={node.name || ""}
+                          onChange={(e) => {
+                            setConfig((prev) => {
+                              const updated = [...prev.custom_nodes];
+                              updated[idx] = { ...node, name: e.target.value };
+                              return { ...prev, custom_nodes: updated };
+                            });
+                          }}
+                          style={{ flex: 1, padding: "6px 8px", fontSize: 12 }}
+                        />
+                        <input type="text" placeholder="Emoji" maxLength="2" value={node.icon || ""}
+                          onChange={(e) => {
+                            setConfig((prev) => {
+                              const updated = [...prev.custom_nodes];
+                              updated[idx] = { ...node, icon: e.target.value };
+                              return { ...prev, custom_nodes: updated };
+                            });
+                          }}
+                          style={{ width: "50px", padding: "6px 8px", fontSize: 14, textAlign: "center" }}
+                        />
+                        <button className="btn btn-ghost btn-sm" onClick={() => {
+                          setConfig((prev) => ({
+                            ...prev,
+                            custom_nodes: prev.custom_nodes.filter((_, i) => i !== idx)
+                          }));
+                        }} style={{ color: "var(--red)" }}>×</button>
+                      </div>
 
-                  <div style={{ width: "100%", fontSize: 11, color: "var(--text-muted)" }}>
-                    Selecteer sensor:
-                  </div>
-                  <MultiSelect
-                    options={allOptions}
-                    selected={selected}
-                    unit="W"
-                    currentValues={{}}
-                    onChange={(newArr) => {
-                      setConfig((prev) => {
-                        const updated = [...prev.custom_nodes];
-                        updated[idx] = { ...node, source: newArr[0] || null };
-                        return { ...prev, custom_nodes: updated };
-                      });
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
+                      <div style={{ width: "100%", fontSize: 11, color: "var(--text-muted)" }}>
+                        Selecteer sensor:
+                      </div>
+                      <MultiSelect
+                        options={allOptions}
+                        selected={selected}
+                        unit="W"
+                        currentValues={{}}
+                        onChange={(newArr) => {
+                          setConfig((prev) => {
+                            const updated = [...prev.custom_nodes];
+                            updated[idx] = { ...node, source: newArr[0] || null };
+                            return { ...prev, custom_nodes: updated };
+                          });
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {SLOT_ORDER.map((slotKey) => {
         const slotDef = SLOT_DEFS[slotKey];
         const arr     = slotArr(config, slotKey);
+        const isCollapsed = collapsedSlots[slotKey];
 
         // Live total
         let liveTotal = null;
@@ -569,154 +611,183 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
         const hasAnything = compatible.esphome.length + compatible.hw.length + compatible.ha.length + compatible.influx.length + compatible.sma.length > 0;
 
         return (
-          <div key={slotKey} className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
-            <div style={{ width: "100%" }}>
-              <div className="settings-row-label">{slotDef.label}</div>
-              <div className="settings-row-desc">{slotDef.desc}</div>
-              {arr.length > 0 && (
-                <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
-                  {arr.length} {arr.length === 1 ? "bron" : "bronnen"} geselecteerd
-                  {liveTotal != null && ` · huidig: ${fmtVal(liveTotal, slotDef.unit)}`}
-                </div>
+          <div key={slotKey}>
+            {/* Collapsible header */}
+            <div
+              onClick={() => setCollapsedSlots((prev) => ({ ...prev, [slotKey]: !prev[slotKey] }))}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "10px 0",
+                marginTop: 16,
+                cursor: "pointer",
+                userSelect: "none",
+              }}
+            >
+              <span style={{ fontSize: 16, minWidth: 16 }}>{isCollapsed ? "▶" : "▼"}</span>
+              <div style={{ flex: 1 }}>
+                <div className="settings-row-label" style={{ margin: 0 }}>{slotDef.label}</div>
+              </div>
+              {isCollapsed && arr.length > 0 && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)", marginRight: 8 }}>
+                  {arr.length} {arr.length === 1 ? "bron" : "bronnen"}
+                  {liveTotal != null && ` · ${fmtVal(liveTotal, slotDef.unit)}`}
+                </span>
               )}
             </div>
 
-            {!hasAnything ? (
-              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Geen {slotDef.unit}-sensoren beschikbaar</div>
-            ) : (
-              <div className="flow-sources-grid">
-                {/* ESPHome checkboxes */}
-                {compatible.esphome.length > 0 && (
-                  <div className="flow-source-group">
-                    <div className="flow-opt-group-label">🔋 ESPHome</div>
-                    {compatible.esphome.map((opt) => {
-                      const checked = isSelected(arr, opt);
-                      const inv     = getInvert(arr, opt);
-                      return (
-                        <div key={opt.key} className={`flow-opt-row${checked ? " flow-opt-row--checked" : ""}`}>
-                          <label className="flow-opt-check">
-                            <input type="checkbox" checked={checked}
-                              onChange={(e) => toggleOption(slotKey, opt, e.target.checked)} />
-                            <span className="flow-opt-label">{opt.label}</span>
-                            {opt.current != null && <span className="flow-opt-val">{fmtVal(opt.current, opt.unit)}</span>}
-                          </label>
-                          {checked && (
-                            <div className="flow-opt-extras">
-                              <label className="flow-opt-invert">
-                                <input type="checkbox" checked={inv}
-                                  onChange={(e) => toggleInvert(slotKey, opt, e.target.checked)} />
-                                Omkeren
-                              </label>
-                              {opt.hint && <span className="flow-opt-hint">⚠ {opt.hint}</span>}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+            {/* Expanded content */}
+            {!isCollapsed && (
+              <div className="settings-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8, paddingLeft: 24 }}>
+                <div style={{ width: "100%" }}>
+                  <div className="settings-row-desc">{slotDef.desc}</div>
+                  {arr.length > 0 && (
+                    <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>
+                      {arr.length} {arr.length === 1 ? "bron" : "bronnen"} geselecteerd
+                      {liveTotal != null && ` · huidig: ${fmtVal(liveTotal, slotDef.unit)}`}
+                    </div>
+                  )}
+                </div>
 
-                {/* HomeWizard checkboxes */}
-                {compatible.hw.length > 0 && (
-                  <div className="flow-source-group">
-                    <div className="flow-opt-group-label">🏠 HomeWizard</div>
-                    {compatible.hw.map((opt) => {
-                      const checked = isSelected(arr, opt);
-                      const inv     = getInvert(arr, opt);
-                      return (
-                        <div key={opt.key} className={`flow-opt-row${checked ? " flow-opt-row--checked" : ""}`}>
-                          <label className="flow-opt-check">
-                            <input type="checkbox" checked={checked}
-                              onChange={(e) => toggleOption(slotKey, opt, e.target.checked)} />
-                            <span className="flow-opt-label">{opt.label}</span>
-                            {opt.current != null && <span className="flow-opt-val">{fmtVal(opt.current, opt.unit)}</span>}
-                          </label>
-                          {checked && (
-                            <div className="flow-opt-extras">
-                              <label className="flow-opt-invert">
-                                <input type="checkbox" checked={inv}
-                                  onChange={(e) => toggleInvert(slotKey, opt, e.target.checked)} />
-                                Omkeren
+                {!hasAnything ? (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Geen {slotDef.unit}-sensoren beschikbaar</div>
+                ) : (
+                  <div className="flow-sources-grid">
+                    {/* ESPHome checkboxes */}
+                    {compatible.esphome.length > 0 && (
+                      <div className="flow-source-group">
+                        <div className="flow-opt-group-label">🔋 ESPHome</div>
+                        {compatible.esphome.map((opt) => {
+                          const checked = isSelected(arr, opt);
+                          const inv     = getInvert(arr, opt);
+                          return (
+                            <div key={opt.key} className={`flow-opt-row${checked ? " flow-opt-row--checked" : ""}`}>
+                              <label className="flow-opt-check">
+                                <input type="checkbox" checked={checked}
+                                  onChange={(e) => toggleOption(slotKey, opt, e.target.checked)} />
+                                <span className="flow-opt-label">{opt.label}</span>
+                                {opt.current != null && <span className="flow-opt-val">{fmtVal(opt.current, opt.unit)}</span>}
                               </label>
+                              {checked && (
+                                <div className="flow-opt-extras">
+                                  <label className="flow-opt-invert">
+                                    <input type="checkbox" checked={inv}
+                                      onChange={(e) => toggleInvert(slotKey, opt, e.target.checked)} />
+                                    Omkeren
+                                  </label>
+                                  {opt.hint && <span className="flow-opt-hint">⚠ {opt.hint}</span>}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                          );
+                        })}
+                      </div>
+                    )}
 
-                {/* InfluxDB checkboxes */}
-                {compatible.influx.length > 0 && (
-                  <div className="flow-source-group">
-                    <div className="flow-opt-group-label">📊 InfluxDB</div>
-                    {compatible.influx.map((opt) => {
-                      const checked = isSelected(arr, opt);
-                      const inv     = getInvert(arr, opt);
-                      return (
-                        <div key={opt.key} className={`flow-opt-row${checked ? " flow-opt-row--checked" : ""}`}>
-                          <label className="flow-opt-check">
-                            <input type="checkbox" checked={checked}
-                              onChange={(e) => toggleOption(slotKey, opt, e.target.checked)} />
-                            <span className="flow-opt-label">{opt.label}</span>
-                            {opt.current != null && <span className="flow-opt-val">{fmtVal(opt.current, opt.unit)}</span>}
-                          </label>
-                          {checked && (
-                            <div className="flow-opt-extras">
-                              <label className="flow-opt-invert">
-                                <input type="checkbox" checked={inv}
-                                  onChange={(e) => toggleInvert(slotKey, opt, e.target.checked)} />
-                                Omkeren
+                    {/* HomeWizard checkboxes */}
+                    {compatible.hw.length > 0 && (
+                      <div className="flow-source-group">
+                        <div className="flow-opt-group-label">🏠 HomeWizard</div>
+                        {compatible.hw.map((opt) => {
+                          const checked = isSelected(arr, opt);
+                          const inv     = getInvert(arr, opt);
+                          return (
+                            <div key={opt.key} className={`flow-opt-row${checked ? " flow-opt-row--checked" : ""}`}>
+                              <label className="flow-opt-check">
+                                <input type="checkbox" checked={checked}
+                                  onChange={(e) => toggleOption(slotKey, opt, e.target.checked)} />
+                                <span className="flow-opt-label">{opt.label}</span>
+                                {opt.current != null && <span className="flow-opt-val">{fmtVal(opt.current, opt.unit)}</span>}
                               </label>
+                              {checked && (
+                                <div className="flow-opt-extras">
+                                  <label className="flow-opt-invert">
+                                    <input type="checkbox" checked={inv}
+                                      onChange={(e) => toggleInvert(slotKey, opt, e.target.checked)} />
+                                    Omkeren
+                                  </label>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                          );
+                        })}
+                      </div>
+                    )}
 
-                {/* SMA Reader checkboxes */}
-                {compatible.sma.length > 0 && (
-                  <div className="flow-source-group">
-                    <div className="flow-opt-group-label">☀️ SMA Reader</div>
-                    {compatible.sma.map((opt) => {
-                      const checked = isSelected(arr, opt);
-                      const inv     = getInvert(arr, opt);
-                      return (
-                        <div key={opt.key} className={`flow-opt-row${checked ? " flow-opt-row--checked" : ""}`}>
-                          <label className="flow-opt-check">
-                            <input type="checkbox" checked={checked}
-                              onChange={(e) => toggleOption(slotKey, opt, e.target.checked)} />
-                            <span className="flow-opt-label">{opt.label}</span>
-                            {opt.current != null && <span className="flow-opt-val">{fmtVal(opt.current, opt.unit)}</span>}
-                          </label>
-                          {checked && (
-                            <div className="flow-opt-extras">
-                              <label className="flow-opt-invert">
-                                <input type="checkbox" checked={inv}
-                                  onChange={(e) => toggleInvert(slotKey, opt, e.target.checked)} />
-                                Omkeren
+                    {/* InfluxDB checkboxes */}
+                    {compatible.influx.length > 0 && (
+                      <div className="flow-source-group">
+                        <div className="flow-opt-group-label">📊 InfluxDB</div>
+                        {compatible.influx.map((opt) => {
+                          const checked = isSelected(arr, opt);
+                          const inv     = getInvert(arr, opt);
+                          return (
+                            <div key={opt.key} className={`flow-opt-row${checked ? " flow-opt-row--checked" : ""}`}>
+                              <label className="flow-opt-check">
+                                <input type="checkbox" checked={checked}
+                                  onChange={(e) => toggleOption(slotKey, opt, e.target.checked)} />
+                                <span className="flow-opt-label">{opt.label}</span>
+                                {opt.current != null && <span className="flow-opt-val">{fmtVal(opt.current, opt.unit)}</span>}
                               </label>
+                              {checked && (
+                                <div className="flow-opt-extras">
+                                  <label className="flow-opt-invert">
+                                    <input type="checkbox" checked={inv}
+                                      onChange={(e) => toggleInvert(slotKey, opt, e.target.checked)} />
+                                    Omkeren
+                                  </label>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                          );
+                        })}
+                      </div>
+                    )}
 
-                {/* Home Assistant multi-select */}
-                {compatible.ha.length > 0 && (
-                  <div className="flow-source-group flow-source-group--ha">
-                    <div className="flow-opt-group-label">🤖 Home Assistant</div>
-                    <MultiSelect
-                      options={compatible.ha}
-                      selected={haSelected}
-                      unit={slotDef.unit}
-                      currentValues={haCurrentValues}
-                      onChange={(newArr) => setHaSlot(slotKey, slotDef.unit, newArr)}
-                    />
+                    {/* SMA Reader checkboxes */}
+                    {compatible.sma.length > 0 && (
+                      <div className="flow-source-group">
+                        <div className="flow-opt-group-label">☀️ SMA Reader</div>
+                        {compatible.sma.map((opt) => {
+                          const checked = isSelected(arr, opt);
+                          const inv     = getInvert(arr, opt);
+                          return (
+                            <div key={opt.key} className={`flow-opt-row${checked ? " flow-opt-row--checked" : ""}`}>
+                              <label className="flow-opt-check">
+                                <input type="checkbox" checked={checked}
+                                  onChange={(e) => toggleOption(slotKey, opt, e.target.checked)} />
+                                <span className="flow-opt-label">{opt.label}</span>
+                                {opt.current != null && <span className="flow-opt-val">{fmtVal(opt.current, opt.unit)}</span>}
+                              </label>
+                              {checked && (
+                                <div className="flow-opt-extras">
+                                  <label className="flow-opt-invert">
+                                    <input type="checkbox" checked={inv}
+                                      onChange={(e) => toggleInvert(slotKey, opt, e.target.checked)} />
+                                    Omkeren
+                                  </label>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Home Assistant multi-select */}
+                    {compatible.ha.length > 0 && (
+                      <div className="flow-source-group flow-source-group--ha">
+                        <div className="flow-opt-group-label">🤖 Home Assistant</div>
+                        <MultiSelect
+                          options={compatible.ha}
+                          selected={haSelected}
+                          unit={slotDef.unit}
+                          currentValues={haCurrentValues}
+                          onChange={(newArr) => setHaSlot(slotKey, slotDef.unit, newArr)}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
