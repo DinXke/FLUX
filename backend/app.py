@@ -29,6 +29,13 @@ try:
 except ImportError:
     _PROPHET_AVAILABLE = False
     get_prophet_forecast = None
+try:
+    from device_analytics import compute_device_stats, build_device_forecast
+    _DEVICE_ANALYTICS_AVAILABLE = True
+except ImportError:
+    _DEVICE_ANALYTICS_AVAILABLE = False
+    compute_device_stats = None
+    build_device_forecast = None
 from config import get_config
 from auth import init_auth, get_auth_manager, require_auth, require_admin, get_current_user
 import daikin_onecta
@@ -4526,6 +4533,89 @@ def get_forecast_prophet():
     use_cache = request.args.get("refresh", "0") != "1"
     forecast = get_prophet_forecast(use_cache=use_cache)
     return jsonify(forecast)
+
+
+@app.route("/api/device/stats", methods=["GET"])
+@require_auth
+def get_device_stats():
+    """
+    Get usage statistics per device (or all devices).
+
+    Query params:
+      device_id – specific device_id (optional; omit for all flow-source devices)
+
+    Response per device:
+      {
+        "device_id": str,
+        "status": "ok"|"no_data"|"insufficient_data",
+        "days_available": float,
+        "avg_kwh_week": float,
+        "avg_cycles_week": float,
+        "typical_start_hour": float|null,
+        "avg_duration_min": float|null,
+        "total_cycles": int
+      }
+    """
+    if not _DEVICE_ANALYTICS_AVAILABLE:
+        return jsonify({"status": "error", "error": "device_analytics not available"}), 503
+
+    device_id = request.args.get("device_id")
+    if device_id:
+        return jsonify(compute_device_stats(device_id))
+
+    # Return stats for all known flow-source custom devices
+    try:
+        from device_analytics import _query_device_power
+        cfg_path = os.path.join(BASE_DIR, "flow_sources.json")
+        devices = []
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            for dev in cfg.get("custom_devices", []):
+                did = dev.get("id")
+                if did:
+                    devices.append(did)
+        if not devices:
+            return jsonify([])
+        results = [compute_device_stats(did) for did in devices]
+        return jsonify(results)
+    except Exception as e:
+        log.error("get_device_stats: %s", e)
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/api/device/forecast", methods=["GET"])
+@require_auth
+def get_device_forecast():
+    """
+    Get 7-day daily energy forecast for a device using Prophet.
+
+    Query params:
+      device_id  – required
+      refresh=1  – force retrain (ignore cache)
+
+    Response:
+      {
+        "device_id": str,
+        "status": "success"|"no_data"|"insufficient_data"|"error",
+        "trained_on_days": float,
+        "data": [
+          {"ds": "2026-05-03", "energy_kwh": 1.2, "energy_kwh_upper": 1.5,
+           "energy_kwh_lower": 0.9, "cycles": 1.5},
+          ...
+        ]
+      }
+    """
+    if not _DEVICE_ANALYTICS_AVAILABLE:
+        return jsonify({"status": "error", "error": "device_analytics not available"}), 503
+
+    device_id = request.args.get("device_id", "").strip()
+    if not device_id:
+        return jsonify({"status": "error", "error": "device_id is required"}), 400
+
+    use_cache = request.args.get("refresh", "0") != "1"
+    result = build_device_forecast(device_id, use_cache=use_cache)
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------
