@@ -429,7 +429,9 @@ def update_device(device_id):
     ip, port = device.get("ip", ""), device.get("port", 80)
     if ip:
         if "min_soc" in body and device.get("min_soc") is not None:
-            send_esphome_command(ip, port, "number", "Marstek Reserve", str(device["min_soc"]))
+            send_esphome_command(ip, port, "number", "Marstek Discharging Cutoff Capacity", str(device["min_soc"]))
+        if "max_soc" in body and device.get("max_soc") is not None:
+            send_esphome_command(ip, port, "number", "Marstek Charge To SOC", str(device["max_soc"]))
         if "forced_mode" in body:
             mode = device.get("forced_mode")
             if mode:
@@ -3934,7 +3936,7 @@ def _push_reserve_to_all_devices(settings: dict) -> None:
         if not ip:
             continue
         dev_reserve = int(device["min_soc"]) if device.get("min_soc") is not None else global_reserve
-        result = send_esphome_command(ip, port, "number", "Marstek Reserve", str(dev_reserve))
+        result = send_esphome_command(ip, port, "number", "Marstek Discharging Cutoff Capacity", str(dev_reserve))
         if result.get("ok"):
             log.info("Settings: reserve=%d%% pushed to device %s", dev_reserve, device_id)
         else:
@@ -6520,7 +6522,7 @@ def _automation_tick() -> None:
             dev_charge_soc    = int(device["max_soc"]) if device.get("max_soc") is not None else global_charge_soc
             commands += [
                 ("number", "Marstek Forcible Charge Power", str(per_bat_w)),
-                ("number", "Marstek Charge to SoC",         str(dev_charge_soc)),
+                ("number", "Marstek Charge To SOC",         str(dev_charge_soc)),
             ]
             if dev_charge_soc != global_charge_soc:
                 log.info("Automation: device %s  charge_to_soc=%d%% (per-device override)",
@@ -6528,7 +6530,7 @@ def _automation_tick() -> None:
         # Push reserve to battery hardware so it enforces the floor itself.
         # Per-device min_soc overrides global min_reserve_soc.
         dev_reserve = int(device["min_soc"]) if device.get("min_soc") is not None else global_reserve_soc
-        commands += [("number", "Marstek Reserve", str(dev_reserve))]
+        commands += [("number", "Marstek Discharging Cutoff Capacity", str(dev_reserve))]
         if dev_reserve != global_reserve_soc:
             log.info("Automation: device %s  reserve=%d%% (per-device override)",
                      device_id, dev_reserve)
