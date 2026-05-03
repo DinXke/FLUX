@@ -124,6 +124,21 @@ services:
       retries: 3
       start_period: 10s
 
+  discord-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.standalone
+    container_name: smartmarstek-discord-bot
+    restart: unless-stopped
+    network_mode: host
+    command: ["python", "/app/backend/discord_bot.py"]
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      FLUX_API_URL: ${FLUX_API_URL:-http://localhost:8080}
+      PYTHONUNBUFFERED: 1
+    profiles:
+      - discord
+
 volumes:
   flux_data:
   influxdb_data:
