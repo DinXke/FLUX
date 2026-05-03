@@ -22,6 +22,7 @@ from rte_calculator import measure_rte as _measure_rte
 from strategy import (load_strategy_settings, save_strategy_settings,
                       build_plan, split_days, read_soc_cache)
 from telegram import notify_event as _tg_notify, resolve_approval, get_pending_approvals
+from discord import notify_event as _dc_notify
 from anomaly_detector import run_anomaly_detection, get_anomaly_summary
 try:
     from prophet_forecast import get_prophet_forecast
@@ -4054,6 +4055,21 @@ def telegram_test():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/discord/test", methods=["POST"])
+def discord_test():
+    """Stuur een testbericht naar Discord om de webhook-configuratie te verifiëren."""
+    s = load_strategy_settings()
+    if not s.get("discord_enabled"):
+        return jsonify({"error": "Discord is niet ingeschakeld"}), 400
+    if not (s.get("discord_webhook_url") or "").strip():
+        return jsonify({"error": "Geen webhook URL geconfigureerd"}), 400
+    try:
+        _dc_notify("test", {"message": "✓ FLUX Discord webhook werkt correct."}, settings=s, raise_on_error=True)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/telegram/callback", methods=["POST"])
 def telegram_callback():
     body        = request.get_json(force=True) or {}
@@ -5985,15 +6001,17 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
 
     try:
         today_slots = result.get("today", [])
-        _tg_notify("plan_ready", {
+        _plan_ready_payload = {
             "slots_today": len(today_slots),
             "grid_charge_hours": sum(1 for sl in today_slots if sl.get("action") == "grid_charge"),
             "discharge_hours":   sum(1 for sl in today_slots if sl.get("action") == "discharge"),
             "soc_now":           soc_now,
             "engine":            result.get("strategy_engine", "rule_based"),
-        })
+        }
+        _tg_notify("plan_ready", _plan_ready_payload)
+        _dc_notify("plan_ready", _plan_ready_payload)
     except Exception as _tge:
-        log.debug("plan_ready telegram notify failed: %s", _tge)
+        log.debug("plan_ready notify failed: %s", _tge)
 
     return result
 
@@ -6736,14 +6754,17 @@ def _automation_tick() -> None:
                 if not esphome_failed_sent:
                     esphome_failed_sent = True
                     try:
-                        _tg_notify("esphome_failed", {
+                        _ef_payload = {
                             "device_id":   device_id,
                             "device_name": device.get("name", device_id),
                             "entity":      name,
+                            "action":      effective_action,
                             "error":       result.get("error", "unknown"),
-                        }, settings=s_now)
+                        }
+                        _tg_notify("esphome_failed", _ef_payload, settings=s_now)
+                        _dc_notify("esphome_failed", _ef_payload, settings=s_now)
                     except Exception as _tge:
-                        log.debug("esphome_failed telegram notify failed: %s", _tge)
+                        log.debug("esphome_failed notify failed: %s", _tge)
 
     # ── grid_charge_opportunity Telegram notification ─────────────────────────
     # Stuur notificatie ook bij neg-price guard override (effective_action = "grid_charge"
@@ -6767,13 +6788,16 @@ def _automation_tick() -> None:
         _price_ok  = _current_price is None or _current_price < _gc_thresh
         if _soc_ok and _price_ok:
             try:
-                _tg_notify("grid_charge_opportunity", {
-                    "price_eur_kwh":      _current_price,
-                    "soc":                _live_soc,
-                    "recommended_kwh":    round(float(s_now.get("max_charge_kw", 3.0)), 2),
-                }, requires_approval=True, settings=s_now)
+                _gc_payload = {
+                    "price_eur_kwh":   _current_price,
+                    "soc":             _live_soc,
+                    "recommended_kwh": round(float(s_now.get("max_charge_kw", 3.0)), 2),
+                }
+                _tg_notify("grid_charge_opportunity", _gc_payload,
+                           requires_approval=True, settings=s_now)
+                _dc_notify("grid_charge_opportunity", _gc_payload, settings=s_now)
             except Exception as _tge:
-                log.debug("grid_charge_opportunity telegram notify failed: %s", _tge)
+                log.debug("grid_charge_opportunity notify failed: %s", _tge)
 
     # Sla last_action alleen op als ALLE commando's slaagden. Bij falen blijft
     # last_action op de vorige waarde zodat de volgende tick het opnieuw probeert.
@@ -7256,15 +7280,17 @@ def _maybe_send_daily_summary() -> None:
     try:
         slots = _plan_cache.get("slots", [])
         today_slots = [sl for sl in slots if sl.get("day") == "today"] or slots[:24]
-        _tg_notify("daily_summary", {
+        _ds_payload = {
             "date":               today_str,
             "grid_charge_hours":  sum(1 for sl in today_slots if sl.get("action") == "grid_charge"),
             "discharge_hours":    sum(1 for sl in today_slots if sl.get("action") == "discharge"),
             "solar_charge_hours": sum(1 for sl in today_slots if sl.get("action") == "solar_charge"),
             "soc_now":            _plan_cache.get("result", {}).get("soc_now"),
-        }, settings=s)
+        }
+        _tg_notify("daily_summary", _ds_payload, settings=s)
+        _dc_notify("daily_summary", _ds_payload, settings=s)
     except Exception as exc:
-        log.debug("daily_summary telegram notify failed: %s", exc)
+        log.debug("daily_summary notify failed: %s", exc)
 
 
 def _update_frank_ha_sensors() -> None:
@@ -7387,6 +7413,47 @@ def _daikin_planner_tick() -> None:
         log.error("Daikin planner error: %s", exc)
 
 
+_battery_alert_state: dict = {
+    "low_sent":  False,   # True als we al een battery_low alert hebben gestuurd
+    "full_sent": False,   # True als we al een battery_full alert hebben gestuurd
+}
+
+
+def _maybe_check_battery_alerts() -> None:
+    """Stuur Discord/Telegram battery_low of battery_full alert op basis van live SoC."""
+    try:
+        s = load_strategy_settings()
+        if not (s.get("discord_enabled") or s.get("telegram_enabled")):
+            return
+        soc = _live_soc()
+        if soc is None:
+            return
+        low_thresh  = float(s.get("discord_battery_low_threshold",  10))
+        full_thresh = float(s.get("discord_battery_full_threshold", 95))
+        state = _battery_alert_state
+
+        if soc < low_thresh and not state["low_sent"]:
+            state["low_sent"]  = True
+            state["full_sent"] = False
+            payload = {"soc": round(soc, 1)}
+            _tg_notify("battery_low", payload, settings=s)
+            _dc_notify("battery_low", payload, settings=s)
+            log.info("battery_low alert verstuurd (SoC=%.1f%%)", soc)
+        elif soc >= full_thresh and not state["full_sent"]:
+            state["full_sent"] = True
+            state["low_sent"]  = False
+            payload = {"soc": round(soc, 1)}
+            _tg_notify("battery_full", payload, settings=s)
+            _dc_notify("battery_full", payload, settings=s)
+            log.info("battery_full alert verstuurd (SoC=%.1f%%)", soc)
+        elif low_thresh + 5 <= soc < full_thresh:
+            # Reset beide vlaggen zodra de batterij uit het kritieke bereik is
+            state["low_sent"]  = False
+            state["full_sent"] = False
+    except Exception as exc:
+        log.debug("battery alert check error: %s", exc)
+
+
 def _start_automation_thread(interval: int = 60) -> None:
     import threading
 
@@ -7409,6 +7476,10 @@ def _start_automation_thread(interval: int = 60) -> None:
                 _daikin_planner_tick()
             except Exception as exc:
                 log.warning("Daikin planner tick error: %s", exc)
+            try:
+                _maybe_check_battery_alerts()
+            except Exception as exc:
+                log.debug("battery alert check error: %s", exc)
             _time.sleep(interval)
 
     def pv_loop():
@@ -7465,14 +7536,17 @@ def _start_anomaly_detection_thread(interval: int = 600) -> None:
                         payload = {"sensors": stale, "count": len(stale), "timestamp": anomalies.get("timestamp")}
                         if _should_notify("anomaly_stale_sensors", payload):
                             _tg_notify("anomaly_stale_sensors", payload)
+                            _dc_notify("anomaly_stale_sensors", payload)
                     if peaks:
                         payload = {"peaks": peaks, "count": len(peaks), "timestamp": anomalies.get("timestamp")}
                         if _should_notify("anomaly_unusual_peaks", payload):
                             _tg_notify("anomaly_unusual_peaks", payload)
+                            _dc_notify("anomaly_unusual_peaks", payload)
                     if faults:
                         payload = {"faults": faults, "count": len(faults), "timestamp": anomalies.get("timestamp")}
                         if _should_notify("anomaly_inverter_faults", payload):
                             _tg_notify("anomaly_inverter_faults", payload)
+                            _dc_notify("anomaly_inverter_faults", payload)
             except Exception as exc:
                 log.warning("Anomaly detection thread error: %s", exc)
             _time.sleep(interval)

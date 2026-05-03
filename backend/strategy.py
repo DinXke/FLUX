@@ -161,6 +161,26 @@ DEFAULT_SETTINGS = {
     },
     "telegram_grid_price_threshold": 0.10,  # €/kWh: grid_charge_opportunity als prijs < dit
     "telegram_grid_soc_threshold":   80,    # %: grid_charge_opportunity als SoC < dit
+    # Discord-notificaties via webhook
+    "discord_enabled":               False,
+    "discord_webhook_url":           "",
+    "discord_events": {
+        "plan_ready":              True,
+        "grid_charge_opportunity": True,
+        "esphome_failed":          True,
+        "daily_summary":           True,
+        "sma_offline":             True,
+        "sma_error":               True,
+        "sma_day_summary":         True,
+        "anomaly_stale_sensors":   True,
+        "anomaly_unusual_peaks":   True,
+        "anomaly_inverter_faults": True,
+        "battery_low":             True,
+        "battery_full":            False,
+        "grid_import_started":     False,
+    },
+    "discord_battery_low_threshold":  10,   # %: SoC < dit → battery_low alert
+    "discord_battery_full_threshold": 95,   # %: SoC >= dit → battery_full alert
 }
 
 
