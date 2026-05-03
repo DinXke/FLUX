@@ -17,7 +17,7 @@ import { apiFetch } from "../auth.js";
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { loadFlowCfg } from "./FlowSourcesSettings.jsx";
+import { loadFlowCfg, saveFlowCfg } from "./FlowSourcesSettings.jsx";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -177,7 +177,7 @@ function GlowNode({ cx, cy, r, icon, label, color, active, sublabel, sublabelCol
   return (
     <g>
       <circle cx={cx} cy={cy} r={r} fill="var(--bg-card)" stroke={color}
-        strokeWidth={active ? 2 : 1.5} opacity={active ? 1 : 0.55} />
+        strokeWidth={active ? 2 : 1.5} opacity={active ? 1 : 0.75} />
       {active && (
         <circle cx={cx} cy={cy} r={r} fill={color} opacity={0.08}
           filter="url(#flow-glow)" />
@@ -230,6 +230,23 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
       window.removeEventListener("marstek_flow_cfg_changed", refresh);
       window.removeEventListener("storage", refresh);
     };
+  }, []);
+
+  // Always pull custom_nodes from server so they show on every device/browser
+  // without requiring the user to reconfigure locally.
+  useEffect(() => {
+    apiFetch("api/flow/cfg")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((serverCfg) => {
+        if (!serverCfg?.custom_nodes?.length) return;
+        const local = loadFlowCfg();
+        const localIds = (local.custom_nodes ?? []).map((n) => n.id).join(",");
+        const serverIds = serverCfg.custom_nodes.map((n) => n.id).join(",");
+        if (localIds !== serverIds) {
+          saveFlowCfg({ ...local, custom_nodes: serverCfg.custom_nodes });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const pollHw = useCallback(async () => {
@@ -481,18 +498,18 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
           sublabel={batSoc != null ? fmtPct(batSoc) : null}
           sublabelColor={socColor} />
 
-        {/* Custom nodes */}
+        {/* Custom nodes — always visible, even at 0 W */}
         {customNodes.map((node, idx) => {
           const val = customNodeValues[idx];
           const active = val != null && Math.abs(val) > 5;
           const pos = customNodePositions[idx];
-          const color = active ? (val > 0 ? "#f59e0b" : "#3b82f6") : "#334155";
+          const color = active ? (val > 0 ? "#f59e0b" : "#3b82f6") : "#64748b";
           return (
             <GlowNode key={node.id} cx={pos.cx} cy={pos.cy} r={nodeR}
               icon={node.icon || "⚙️"} label={node.name || "Apparaat"}
               color={color} active={active}
-              sublabel={val != null ? fmt(val) : null}
-              sublabelColor={active ? color : "#64748b"} />
+              sublabel={val != null ? fmt(val) : "— W"}
+              sublabelColor={active ? color : "#94a3b8"} />
           );
         })}
       </svg>
