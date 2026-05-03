@@ -1,8 +1,8 @@
-name: SmartMarstek
-version: "1.31.1"
-slug: smartmarstek
-description: Smart battery management dashboard for Marstek batteries with ENTSO-E price strategy, solar forecast and Home Assistant integration.
-url: https://github.com/DinXke/SmartMarstek
+name: FLUX
+version: "1.32.0"
+slug: flux
+description: FLUX — Flexible Local Utility eXchange. Autonome energiestuurapplicatie voor thuisbatterijen met ENTSO-E prijsstrategie, zonne-forecast en Home Assistant integratie.
+url: https://github.com/DinXke/FLUX
 arch:
   - aarch64
   - amd64

@@ -176,14 +176,30 @@ else
 
     cp .env.example .env
 
-    # Vraag admin wachtwoord (interactief)
+    # Vraag admin wachtwoord (interactief) met validatie
     ADMIN_PASS=""
-    while [[ -z "$ADMIN_PASS" ]]; then
-        echo -en "${BOLD}Admin wachtwoord voor FLUX (verplicht):${RESET} "
+    PASS_VALID=false
+    while [[ "$PASS_VALID" == "false" ]]; do
+        echo -en "${BOLD}Admin wachtwoord voor FLUX (min. 8 chars):${RESET} "
         read -rs ADMIN_PASS
         echo ""
-        [[ -z "$ADMIN_PASS" ]] && log_warn "Wachtwoord mag niet leeg zijn."
+        if [[ -z "$ADMIN_PASS" ]]; then
+            log_warn "Wachtwoord mag niet leeg zijn."
+        elif [[ ${#ADMIN_PASS} -lt 8 ]]; then
+            log_warn "Wachtwoord moet minstens 8 karakters zijn."
+        else
+            PASS_VALID=true
+        fi
     done
+
+
+
+
+
+
+
+
+
 
     # Genereer alle interne secrets
     INFLUX_PASS=$(openssl rand -base64 24 | tr -d '\n/')
@@ -305,6 +321,19 @@ CRON_MARKER="flux-auto-update"
 
 log_info "Auto-update cron geïnstalleerd (controleert elke 5 min op GitHub updates)"
 log_info "Update log: $INSTALL_DIR/data/update.log"
+
+# ─────────────────────────────────────────────────────────────────────────
+# Step 8b: Install Auto-Backup Cron Job (daily at 2am)
+# ─────────────────────────────────────────────────────────────────────────
+log_title "Installing auto-backup cron job..."
+
+BACKUP_CRON="0 2 * * * INSTALL_DIR=$INSTALL_DIR /bin/sh $INSTALL_DIR/backup.sh $INSTALL_DIR/data >> $INSTALL_DIR/data/backup.log 2>&1"
+BACKUP_MARKER="flux-auto-backup"
+
+( crontab -l 2>/dev/null | grep -v "$BACKUP_MARKER" ; echo "# $BACKUP_MARKER" ; echo "$BACKUP_CRON" ) | crontab -
+
+log_info "Auto-backup cron geïnstalleerd (elke dag om 02:00 uur)"
+log_info "Backup log: $INSTALL_DIR/data/backup.log"
 
 # ─────────────────────────────────────────────────────────────────────────
 # Step 9: Show Access URLs
