@@ -32,15 +32,11 @@ export async function bootstrapFlowCfg(apiFetchFn) {
     if (!r.ok) return;
     const serverCfg = await r.json();
     if (!serverCfg || !Object.keys(serverCfg).length) return;
+    // Only restore from server when localStorage is empty (upgrade scenario).
     const local = localStorage.getItem(FLOW_CFG_KEY);
     const localEmpty = !local || local === "{}";
     if (localEmpty) {
       saveFlowCfg(serverCfg);
-    } else if (serverCfg.custom_nodes?.length) {
-      // Always sync custom_nodes from server — they are configured in settings
-      // and must be visible on all devices/browsers, not just where they were saved.
-      const localCfg = JSON.parse(local);
-      saveFlowCfg({ ...localCfg, custom_nodes: serverCfg.custom_nodes });
     }
   } catch { /* non-fatal */ }
 }

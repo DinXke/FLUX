@@ -177,11 +177,12 @@ function ConnLine({ x1, y1, x2, y2, color, active, reverse, power }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) {
-  const [hwData,     setHwData]     = useState(null);
-  const [haData,     setHaData]     = useState({});
-  const [influxLive, setInfluxLive] = useState({});
-  const [smaLive,    setSmaLive]    = useState({});
-  const [cfg,        setCfg]        = useState(() => loadFlowCfg());
+  const [hwData,          setHwData]          = useState(null);
+  const [haData,          setHaData]          = useState({});
+  const [influxLive,      setInfluxLive]      = useState({});
+  const [smaLive,         setSmaLive]         = useState({});
+  const [cfg,             setCfg]             = useState(() => loadFlowCfg());
+  const [serverCustomNodes, setServerCustomNodes] = useState(null);
 
   useEffect(() => {
     const refresh = () => setCfg(loadFlowCfg());
@@ -191,6 +192,14 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
       window.removeEventListener("marstek_flow_cfg_changed", refresh);
       window.removeEventListener("storage", refresh);
     };
+  }, []);
+
+  // Fetch custom_nodes directly from server so they show on all devices
+  useEffect(() => {
+    apiFetch("api/flow/cfg")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (Array.isArray(data?.custom_nodes)) setServerCustomNodes(data.custom_nodes); })
+      .catch(() => {});
   }, []);
 
   const pollHw = useCallback(async () => {
@@ -268,6 +277,12 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
     ? (batDisplayPower ?? 0) - (netDisplayPower ?? 0) + (solarPower ?? 0) - (evPower ?? 0)
     : null;
 
+  // Custom nodes: server copy is authoritative so nodes show on all browsers/devices
+  const customNodes = serverCustomNodes ?? cfg.custom_nodes ?? [];
+  const customNodeValues = customNodes.map(node =>
+    node.source ? resolveOne(node.source, batteries, hwData, haData, influxLive, smaLive) : null
+  );
+
   const showSolar = !!(Array.isArray(cfg.solar_power) ? cfg.solar_power.length > 0 : cfg.solar_power)
     || solarPower != null;
   const showEv = Array.isArray(cfg.ev_power) ? cfg.ev_power.length > 0 : !!cfg.ev_power;
@@ -313,14 +328,18 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
 
   // ── Layout ─────────────────────────────────────────────────────────────────
   const W = 860;
-  const H = showEv ? 520 : 440;
+  const wCust = 140, hCust = 110;
+  const custCols = Math.min(Math.max(customNodes.length, 1), 4);
+  const custRowCount = customNodes.length > 0 ? Math.ceil(customNodes.length / custCols) : 0;
+  const baseH = showEv ? 520 : 440;
+  const H = baseH + (custRowCount > 0 ? custRowCount * (hCust + 30) + 30 : 0);
   const hubCY = showEv ? 250 : 230;
 
   const cHUB  = { cx: 430, cy: hubCY };
   const cGRID = { cx: 95,  cy: hubCY };
   const cBAT  = { cx: 765, cy: hubCY };
   const cSOL  = { cx: 430, cy: 68 };
-  const cEV   = { cx: 430, cy: showEv ? H - 68 : 0 };
+  const cEV   = { cx: 430, cy: showEv ? baseH - 68 : 0 };
 
   const wHub = 168, hHub = 136;
   const wSat = 150, hSat = 124;
@@ -411,6 +430,37 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
             icon="🚗" label="EV LADER"
             power={evPower} color={C.ev} active={evActive} />
         )}
+
+        {/* Custom device nodes — always visible, even at 0 W */}
+        {customNodes.map((node, idx) => {
+          const power = customNodeValues[idx];
+          const active = power != null && Math.abs(power) > 5;
+          const color = active ? "#f97316" : "#64748b";
+          const row = Math.floor(idx / custCols);
+          const col = idx % custCols;
+          const rowTotal = Math.min(customNodes.length - row * custCols, custCols);
+          const rowStartX = (W - rowTotal * (wCust + 20) + 20) / 2;
+          const cx = rowStartX + col * (wCust + 20) + wCust / 2;
+          const cy = baseH + 15 + hCust / 2 + row * (hCust + 30);
+          return (
+            <g key={node.id ?? idx}>
+              <ConnLine
+                x1={cHUB.cx} y1={cHUB.cy + hHub / 2}
+                x2={cx} y2={cy - hCust / 2}
+                color={color} active={active} reverse={false} power={power}
+              />
+              <NodeCard
+                cx={cx} cy={cy}
+                w={wCust} h={hCust}
+                icon={node.icon ?? "🔌"}
+                label={(node.name ?? "TOESTEL").toUpperCase()}
+                power={power}
+                color={color}
+                active={active}
+              />
+            </g>
+          );
+        })}
       </svg>
 
       {/* Per-battery breakdown when multiple batteries */}
