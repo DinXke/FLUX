@@ -3703,6 +3703,7 @@ def get_forecast_actuals():
 # ---------------------------------------------------------------------------
 
 @app.route("/api/debug", methods=["GET"])
+@require_auth
 def debug_info():
     """Returns diagnostics: devices, Frank session state, log tail."""
     devices = load_devices()
@@ -4064,6 +4065,7 @@ def put_sma_register_map():
 
 
 @app.route("/api/strategy/settings", methods=["GET"])
+@require_auth
 def get_strategy_settings():
     return jsonify(load_strategy_settings())
 
@@ -4595,6 +4597,7 @@ def get_accuracy_summary():
 
 
 @app.route("/api/influx/recent")
+@require_auth
 def get_influx_recent():
     """Return last N hours of energy flow data from InfluxDB."""
     hours = int(request.args.get("hours", 24))
@@ -4603,6 +4606,7 @@ def get_influx_recent():
 
 
 @app.route("/api/influx/status")
+@require_auth
 def get_influx_status():
     """Check InfluxDB connectivity."""
     try:
