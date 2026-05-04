@@ -271,6 +271,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [powerMap, setPowerMap] = useState({});
+  const [visibilityCounter, setVisibilityCounter] = useState(0);
 
   // ── Background auth probe ──
   useEffect(() => {
@@ -350,6 +351,19 @@ export default function App() {
       }
     }).catch(() => { /* update check mislukt, stil negeren */ });
   }, [isNativeApp, authState]);
+
+  // ── SSE reconnect on visibility change (mobile screen lock/unlock) ──
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (!document.hidden) {
+        console.log("[App] Screen became visible, refreshing SSE connections");
+        setVisibilityCounter((c) => c + 1);
+        await fetchDevices();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [fetchDevices]);
 
   const { layout, toggleCollapse, reorder } = useDashboardLayout(currentUser?.email);
 
@@ -631,7 +645,7 @@ export default function App() {
                         <div className="device-grid" style={{ padding: "12px 14px 14px" }}>
                           {devices.map((device) => (
                             <DeviceCard
-                              key={device.id}
+                              key={`${device.id}-${visibilityCounter}`}
                               device={device}
                               onDelete={handleDeviceDeleted}
                               onEdit={handleDeviceEdited}
