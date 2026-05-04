@@ -361,23 +361,26 @@ def _collect_and_write(app_context_fn):
     if write_api is None:
         return
 
+    from influxdb_client import Point  # type: ignore
+    from datetime import datetime as _dt
+
+    all_points: list = []
+
+    # ── energy_flow (main measurement) ───────────────────────────────────────
     try:
-        from influxdb_client import Point  # type: ignore
         p = Point("energy_flow").tag("source", "marstek")
         for k, v in fields.items():
             p = p.field(k, v)
         p = p.time(datetime.now(timezone.utc))
-        write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
-        log.debug("InfluxDB write OK  fields=%s", list(fields.keys()))
+        all_points.append(p)
     except Exception as exc:
-        log.warning("InfluxDB write error: %s", exc)
+        log.warning("InfluxDB energy_flow build error: %s", exc)
 
     # ── SMA inverter data (separate measurement) ──────────────────────────────
     try:
         from sma_modbus import get_sma_live as _get_sma  # lazy import to avoid circular
         sma = _get_sma()
         if sma.get("online") and sma.get("ts", 0) > 0 and (time.time() - sma["ts"]) < 60:
-            from influxdb_client import Point  # type: ignore
             sma_fields = {
                 k: sma[k] for k in (
                     "pac_w", "e_day_wh", "e_total_wh",
@@ -392,84 +395,76 @@ def _collect_and_write(app_context_fn):
                 for k, v in sma_fields.items():
                     sp = sp.field(k, float(v))
                 sp = sp.time(datetime.now(timezone.utc))
-                write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=sp)
-                log.debug("InfluxDB SMA write OK  fields=%s", list(sma_fields.keys()))
+                all_points.append(sp)
     except Exception as exc:
-        log.debug("InfluxDB SMA write skip: %s", exc)
+        log.debug("InfluxDB SMA point build skip: %s", exc)
 
     # ── Strategy plan slots (48-hour forecast) ──────────────────────────────
     try:
         plan_slots = ctx.get("plan_slots", [])
-        if plan_slots:
-            from influxdb_client import Point  # type: ignore
-            written_count = 0
-            for slot in plan_slots:
-                try:
-                    slot_time = slot.get("time")
-                    if not slot_time:
-                        continue
-                    p = Point("strategy_slot")
-                    p = p.tag("action", slot.get("action", "UNKNOWN"))
-                    p = p.tag("is_peak", "true" if slot.get("is_peak") else "false")
-                    p = p.tag("is_past", "true" if slot.get("is_past") else "false")
-                    for k, v in [
-                        ("price_eur_kwh", slot.get("price_eur_kwh")),
-                        ("solar_wh", slot.get("solar_wh")),
-                        ("consumption_wh", slot.get("consumption_wh")),
-                        ("net_wh", slot.get("net_wh")),
-                        ("charge_kwh", slot.get("charge_kwh")),
-                        ("discharge_kwh", slot.get("discharge_kwh")),
-                        ("soc_start", slot.get("soc_start")),
-                        ("soc_end", slot.get("soc_end")),
-                        ("pv_limit_w", slot.get("pv_limit_w")),
-                    ]:
-                        if v is not None:
-                            p = p.field(k, float(v))
-                    from datetime import datetime as _dt
-                    p = p.time(_dt.fromisoformat(slot_time))
-                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
-                    written_count += 1
-                except Exception as e:
-                    log.debug("Strategy slot write error (hour %s): %s", slot.get("hour"), e)
-            if written_count > 0:
-                log.debug("InfluxDB strategy slots write OK  count=%d", written_count)
+        slot_count = 0
+        for slot in plan_slots:
+            try:
+                slot_time = slot.get("time")
+                if not slot_time:
+                    continue
+                p = Point("strategy_slot")
+                p = p.tag("action", slot.get("action", "UNKNOWN"))
+                p = p.tag("is_peak", "true" if slot.get("is_peak") else "false")
+                p = p.tag("is_past", "true" if slot.get("is_past") else "false")
+                for k, v in [
+                    ("price_eur_kwh", slot.get("price_eur_kwh")),
+                    ("solar_wh", slot.get("solar_wh")),
+                    ("consumption_wh", slot.get("consumption_wh")),
+                    ("net_wh", slot.get("net_wh")),
+                    ("charge_kwh", slot.get("charge_kwh")),
+                    ("discharge_kwh", slot.get("discharge_kwh")),
+                    ("soc_start", slot.get("soc_start")),
+                    ("soc_end", slot.get("soc_end")),
+                    ("pv_limit_w", slot.get("pv_limit_w")),
+                ]:
+                    if v is not None:
+                        p = p.field(k, float(v))
+                p = p.time(_dt.fromisoformat(slot_time))
+                all_points.append(p)
+                slot_count += 1
+            except Exception as e:
+                log.debug("Strategy slot build error (hour %s): %s", slot.get("hour"), e)
+        if slot_count > 0:
+            log.debug("Strategy slots queued  count=%d", slot_count)
     except Exception as exc:
-        log.debug("InfluxDB strategy slots write skip: %s", exc)
+        log.debug("InfluxDB strategy slots build skip: %s", exc)
 
     # ── Solar forecast (hourly prediction) ───────────────────────────────────
     try:
         forecast_data = ctx.get("solar_forecast", {})
-        if forecast_data:
-            from influxdb_client import Point  # type: ignore
-            from datetime import datetime as _dt
-            written_count = 0
-            for slot_time_str, wh in forecast_data.items():
-                try:
-                    if not wh:
-                        continue
-                    p = Point("solar_forecast")
-                    p = p.field("forecasted_wh", float(wh))
-                    slot_dt = _dt.fromisoformat(slot_time_str) if "T" in slot_time_str else _dt.fromisoformat(slot_time_str.replace(" ", "T"))
-                    if slot_dt.tzinfo is None:
-                        from zoneinfo import ZoneInfo
-                        slot_dt = slot_dt.replace(tzinfo=ZoneInfo("UTC"))
-                    p = p.time(slot_dt)
-                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
-                    written_count += 1
-                except Exception as e:
-                    log.debug("Solar forecast write error (%s): %s", slot_time_str, e)
-            if written_count > 0:
-                log.debug("InfluxDB solar forecast write OK  count=%d", written_count)
+        fc_count = 0
+        for slot_time_str, wh in forecast_data.items():
+            try:
+                if not wh:
+                    continue
+                p = Point("solar_forecast")
+                p = p.field("forecasted_wh", float(wh))
+                slot_dt = _dt.fromisoformat(slot_time_str) if "T" in slot_time_str else _dt.fromisoformat(slot_time_str.replace(" ", "T"))
+                if slot_dt.tzinfo is None:
+                    from zoneinfo import ZoneInfo
+                    slot_dt = slot_dt.replace(tzinfo=ZoneInfo("UTC"))
+                p = p.time(slot_dt)
+                all_points.append(p)
+                fc_count += 1
+            except Exception as e:
+                log.debug("Solar forecast build error (%s): %s", slot_time_str, e)
+        if fc_count > 0:
+            log.debug("Solar forecast queued  count=%d", fc_count)
     except Exception as exc:
-        log.debug("InfluxDB solar forecast write skip: %s", exc)
+        log.debug("InfluxDB solar forecast build skip: %s", exc)
 
     # ── Anomaly alerts ──────────────────────────────────────────────────────
     try:
         anomalies = ctx.get("anomalies", {})
         if anomalies:
-            from influxdb_client import Point  # type: ignore
-            from datetime import datetime as _dt
             alert_count = 0
+            now_utc = datetime.now(timezone.utc)
 
             stale_sensors = anomalies.get("stale_sensors", {})
             for sensor_name, last_update_ts in stale_sensors.items():
@@ -478,11 +473,11 @@ def _collect_and_write(app_context_fn):
                     p = p.tag("type", "stale_sensor")
                     p = p.tag("sensor", sensor_name)
                     p = p.field("description", f"No data for {stale_sensors[sensor_name]} seconds")
-                    p = p.time(datetime.now(timezone.utc))
-                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    p = p.time(now_utc)
+                    all_points.append(p)
                     alert_count += 1
                 except Exception as e:
-                    log.debug("Stale sensor alert write error: %s", e)
+                    log.debug("Stale sensor alert build error: %s", e)
 
             unusual_peaks = anomalies.get("unusual_peaks", {})
             for sensor_name, peak_info in unusual_peaks.items():
@@ -490,12 +485,12 @@ def _collect_and_write(app_context_fn):
                     p = Point("anomaly_alert")
                     p = p.tag("type", "power_spike")
                     p = p.tag("sensor", sensor_name)
-                    p = p.field("description", f"Unusual power spike detected")
-                    p = p.time(datetime.now(timezone.utc))
-                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    p = p.field("description", "Unusual power spike detected")
+                    p = p.time(now_utc)
+                    all_points.append(p)
                     alert_count += 1
                 except Exception as e:
-                    log.debug("Peak alert write error: %s", e)
+                    log.debug("Peak alert build error: %s", e)
 
             inverter_faults = anomalies.get("inverter_faults", {})
             for inv_name, fault_info in inverter_faults.items():
@@ -504,145 +499,146 @@ def _collect_and_write(app_context_fn):
                     p = p.tag("type", "inverter_fault")
                     p = p.tag("inverter", inv_name)
                     p = p.field("description", fault_info.get("status", "Unknown fault"))
-                    p = p.time(datetime.now(timezone.utc))
-                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
+                    p = p.time(now_utc)
+                    all_points.append(p)
                     alert_count += 1
                 except Exception as e:
-                    log.debug("Inverter fault alert write error: %s", e)
+                    log.debug("Inverter fault alert build error: %s", e)
 
             if alert_count > 0:
-                log.debug("InfluxDB anomaly alerts write OK  count=%d", alert_count)
+                log.debug("Anomaly alerts queued  count=%d", alert_count)
     except Exception as exc:
-        log.debug("InfluxDB anomaly alerts write skip: %s", exc)
+        log.debug("InfluxDB anomaly alerts build skip: %s", exc)
 
     # ── Electricity price (Frank Energie / ENTSO-E) ──────────────────────────
     try:
         price_data = ctx.get("current_price_data", {})
         if price_data and "buy_eur_kwh" in price_data:
-            from influxdb_client import Point  # type: ignore
             pp = Point("electricity_price")
             pp = pp.tag("source", price_data.get("source", "unknown"))
             pp = pp.field("buy_eur_kwh", float(price_data["buy_eur_kwh"]))
             if price_data.get("feed_in_eur_kwh") is not None:
                 pp = pp.field("feed_in_eur_kwh", float(price_data["feed_in_eur_kwh"]))
             pp = pp.time(datetime.now(timezone.utc))
-            write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=pp)
-            log.debug("InfluxDB electricity_price write OK  buy=%.4f src=%s",
-                      price_data["buy_eur_kwh"], price_data.get("source"))
+            all_points.append(pp)
     except Exception as exc:
-        log.debug("InfluxDB electricity_price write skip: %s", exc)
+        log.debug("InfluxDB electricity_price build skip: %s", exc)
 
     # ── Daikin Onecta device states ──────────────────────────────────────────
     try:
         daikin_states = ctx.get("daikin_states", [])
-        if daikin_states:
-            from influxdb_client import Point  # type: ignore
-            daikin_count = 0
-            for dev in daikin_states:
-                try:
-                    dev_name = dev.get("name") or dev.get("id", "unknown")
-                    dp = Point("daikin_device")
-                    dp = dp.tag("device_name", dev_name)
-                    dp = dp.tag("mode", dev.get("mode") or "unknown")
-                    if dev.get("current_temp") is not None:
-                        dp = dp.field("current_temp_c", float(dev["current_temp"]))
-                    if dev.get("setpoint") is not None:
-                        dp = dp.field("setpoint_c", float(dev["setpoint"]))
-                    if dev.get("power_on") is not None:
-                        dp = dp.field("power_on", 1 if dev["power_on"] else 0)
-                    dp = dp.time(datetime.now(timezone.utc))
-                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=dp)
-                    daikin_count += 1
-                except Exception as e:
-                    log.debug("Daikin device write error (%s): %s", dev.get("name"), e)
-            if daikin_count > 0:
-                log.debug("InfluxDB daikin_device write OK  count=%d", daikin_count)
+        daikin_count = 0
+        for dev in daikin_states:
+            try:
+                dev_name = dev.get("name") or dev.get("id", "unknown")
+                dp = Point("daikin_device")
+                dp = dp.tag("device_name", dev_name)
+                dp = dp.tag("mode", dev.get("mode") or "unknown")
+                if dev.get("current_temp") is not None:
+                    dp = dp.field("current_temp_c", float(dev["current_temp"]))
+                if dev.get("setpoint") is not None:
+                    dp = dp.field("setpoint_c", float(dev["setpoint"]))
+                if dev.get("power_on") is not None:
+                    dp = dp.field("power_on", 1 if dev["power_on"] else 0)
+                dp = dp.time(datetime.now(timezone.utc))
+                all_points.append(dp)
+                daikin_count += 1
+            except Exception as e:
+                log.debug("Daikin device build error (%s): %s", dev.get("name"), e)
+        if daikin_count > 0:
+            log.debug("Daikin devices queued  count=%d", daikin_count)
     except Exception as exc:
-        log.debug("InfluxDB daikin_device write skip: %s", exc)
+        log.debug("InfluxDB daikin_device build skip: %s", exc)
 
     # ── Bosch Home Connect appliance states ─────────────────────────────────
     try:
         bosch_states = ctx.get("bosch_states", [])
-        if bosch_states:
-            from influxdb_client import Point  # type: ignore
-            _STATE_CODE = {"IDLE": 0, "STANDBY": 0, "READY": 1, "RUN": 2, "PAUSE": 3,
-                           "ACTION_REQUIRED": 4, "FINISHED": 5, "ERROR": 6}
-            bosch_count = 0
-            for appl in bosch_states:
-                try:
-                    appl_name = appl.get("name") or appl.get("id", "unknown")
-                    appl_state = (appl.get("state") or "UNKNOWN").upper()
-                    bp = Point("bosch_appliance")
-                    bp = bp.tag("appliance_name", appl_name)
-                    bp = bp.tag("appliance_type", appl.get("type") or "unknown")
-                    bp = bp.tag("state", appl_state)
-                    bp = bp.field("state_code", _STATE_CODE.get(appl_state, -1))
-                    bp = bp.field("running", 1 if appl_state == "RUN" else 0)
-                    bp = bp.time(datetime.now(timezone.utc))
-                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=bp)
-                    bosch_count += 1
-                except Exception as e:
-                    log.debug("Bosch appliance write error (%s): %s", appl.get("name"), e)
-            if bosch_count > 0:
-                log.debug("InfluxDB bosch_appliance write OK  count=%d", bosch_count)
+        _STATE_CODE = {"IDLE": 0, "STANDBY": 0, "READY": 1, "RUN": 2, "PAUSE": 3,
+                       "ACTION_REQUIRED": 4, "FINISHED": 5, "ERROR": 6}
+        bosch_count = 0
+        for appl in bosch_states:
+            try:
+                appl_name = appl.get("name") or appl.get("id", "unknown")
+                appl_state = (appl.get("state") or "UNKNOWN").upper()
+                bp = Point("bosch_appliance")
+                bp = bp.tag("appliance_name", appl_name)
+                bp = bp.tag("appliance_type", appl.get("type") or "unknown")
+                bp = bp.tag("state", appl_state)
+                bp = bp.field("state_code", _STATE_CODE.get(appl_state, -1))
+                bp = bp.field("running", 1 if appl_state == "RUN" else 0)
+                bp = bp.time(datetime.now(timezone.utc))
+                all_points.append(bp)
+                bosch_count += 1
+            except Exception as e:
+                log.debug("Bosch appliance build error (%s): %s", appl.get("name"), e)
+        if bosch_count > 0:
+            log.debug("Bosch appliances queued  count=%d", bosch_count)
     except Exception as exc:
-        log.debug("InfluxDB bosch_appliance write skip: %s", exc)
+        log.debug("InfluxDB bosch_appliance build skip: %s", exc)
 
     # ── Custom flow devices (marstek_flow_cfg.devices[]) ────────────────────
     try:
         cfg_devices = flow_cfg.get("custom_nodes", []) if isinstance(flow_cfg, dict) else []
-        if cfg_devices:
-            from influxdb_client import Point  # type: ignore
-            dev_count = 0
-            for dev in cfg_devices:
-                try:
-                    dev_id = dev.get("id")
-                    if not dev_id:
-                        continue
-                    raw_src = dev.get("sources") or dev.get("source")
-                    sources = raw_src if isinstance(raw_src, list) else ([raw_src] if raw_src else [])
-                    if not sources:
-                        continue
-                    power_w: Optional[float] = None
-                    for sc in sources:
-                        source    = sc.get("source")
-                        device_id = sc.get("device_id")
-                        sensor    = sc.get("sensor")
-                        invert    = sc.get("invert", False)
-                        v = None
-                        if source == "esphome":
-                            v = esphome_map.get(device_id, {}).get(sensor)
-                        elif source == "homewizard":
-                            hw_dev = next(
-                                (d for d in (hw_data or {}).get("devices", []) if d["id"] == device_id),
-                                None,
-                            )
-                            v = hw_dev["sensors"].get(sensor, {}).get("value") if hw_dev else None
-                        elif source == "homeassistant":
-                            entry = ha_data.get(sensor)
-                            v = entry.get("value") if entry else None
-                        elif source == "sma":
-                            v = (sma_data or {}).get(sensor)
-                        if v is not None:
-                            power_w = (power_w or 0.0) + float(-v if invert else v)
-                    if power_w is None:
-                        continue
-                    energy_kwh_delta = power_w * WRITE_INTERVAL / 3600.0 / 1000.0
-                    dp = Point("device_power")
-                    dp = dp.tag("device_id", dev_id)
-                    dp = dp.tag("device_label", dev.get("name") or dev.get("label") or dev_id)
-                    dp = dp.tag("device_icon", dev.get("icon", "🔌"))
-                    dp = dp.field("power_w", float(power_w))
-                    dp = dp.field("energy_kwh_delta", float(energy_kwh_delta))
-                    dp = dp.time(datetime.now(timezone.utc))
-                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=dp)
-                    dev_count += 1
-                except Exception as e:
-                    log.debug("Device power write error (%s): %s", dev.get("id"), e)
-            if dev_count > 0:
-                log.debug("InfluxDB device_power write OK  count=%d", dev_count)
+        dev_count = 0
+        for dev in cfg_devices:
+            try:
+                dev_id = dev.get("id")
+                if not dev_id:
+                    continue
+                raw_src = dev.get("sources") or dev.get("source")
+                sources = raw_src if isinstance(raw_src, list) else ([raw_src] if raw_src else [])
+                if not sources:
+                    continue
+                power_w: Optional[float] = None
+                for sc in sources:
+                    source    = sc.get("source")
+                    device_id = sc.get("device_id")
+                    sensor    = sc.get("sensor")
+                    invert    = sc.get("invert", False)
+                    v = None
+                    if source == "esphome":
+                        v = esphome_map.get(device_id, {}).get(sensor)
+                    elif source == "homewizard":
+                        hw_dev = next(
+                            (d for d in (hw_data or {}).get("devices", []) if d["id"] == device_id),
+                            None,
+                        )
+                        v = hw_dev["sensors"].get(sensor, {}).get("value") if hw_dev else None
+                    elif source == "homeassistant":
+                        entry = ha_data.get(sensor)
+                        v = entry.get("value") if entry else None
+                    elif source == "sma":
+                        v = (sma_data or {}).get(sensor)
+                    if v is not None:
+                        power_w = (power_w or 0.0) + float(-v if invert else v)
+                if power_w is None:
+                    continue
+                energy_kwh_delta = power_w * WRITE_INTERVAL / 3600.0 / 1000.0
+                dp = Point("device_power")
+                dp = dp.tag("device_id", dev_id)
+                dp = dp.tag("device_label", dev.get("name") or dev.get("label") or dev_id)
+                dp = dp.tag("device_icon", dev.get("icon", "🔌"))
+                dp = dp.field("power_w", float(power_w))
+                dp = dp.field("energy_kwh_delta", float(energy_kwh_delta))
+                dp = dp.time(datetime.now(timezone.utc))
+                all_points.append(dp)
+                dev_count += 1
+            except Exception as e:
+                log.debug("Device power build error (%s): %s", dev.get("id"), e)
+        if dev_count > 0:
+            log.debug("Custom devices queued  count=%d", dev_count)
     except Exception as exc:
-        log.debug("InfluxDB device_power write skip: %s", exc)
+        log.debug("InfluxDB device_power build skip: %s", exc)
+
+    # ── Single batched write ─────────────────────────────────────────────────
+    if not all_points:
+        log.debug("No points to write")
+        return
+    try:
+        write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=all_points)
+        log.debug("InfluxDB batch write OK  points=%d  fields=%s", len(all_points), list(fields.keys()))
+    except Exception as exc:
+        log.warning("InfluxDB batch write error: %s", exc)
 
 
 # ---------------------------------------------------------------------------
