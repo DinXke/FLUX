@@ -66,8 +66,15 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 LOG_FILE = os.path.join(DATA_DIR, "marstek.log")
 
+_log_level_str = os.environ.get("MARSTEK_LOG_LEVEL", "DEBUG").upper()
+try:
+    _log_level = getattr(logging, _log_level_str)
+except AttributeError:
+    _log_level = logging.DEBUG
+    _log_level_str = "DEBUG"
+
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=_log_level,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.StreamHandler(),                         # stdout (visible in terminal)
