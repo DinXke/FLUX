@@ -144,7 +144,7 @@
             "type": "influxdb",
             "uid": "influxdb"
           },
-          "query": "from(bucket:\"energy\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"solar_forecast\" and r._field == \"forecasted_wh\")\n  |> group(columns: [\"_field\"])\n  |> aggregateWindow(every: 30m, fn: mean, createEmpty: false)\n  |> set(key: \"_field\", value: \"forecast_solar_w\")",
+          "query": "from(bucket:\"energy\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r._measurement == \"solar_forecast\" and r._field == \"forecast_solar_w\")\n  |> group(columns: [\"_field\"])\n  |> aggregateWindow(every: 30m, fn: mean, createEmpty: false)",
           "refId": "B"
         }
       ],
