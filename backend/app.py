@@ -6642,7 +6642,7 @@ def _automation_tick() -> None:
 
     action = _current_slot_action()
     if action is None:
-        log.debug("Automation: no plan cached yet – skipping")
+        log.warning("Automation: geen strategie-plan beschikbaar – sla tick over")
         return
 
     # ── Solar overproduction override ────────────────────────────────────────
@@ -6720,6 +6720,9 @@ def _automation_tick() -> None:
     # inverter na een eigen reset/terugval naar anti-feed automatisch herstelt.
     _REAPPLY_INTERVAL_S = 300
     _force_reapply = False
+    if prev_action is not None and not last_applied_str:
+        _force_reapply = True
+        log.info("Automation: last_applied ontbreekt – forceer hertoepassing")
     if prev_action is not None and last_applied_str:
         try:
             _elapsed = (
@@ -6746,7 +6749,7 @@ def _automation_tick() -> None:
     devices       = load_devices()
 
     if not devices:
-        log.debug("Automation: no devices configured")
+        log.warning("Automation: geen batterij-apparaten geconfigureerd – kan actie niet uitvoeren")
         return
 
     # For grid_charge: also set Forcible Charge Power (W per battery) and Charge to SoC.
@@ -7145,9 +7148,14 @@ def _apply_pv_limiter(s: dict, auto: dict) -> None:
 
     # In entity mode, entity is required; in service mode, the service string is required
     if not use_service and not entity and not s.get("pv_limiter_use_modbus") and not s.get("pv_limiter_use_webui"):
+        log.warning("PV limiter: geen uitvoermethode geconfigureerd (entity, service, modbus of webui vereist)")
+        auto["pv_limiter_config_error"] = "Geen uitvoermethode geconfigureerd – stel entity, service, modbus of webui in"
         return
     if use_service and not svc_str:
+        log.warning("PV limiter: use_service actief maar geen service-string geconfigureerd")
+        auto["pv_limiter_config_error"] = "use_service actief maar pv_limiter_service is leeg"
         return
+    auto.pop("pv_limiter_config_error", None)
 
     # Manual override: bypass price logic AND rolling cap entirely — user explicitly controls output
     log.info("PV limiter REACHED MANUAL OVERRIDE CHECK")
