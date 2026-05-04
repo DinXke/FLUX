@@ -26,7 +26,7 @@ services:
       MARSTEK_DATA_DIR: /data
       MARSTEK_FRONTEND_DIST: /app/frontend/dist
       PYTHONUNBUFFERED: 1
-      INFLUX_URL: http://localhost:8086
+      INFLUX_URL: http://influxdb:8086
       INFLUX_USERNAME: ${INFLUX_USERNAME}
       INFLUX_PASSWORD: ${INFLUX_PASSWORD}
       INFLUX_ORG: ${INFLUX_ORG}
