@@ -297,6 +297,109 @@ NEUTRAL      = "neutral"
 # Core algorithm
 # ---------------------------------------------------------------------------
 
+def _build_price_slots(prices: list[dict], tz) -> dict:
+    """Convert raw price list to {slot_key: avg_eur_kwh} hourly buckets in local tz."""
+    price_by_slot: dict = {}
+    for p in prices:
+        try:
+            dt_raw = datetime.fromisoformat(p["from"])
+            dt_local = dt_raw.replace(tzinfo=tz) if dt_raw.tzinfo is None else dt_raw.astimezone(tz)
+            slot_key = dt_local.replace(minute=0, second=0, microsecond=0).isoformat()
+            existing = price_by_slot.get(slot_key, [])
+            if isinstance(existing, list):
+                existing.append(float(p["marketPrice"]))
+                price_by_slot[slot_key] = existing
+            else:
+                price_by_slot[slot_key] = [existing, float(p["marketPrice"])]
+        except Exception:
+            pass
+    return {k: (sum(v) / len(v) if isinstance(v, list) else v) for k, v in price_by_slot.items()}
+
+
+def _build_solar_slots(solar_wh: dict, tz) -> dict:
+    """Convert forecast.solar watt_hours_period dict to {slot_key: wh} hourly buckets."""
+    solar_by_slot: dict = {}
+    for k, wh in (solar_wh or {}).items():
+        try:
+            dt_str = k if "T" in k else k.replace(" ", "T")
+            dt = datetime.fromisoformat(dt_str)
+            dt = dt.replace(tzinfo=tz) if dt.tzinfo is None else dt.astimezone(tz)
+            slot_key = dt.replace(minute=0, second=0, microsecond=0).isoformat()
+            solar_by_slot[slot_key] = solar_by_slot.get(slot_key, 0.0) + float(wh)
+        except (ValueError, TypeError) as exc:
+            log.debug("solar_wh key %r skipped: %s", k, exc)
+    return solar_by_slot
+
+
+def _build_consumption_index(consumption_by_hour: list) -> tuple:
+    """Return (cons_by_wd_hour, cons_by_hour) index dicts from raw consumption list."""
+    cons_by_wd_hour: dict = {}
+    cons_by_hour:    dict = {}
+    for x in (consumption_by_hour or []):
+        h  = int(x["hour"])
+        v  = float(x["avg_wh"])
+        wd = x.get("weekday")
+        if wd is not None:
+            cons_by_wd_hour[(int(wd), h)] = v
+        else:
+            cons_by_hour[h] = v
+    return cons_by_wd_hour, cons_by_hour
+
+
+def _detect_standby(s: dict, cons_by_wd_hour: dict, cons_by_hour: dict, has_wd_data: bool) -> float:
+    """Return standby power (W): configured value or auto-detected from 04–05h average."""
+    configured = float(s.get("standby_w", 0))
+    if configured > 0:
+        log.debug("strategy: standby_w=%.0f W (configured)", configured)
+        return configured
+
+    vals: list[float] = []
+    for h in (4, 5):
+        if has_wd_data:
+            for wd in range(7):
+                v = cons_by_wd_hour.get((wd, h))
+                if v is not None:
+                    vals.append(v)
+        else:
+            v = cons_by_hour.get(h)
+            if v is not None:
+                vals.append(v)
+    result = sum(vals) / len(vals) if vals else 0.0
+    log.debug("strategy: standby_w=%.0f W (auto-detected)", result)
+    return result
+
+
+def _build_peak_classifier(s: dict, cons_by_wd_hour: dict, cons_by_hour: dict,
+                            has_wd_data: bool, standby_w: float):
+    """Return an _is_peak(weekday, hour) callable based on settings and consumption data."""
+    manual_peaks = s.get("manual_peak_hours", [])
+
+    def _excess(wh: float) -> float:
+        return max(0.0, wh - standby_w)
+
+    if manual_peaks:
+        _manual_set = {int(h) for h in manual_peaks}
+        return lambda wd, h: h in _manual_set
+
+    if has_wd_data:
+        _wd_peaks: dict = {}
+        for wd in range(7):
+            wd_excess = {h: _excess(cons_by_wd_hour.get((wd, h), 0.0)) for h in range(24)}
+            threshold = sorted(wd_excess.values())[int(24 * 0.75)]
+            _wd_peaks[wd] = {h for h, e in wd_excess.items()
+                             if e >= threshold and e > standby_w * 0.20}
+        return lambda wd, h: h in _wd_peaks.get(wd, {7, 8, 9, 17, 18, 19, 20, 21})
+
+    if cons_by_hour:
+        _excess_vals = {h: _excess(c) for h, c in cons_by_hour.items()}
+        threshold    = sorted(_excess_vals.values())[int(len(_excess_vals) * 0.75)]
+        _peaks       = {h for h, e in _excess_vals.items()
+                        if e >= threshold and e > standby_w * 0.20}
+        return lambda wd, h: h in _peaks
+
+    return lambda wd, h: h in {7, 8, 9, 17, 18, 19, 20, 21}
+
+
 def build_plan(
     prices: list[dict],          # [{from, till, marketPrice, ...}] sorted asc
     solar_wh: dict[str, float],  # {slot_key: Wh} from forecast.solar watt_hours_period
@@ -331,75 +434,22 @@ def build_plan(
     markup        = 0.0 if price_source == "frank" else float(s["grid_markup_eur_kwh"])
     tz_name       = s.get("timezone", "Europe/Brussels")
     tz            = ZoneInfo(tz_name)
-    manual_peaks  = s.get("manual_peak_hours", [])
     neg_dis_en     = bool(s.get("neg_price_discharge_enabled", True))
     neg_dis_ahead  = int(s.get("neg_price_lookahead_h", 4))
     neg_dis_thresh = s.get("neg_price_threshold_ct", 0.0) / 100.0  # ct → €/kWh
 
-    # Consumption lookup — supports both weekday-aware {(weekday, hour): avg_Wh}
-    # and legacy {hour: avg_Wh} formats.
-    cons_by_wd_hour: dict[tuple, float] = {}
-    cons_by_hour:    dict[int,   float] = {}
-    for x in (consumption_by_hour or []):
-        h  = int(x["hour"])
-        v  = float(x["avg_wh"])
-        wd = x.get("weekday")
-        if wd is not None:
-            cons_by_wd_hour[(int(wd), h)] = v
-        else:
-            cons_by_hour[h] = v
-
+    cons_by_wd_hour, cons_by_hour = _build_consumption_index(consumption_by_hour)
     has_wd_data = bool(cons_by_wd_hour)
 
     def _cons(weekday: int, hour: int) -> float:
         if has_wd_data:
-            return cons_by_wd_hour.get((weekday, hour),
-                   cons_by_hour.get(hour, 300.0))
+            return cons_by_wd_hour.get((weekday, hour), cons_by_hour.get(hour, 300.0))
         return cons_by_hour.get(hour, 300.0)
 
-    # ── Build 48 hourly price slots ──────────────────────────────────────────
-    # Expand prices to 1-hour buckets if they're quarter-hour.
-    # Always convert to local timezone so keys match the all_slots keys below,
-    # regardless of whether the source is ENTSO-E (already local) or Frank (UTC).
-    price_by_slot: dict[str, float] = {}  # key = "YYYY-MM-DDTHH:00+offset" local
-    for p in prices:
-        try:
-            dt_raw = datetime.fromisoformat(p["from"])
-            if dt_raw.tzinfo is None:
-                dt_local = dt_raw.replace(tzinfo=tz)
-            else:
-                dt_local = dt_raw.astimezone(tz)
-            # Round down to hour
-            slot_key = dt_local.replace(minute=0, second=0, microsecond=0).isoformat()
-            # Average if multiple sub-hour entries
-            existing = price_by_slot.get(slot_key, [])
-            if isinstance(existing, list):
-                existing.append(float(p["marketPrice"]))
-                price_by_slot[slot_key] = existing
-            else:
-                price_by_slot[slot_key] = [existing, float(p["marketPrice"])]
-        except Exception:
-            pass
-
-    price_slots: dict[str, float] = {}
-    for k, v in price_by_slot.items():
-        price_slots[k] = sum(v) / len(v) if isinstance(v, list) else v
-
-    # ── Solar Wh per hour ────────────────────────────────────────────────────
-    # solar_wh keys: "YYYY-MM-DD HH:MM:SS", aggregate to hour
-    solar_by_slot: dict[str, float] = {}
-    for k, wh in (solar_wh or {}).items():
-        try:
-            dt_str = k if "T" in k else k.replace(" ", "T")
-            dt = datetime.fromisoformat(dt_str)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=tz)
-            else:
-                dt = dt.astimezone(tz)
-            slot_key = dt.replace(minute=0, second=0, microsecond=0).isoformat()
-            solar_by_slot[slot_key] = solar_by_slot.get(slot_key, 0.0) + float(wh)
-        except (ValueError, TypeError) as exc:
-            log.debug("solar_wh key %r skipped: %s", k, exc)
+    price_slots   = _build_price_slots(prices, tz)
+    solar_by_slot = _build_solar_slots(solar_wh, tz)
+    standby_w     = _detect_standby(s, cons_by_wd_hour, cons_by_hour, has_wd_data)
+    _is_peak      = _build_peak_classifier(s, cons_by_wd_hour, cons_by_hour, has_wd_data, standby_w)
 
     # ── Generate hourly window ───────────────────────────────────────────────
     real_now = datetime.now(tz).replace(minute=0, second=0, microsecond=0)
@@ -408,12 +458,10 @@ def build_plan(
     else:
         # Start from midnight of today so the full day is visible
         now_local = real_now.replace(hour=0, minute=0, second=0, microsecond=0)
-    all_slots   = [now_local + timedelta(hours=i) for i in range(num_slots)]
+    all_slots = [now_local + timedelta(hours=i) for i in range(num_slots)]
 
     # Gather all prices for statistics
-    price_vals = [price_slots.get(sl.isoformat(), None) for sl in all_slots]
-    known_prices = [p for p in price_vals if p is not None]
-
+    known_prices = [price_slots[sl.isoformat()] for sl in all_slots if sl.isoformat() in price_slots]
     if known_prices:
         sorted_prices = sorted(known_prices)
         n = len(sorted_prices)
@@ -422,70 +470,6 @@ def build_plan(
         price_median = sorted_prices[n // 2]
     else:
         p25 = p75 = price_median = 0.10
-
-    # ── Standby / parasitic consumption ─────────────────────────────────────
-    # Auto-detect from 04:00–06:00 historical average (sleeping hours).
-    # Falls back to the manual setting value, then to 0.
-    _STANDBY_HOURS = {4, 5}
-    _configured_standby = float(s.get("standby_w", 0))
-
-    if _configured_standby > 0:
-        standby_w = _configured_standby
-    else:
-        _standby_vals: list[float] = []
-        for h in _STANDBY_HOURS:
-            if has_wd_data:
-                for wd in range(7):
-                    v = cons_by_wd_hour.get((wd, h))
-                    if v is not None:
-                        _standby_vals.append(v)
-            else:
-                v = cons_by_hour.get(h)
-                if v is not None:
-                    _standby_vals.append(v)
-        standby_w = sum(_standby_vals) / len(_standby_vals) if _standby_vals else 0.0
-
-    log.debug("strategy: standby_w=%.0f W (%s)",
-              standby_w, "configured" if _configured_standby > 0 else "auto-detected")
-
-    # ── Determine peak hours ─────────────────────────────────────────────────
-    # Peak = top 25% of consumption *above* standby baseline so that
-    # always-on hours (night standby ~02–06) are never wrongly flagged as peak.
-    def _excess(wh: float) -> float:
-        """Consumption above standby baseline."""
-        return max(0.0, wh - standby_w)
-
-    if manual_peaks:
-        _manual_set = set(int(h) for h in manual_peaks)
-        def _is_peak(weekday: int, hour: int) -> bool:
-            return hour in _manual_set
-
-    elif has_wd_data:
-        _wd_peaks: dict[int, set] = {}
-        for wd in range(7):
-            wd_excess = {h: _excess(cons_by_wd_hour.get((wd, h), 0.0)) for h in range(24)}
-            sorted_v  = sorted(wd_excess.values())
-            threshold = sorted_v[int(24 * 0.75)]
-            # Only flag hours that actually have meaningful excess above standby
-            _wd_peaks[wd] = {h for h, e in wd_excess.items()
-                             if e >= threshold and e > standby_w * 0.20}
-
-        def _is_peak(weekday: int, hour: int) -> bool:
-            return hour in _wd_peaks.get(weekday, {7, 8, 9, 17, 18, 19, 20, 21})
-
-    elif cons_by_hour:
-        _excess_vals = {h: _excess(c) for h, c in cons_by_hour.items()}
-        sorted_v  = sorted(_excess_vals.values())
-        threshold = sorted_v[int(len(sorted_v) * 0.75)]
-        _fallback_peaks = {h for h, e in _excess_vals.items()
-                           if e >= threshold and e > standby_w * 0.20}
-
-        def _is_peak(weekday: int, hour: int) -> bool:
-            return hour in _fallback_peaks
-
-    else:
-        def _is_peak(weekday: int, hour: int) -> bool:
-            return hour in {7, 8, 9, 17, 18, 19, 20, 21}
 
     # ── Simulate battery state over time ────────────────────────────────────
     bat_kwh = cap_kwh * (bat_soc_now / 100.0)
@@ -615,19 +599,19 @@ def build_plan(
 
         elif buy_price is not None:
             # Look ahead: max price in next 8 hours (for charge profitability)
-            future_prices_8 = []
-            for j in range(i + 1, min(i + 9, num_slots)):
-                fp = price_slots.get(all_slots[j].isoformat())
-                if fp is not None:
-                    future_prices_8.append(fp + markup)
+            future_prices_8 = [
+                price_slots[all_slots[j].isoformat()] + markup
+                for j in range(i + 1, min(i + 9, num_slots))
+                if all_slots[j].isoformat() in price_slots
+            ]
             max_future = max(future_prices_8) if future_prices_8 else buy_price
 
             # Best price in next 16 hours (for discharge reservation decisions)
-            future_prices_16 = []
-            for j in range(i + 1, min(i + 17, num_slots)):
-                fp = price_slots.get(all_slots[j].isoformat())
-                if fp is not None:
-                    future_prices_16.append(fp + markup)
+            future_prices_16 = [
+                price_slots[all_slots[j].isoformat()] + markup
+                for j in range(i + 1, min(i + 17, num_slots))
+                if all_slots[j].isoformat() in price_slots
+            ]
             best_future_16 = max(future_prices_16) if future_prices_16 else buy_price
 
             is_peak_hour = _is_peak(weekday, hour)

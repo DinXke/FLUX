@@ -910,6 +910,100 @@ def _fetch_consumption(auth_token: str | None, start: date, end: date,
         return []
 
 
+def _p1_discover_entities(base: str, headers: dict) -> tuple:
+    """Return (import_eids, export_eids) from HA states, or ([], []) on error."""
+    try:
+        r = _lan_session.get(f"{base}/api/states", headers=headers, timeout=10)
+        if not r.ok:
+            log.debug("P1 HA: states fetch failed %s", r.status_code)
+            return [], []
+        states = r.json()
+    except Exception as exc:
+        log.debug("P1 HA: states fetch error %s", exc)
+        return [], []
+
+    import_eids, export_eids = [], []
+    for st in states:
+        eid   = st.get("entity_id", "")
+        attrs = st.get("attributes", {})
+        if attrs.get("device_class") != "energy":
+            continue
+        if attrs.get("state_class") not in ("total", "total_increasing"):
+            continue
+        if attrs.get("unit_of_measurement", "") not in ("kWh", "Wh"):
+            continue
+        el = eid.lower()
+        if any(x in el for x in ("_t1", "_t2", "_tarief", "_tariff")):
+            continue
+        if any(p in el for p in ("import", "total_power_import", "energy_import",
+                                  "net_electricity_cumulative", "meterstand_aangeleverd")):
+            import_eids.append((eid, attrs.get("unit_of_measurement", "kWh")))
+        elif any(p in el for p in ("export", "total_power_export", "energy_export",
+                                    "net_electricity_delivered", "meterstand_teruggeleverd")):
+            export_eids.append((eid, attrs.get("unit_of_measurement", "kWh")))
+    return import_eids, export_eids
+
+
+def _p1_fetch_history(base: str, headers: dict, imp_eid: str, exp_eid, day_st, day_en) -> list:
+    """Fetch HA history for import (and optionally export) entity. Returns raw history list."""
+    from datetime import timedelta as _td
+    fetch_from = (day_st - _td(hours=1)).isoformat()
+    fetch_to   = day_en.isoformat()
+    eids_param = imp_eid + ("," + exp_eid if exp_eid else "")
+    try:
+        r = _lan_session.get(
+            f"{base}/api/history/period/{fetch_from}",
+            headers=headers,
+            params={"end_time": fetch_to, "filter_entity_id": eids_param,
+                    "minimal_response": "true", "no_attributes": "true"},
+            timeout=30,
+        )
+        if not r.ok:
+            log.debug("P1 HA: history fetch failed %s", r.status_code)
+            return []
+        return r.json()
+    except Exception as exc:
+        log.debug("P1 HA: history fetch error %s", exc)
+        return []
+
+
+def _p1_build_series(history: list, eid_: str, unit_: str, day_st, day_en, tz) -> dict:
+    """Return {hour_int: delta_kwh} from HA history for a single entity."""
+    raw = next((s for s in history if s and s[0].get("entity_id") == eid_), [])
+    slot_val: dict[int, float] = {}
+    anchor_val = None
+
+    for rec in raw:
+        s = rec.get("state") or rec.get("s")
+        try:
+            v = float(s)
+        except (TypeError, ValueError):
+            continue
+        if unit_ == "Wh":
+            v /= 1000.0
+        ts_raw = rec.get("last_changed") or rec.get("lu")
+        try:
+            t = datetime.fromisoformat(str(ts_raw).rstrip("Z")).replace(tzinfo=timezone.utc).astimezone(tz)
+        except Exception:
+            continue
+        if t < day_st:
+            anchor_val = v
+        elif t < day_en:
+            slot_val[t.hour] = v
+
+    result: dict[int, float] = {}
+    prev = anchor_val
+    for h in range(24):
+        cur = slot_val.get(h)
+        if cur is None:
+            prev = None
+            continue
+        if prev is not None:
+            result[h] = round(max(0.0, cur - prev), 4)
+        prev = cur
+    return result
+
+
 def _query_p1_via_ha_history(date_str: str, tz_name: str) -> dict:
     """
     Query hourly P1 import/export kWh from HA by finding HomeWizard cumulative
@@ -933,39 +1027,7 @@ def _query_p1_via_ha_history(date_str: str, tz_name: str) -> dict:
     base    = ha_s["url"].rstrip("/")
     headers = _ha_headers(ha_s["token"])
 
-    # Discover cumulative energy entities in HA (device_class=energy, total/total_increasing)
-    try:
-        r = _lan_session.get(f"{base}/api/states", headers=headers, timeout=10)
-        if not r.ok:
-            log.debug("P1 HA: states fetch failed %s", r.status_code)
-            return {}
-        states = r.json()
-    except Exception as exc:
-        log.debug("P1 HA: states fetch error %s", exc)
-        return {}
-
-    import_eids, export_eids = [], []
-    for st in states:
-        eid   = st.get("entity_id", "")
-        attrs = st.get("attributes", {})
-        if attrs.get("device_class") != "energy":
-            continue
-        if attrs.get("state_class") not in ("total", "total_increasing"):
-            continue
-        unit = attrs.get("unit_of_measurement", "")
-        if unit not in ("kWh", "Wh"):
-            continue
-        el = eid.lower()
-        is_t1_t2 = any(x in el for x in ("_t1", "_t2", "_tarief", "_tariff"))
-        if is_t1_t2:
-            continue
-        if any(p in el for p in ("import", "total_power_import", "energy_import",
-                                  "net_electricity_cumulative", "meterstand_aangeleverd")):
-            import_eids.append((eid, unit))
-        elif any(p in el for p in ("export", "total_power_export", "energy_export",
-                                    "net_electricity_delivered", "meterstand_teruggeleverd")):
-            export_eids.append((eid, unit))
-
+    import_eids, export_eids = _p1_discover_entities(base, headers)
     if not import_eids:
         log.debug("P1 HA: no import entities found")
         return {}
@@ -974,71 +1036,12 @@ def _query_p1_via_ha_history(date_str: str, tz_name: str) -> dict:
     exp_eid, exp_unit = (export_eids[0] if export_eids else (None, None))
     log.debug("P1 HA entities: import=%s  export=%s", imp_eid, exp_eid)
 
-    # Fetch 1 h before day-start so we can compute the first-hour delta
-    fetch_from = (day_st - _td(hours=1)).isoformat()
-    fetch_to   = day_en.isoformat()
-    eids_param = imp_eid + ("," + exp_eid if exp_eid else "")
-
-    try:
-        r = _lan_session.get(
-            f"{base}/api/history/period/{fetch_from}",
-            headers=headers,
-            params={"end_time": fetch_to, "filter_entity_id": eids_param,
-                    "minimal_response": "true", "no_attributes": "true"},
-            timeout=30,
-        )
-        if not r.ok:
-            log.debug("P1 HA: history fetch failed %s", r.status_code)
-            return {}
-        history = r.json()   # list of lists (one per entity)
-    except Exception as exc:
-        log.debug("P1 HA: history fetch error %s", exc)
+    history = _p1_fetch_history(base, headers, imp_eid, exp_eid, day_st, day_en)
+    if not history:
         return {}
 
-    def _build_series(eid_: str, unit_: str) -> dict:
-        """Return {hour_int: delta_kwh} for date_str."""
-        raw = next((series for series in history
-                    if series and series[0].get("entity_id") == eid_), [])
-        # Group last-valid state per hour slot
-        slot_val: dict[int, float] = {}  # hour → last cumulative value in that slot
-        anchor_val: float | None = None  # last value before day start
-
-        for rec in raw:
-            s = rec.get("state") or rec.get("s")
-            try:
-                v = float(s)
-            except (TypeError, ValueError):
-                continue
-            if unit_ == "Wh":
-                v /= 1000.0
-
-            ts_raw = rec.get("last_changed") or rec.get("lu")
-            try:
-                t = datetime.fromisoformat(str(ts_raw).rstrip("Z")).replace(tzinfo=timezone.utc).astimezone(tz)
-            except Exception:
-                continue
-
-            if t < day_st:
-                anchor_val = v
-            elif t < day_en:
-                slot_val[t.hour] = v   # keep last value in the hour
-
-        # Compute deltas
-        result: dict[int, float] = {}
-        prev = anchor_val
-        for h in range(24):
-            cur = slot_val.get(h)
-            if cur is None:
-                prev = None
-                continue
-            if prev is not None:
-                delta = max(0.0, cur - prev)
-                result[h] = round(delta, 4)
-            prev = cur
-        return result
-
-    imp_by_h = _build_series(imp_eid, imp_unit)
-    exp_by_h = _build_series(exp_eid, exp_unit) if exp_eid else {}
+    imp_by_h = _p1_build_series(history, imp_eid, imp_unit, day_st, day_en, tz)
+    exp_by_h = _p1_build_series(history, exp_eid, exp_unit, day_st, day_en, tz) if exp_eid else {}
 
     out: dict[int, dict] = {}
     for h in set(imp_by_h) | set(exp_by_h):
