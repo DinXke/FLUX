@@ -7,6 +7,10 @@ services:
     restart: unless-stopped
     networks:
       - smartmarstek-network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     ports:
       - "5000:5000"
     depends_on:
@@ -155,6 +159,10 @@ services:
     image: nginx:1.27-alpine
     container_name: smartmarstek-nginx
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     ports:
       - "80:80"
       - "443:443"
@@ -194,6 +202,10 @@ services:
       dockerfile: Dockerfile.standalone
     container_name: smartmarstek-discord-bot
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     networks:
       - smartmarstek-network
     command: ["python", "/app/backend/discord_bot.py"]
