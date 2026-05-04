@@ -320,7 +320,9 @@ def build_plan(
     min_soc       = float(s["min_reserve_soc"]) / 100.0
     max_soc       = float(s["max_soc"]) / 100.0
     max_charge_kw = float(s["max_charge_kw"])
-    markup        = float(s["grid_markup_eur_kwh"])
+    price_source  = s.get("price_source", "entsoe")
+    # Frank Energie prices are all-in (taxes + markup included) — adding markup would double-count.
+    markup        = 0.0 if price_source == "frank" else float(s["grid_markup_eur_kwh"])
     tz_name       = s.get("timezone", "Europe/Brussels")
     tz            = ZoneInfo(tz_name)
     manual_peaks  = s.get("manual_peak_hours", [])
