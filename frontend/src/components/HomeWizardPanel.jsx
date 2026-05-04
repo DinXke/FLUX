@@ -97,7 +97,7 @@ export default function HomeWizardPanel() {
 
   const poll = useCallback(async () => {
     try {
-      const r = await apiFetch("api/homewizard/data");
+      const r = await apiFetch("/api/homewizard/data");
       if (!r.ok) return;
       setData(await r.json());
       setLastPoll(new Date());

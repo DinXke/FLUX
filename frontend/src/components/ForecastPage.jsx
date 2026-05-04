@@ -9,7 +9,7 @@ import { loadFlowCfg } from "./FlowSourcesSettings.jsx";
 
 function syncFlowCfgToBackend() {
   const cfg = loadFlowCfg();
-  apiFetch("api/flow/cfg", {
+  apiFetch("/api/flow/cfg", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(cfg),
   }).catch(() => {});
@@ -428,7 +428,7 @@ export default function ForecastPage() {
     setProphetLoading(true);
     setProphetError(null);
     try {
-      const r = await apiFetch("api/forecast/prophet");
+      const r = await apiFetch("/api/forecast/prophet");
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         setProphetError(d.error || `HTTP ${r.status}`);
@@ -454,7 +454,7 @@ export default function ForecastPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const r = await apiFetch("api/forecast/estimate");
+      const r = await apiFetch("/api/forecast/estimate");
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         throw new Error(d.error || `HTTP ${r.status}`);

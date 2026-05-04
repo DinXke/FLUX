@@ -40,7 +40,7 @@ export default function SmaReaderSettings() {
   const [testResult, setTestResult] = useState(null);
 
   useEffect(() => {
-    apiFetch("api/strategy/settings")
+    apiFetch("/api/strategy/settings")
       .then((r) => r.json())
       .then((d) => {
         setVals({
@@ -64,7 +64,7 @@ export default function SmaReaderSettings() {
   async function save() {
     setSaving(true); setError(null); setSuccess(false);
     try {
-      const r = await apiFetch("api/strategy/settings", {
+      const r = await apiFetch("/api/strategy/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(vals),
@@ -83,12 +83,12 @@ export default function SmaReaderSettings() {
     setTesting(true); setTestResult(null);
     // Save current settings first so the test uses the entered host
     try {
-      await apiFetch("api/strategy/settings", {
+      await apiFetch("/api/strategy/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(vals),
       });
-      const r = await apiFetch("api/sma/test", { method: "POST" });
+      const r = await apiFetch("/api/sma/test", { method: "POST" });
       const d = await r.json();
       setTestResult(d);
     } catch (e) {
@@ -599,14 +599,14 @@ function SmaScanner({ host }) {
   async function startScan() {
     setScanning(true); setResults(null); setError(null); setProgress(0);
     try {
-      const r = await apiFetch("api/sma/scan", { method: "POST" });
+      const r = await apiFetch("/api/sma/scan", { method: "POST" });
       if (!r.ok) { const d = await r.json(); throw new Error(d.error || "Fout"); }
     } catch (e) {
       setError(e.message); setScanning(false); return;
     }
     pollRef.current = setInterval(async () => {
       try {
-        const r = await apiFetch("api/sma/scan/status");
+        const r = await apiFetch("/api/sma/scan/status");
         const d = await r.json();
         setProgress(d.progress ?? 0);
         if (!d.running) {

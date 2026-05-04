@@ -196,7 +196,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
 
   // Fetch custom_nodes directly from server so they show on all devices
   useEffect(() => {
-    apiFetch("api/flow/cfg")
+    apiFetch("/api/flow/cfg")
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (Array.isArray(data?.custom_nodes)) setServerCustomNodes(data.custom_nodes); })
       .catch(() => {});
@@ -204,7 +204,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
 
   const pollHw = useCallback(async () => {
     try {
-      const r = await apiFetch("api/homewizard/data");
+      const r = await apiFetch("/api/homewizard/data");
       if (r.ok) setHwData(await r.json());
     } catch {}
   }, []);
@@ -215,7 +215,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
       .map((sc) => sc.sensor);
     if (!ids.length) return;
     try {
-      const r = await apiFetch("api/ha/poll", {
+      const r = await apiFetch("/api/ha/poll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entity_ids: ids }),
@@ -228,7 +228,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
     const hasInflux = Object.values(currentCfg).flat().some((sc) => sc?.source === "influx");
     if (!hasInflux) return;
     try {
-      const r = await apiFetch("api/influx/live-slots");
+      const r = await apiFetch("/api/influx/live-slots");
       if (r.ok) setInfluxLive(await r.json());
     } catch {}
   }, []);
@@ -237,7 +237,7 @@ export default function EnergyMap({ batteries = [], phaseVoltages, acVoltage }) 
     const hasSma = Object.values(currentCfg).flat().some((sc) => sc?.source === "sma_reader");
     if (!hasSma) return;
     try {
-      const r = await apiFetch("api/sma/live");
+      const r = await apiFetch("/api/sma/live");
       if (r.ok) setSmaLive(await r.json());
     } catch {}
   }, []);

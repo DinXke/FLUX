@@ -60,7 +60,7 @@ export default function StrategySettings() {
   const loadedModeRef = useRef(null);
 
   useEffect(() => {
-    apiFetch("api/strategy/settings")
+    apiFetch("/api/strategy/settings")
       .then((r) => r.json())
       .then((d) => {
         loadedModeRef.current = d.strategy_mode || "rule_based";
@@ -71,12 +71,12 @@ export default function StrategySettings() {
       })
       .catch(() => {});
 
-    apiFetch("api/influx/status")
+    apiFetch("/api/influx/status")
       .then((r) => r.json())
       .then(setInflux)
       .catch(() => setInflux({ ok: false, error: "Niet bereikbaar" }));
 
-    apiFetch("api/frank/status")
+    apiFetch("/api/frank/status")
       .then((r) => r.json())
       .then(setFrankStat)
       .catch(() => setFrankStat({ loggedIn: false }));
@@ -124,7 +124,7 @@ export default function StrategySettings() {
         auto_openai_model_simple:  vals.auto_openai_model_simple  || "gpt-4o-mini",
         auto_openai_model_complex: vals.auto_openai_model_complex || "gpt-4o",
       };
-      const r = await apiFetch("api/strategy/settings", {
+      const r = await apiFetch("/api/strategy/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });

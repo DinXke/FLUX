@@ -235,7 +235,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
   // Always pull custom_nodes from server so they show on every device/browser
   // without requiring the user to reconfigure locally.
   useEffect(() => {
-    apiFetch("api/flow/cfg")
+    apiFetch("/api/flow/cfg")
       .then((r) => (r.ok ? r.json() : null))
       .then((serverCfg) => {
         if (!serverCfg?.custom_nodes?.length) return;
@@ -251,7 +251,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
 
   const pollHw = useCallback(async () => {
     try {
-      const r = await apiFetch("api/homewizard/data");
+      const r = await apiFetch("/api/homewizard/data");
       if (r.ok) setHwData(await r.json());
     } catch { /* no HW configured */ }
   }, []);
@@ -260,7 +260,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
     const hasInflux = Object.values(currentCfg).flat().some((sc) => sc?.source === "influx");
     if (!hasInflux) return;
     try {
-      const r = await apiFetch("api/influx/live-slots");
+      const r = await apiFetch("/api/influx/live-slots");
       if (r.ok) setInfluxLive(await r.json());
     } catch { /* InfluxDB not configured */ }
   }, []);
@@ -269,7 +269,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
     const hasSma = Object.values(currentCfg).flat().some((sc) => sc?.source === "sma_reader");
     if (!hasSma) return;
     try {
-      const r = await apiFetch("api/sma/live");
+      const r = await apiFetch("/api/sma/live");
       if (r.ok) setSmaLive(await r.json());
     } catch { /* SMA not configured */ }
   }, []);
@@ -281,7 +281,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
       .map((sc) => sc.sensor);
     if (!entityIds.length) return;
     try {
-      const r = await apiFetch("api/ha/poll", {
+      const r = await apiFetch("/api/ha/poll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entity_ids: entityIds }),

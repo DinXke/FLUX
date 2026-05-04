@@ -80,7 +80,7 @@ function EntsoESection() {
   const [success,    setSuccess]    = useState(false);
 
   useEffect(() => {
-    apiFetch("api/entsoe/settings").then((r) => r.json()).then((d) => {
+    apiFetch("/api/entsoe/settings").then((r) => r.json()).then((d) => {
       setConfigured(d.configured); setHint(d.apiKeyHint || "");
       if (d.timezone) setTimezone(d.timezone);
       if (d.country)  setCountry(d.country);
@@ -92,7 +92,7 @@ function EntsoESection() {
     try {
       const body = { timezone, country };
       if (apiKey.trim()) body.apiKey = apiKey.trim();
-      const r = await apiFetch("api/entsoe/settings", {
+      const r = await apiFetch("/api/entsoe/settings", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -157,7 +157,7 @@ function DebugPanel() {
   const load = async () => {
     setLoading(true); setError(null);
     try {
-      const r = await apiFetch("api/debug");
+      const r = await apiFetch("/api/debug");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setData(await r.json());
     } catch (e) {

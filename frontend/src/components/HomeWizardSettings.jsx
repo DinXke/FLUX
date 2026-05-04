@@ -132,7 +132,7 @@ function ScanDialog({ onClose, onAdd, existingIps }) {
 
   // Load default subnet on mount
   useEffect(() => {
-    apiFetch("api/homewizard/localsubnet")
+    apiFetch("/api/homewizard/localsubnet")
       .then((r) => r.json())
       .then((d) => setSubnet(d.subnet || "192.168.1.0/24"))
       .catch(() => setSubnet("192.168.1.0/24"));
@@ -158,7 +158,7 @@ function ScanDialog({ onClose, onAdd, existingIps }) {
   const add = async (device) => {
     setAdding((p) => ({ ...p, [device.ip]: true }));
     try {
-      const res = await apiFetch("api/homewizard/devices", {
+      const res = await apiFetch("/api/homewizard/devices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -348,7 +348,7 @@ export default function HomeWizardSettings() {
   const [pairDev,    setPairDev]    = useState(null);
 
   const load = useCallback(() => {
-    apiFetch("api/homewizard/devices")
+    apiFetch("/api/homewizard/devices")
       .then((r) => r.json())
       .then(setDevices)
       .catch(() => {})
@@ -361,7 +361,7 @@ export default function HomeWizardSettings() {
     if (!addIp.trim()) { setAddError("IP-adres is vereist."); return; }
     setAdding(true); setAddError(null);
     try {
-      const res = await apiFetch("api/homewizard/devices", {
+      const res = await apiFetch("/api/homewizard/devices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ip: addIp.trim(), name: addName.trim() }),

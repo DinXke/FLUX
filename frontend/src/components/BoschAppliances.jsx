@@ -66,7 +66,7 @@ function ProgramStartModal({ device, onClose, onStart }) {
     setLoading(true);
     setError(null);
     try {
-      const r = await apiFetch("api/bosch-appliances/start", {
+      const r = await apiFetch("/api/bosch-appliances/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ha_id: device.ha_id, program_key: selectedProgram }),
@@ -129,7 +129,7 @@ export default function BoschAppliances() {
 
   const refreshStatus = async () => {
     try {
-      const r = await apiFetch("api/bosch-appliances/status");
+      const r = await apiFetch("/api/bosch-appliances/status");
       const d = await r.json();
       setConnected(d.authenticated || false);
       if (d.authenticated) {
@@ -143,7 +143,7 @@ export default function BoschAppliances() {
   const fetchDevices = async () => {
     setLoading(true);
     try {
-      const r = await apiFetch("api/bosch-appliances/devices");
+      const r = await apiFetch("/api/bosch-appliances/devices");
       const d = await r.json();
       setDevices(d.devices || []);
       await fetchSettings();
@@ -156,7 +156,7 @@ export default function BoschAppliances() {
 
   const fetchSettings = async () => {
     try {
-      const r = await apiFetch("api/bosch-appliances/settings");
+      const r = await apiFetch("/api/bosch-appliances/settings");
       const d = await r.json();
       const settingsMap = {};
       (d.settings || []).forEach((s) => {
@@ -176,7 +176,7 @@ export default function BoschAppliances() {
     setLoading(true);
     setError(null);
     try {
-      const r = await apiFetch("api/bosch-appliances/disconnect", { method: "POST" });
+      const r = await apiFetch("/api/bosch-appliances/disconnect", { method: "POST" });
       if (!r.ok) throw new Error("Disconnect failed");
       setConnected(false);
       setDevices([]);
@@ -193,7 +193,7 @@ export default function BoschAppliances() {
   const handleStopDevice = async (haId) => {
     setError(null);
     try {
-      const r = await apiFetch("api/bosch-appliances/stop", {
+      const r = await apiFetch("/api/bosch-appliances/stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ha_id: haId }),
@@ -212,7 +212,7 @@ export default function BoschAppliances() {
     setError(null);
     try {
       const deviceSettings = settings[haId] || {};
-      const r = await apiFetch("api/bosch-appliances/settings", {
+      const r = await apiFetch("/api/bosch-appliances/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

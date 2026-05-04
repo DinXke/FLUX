@@ -28,7 +28,7 @@ export function saveFlowCfg(cfg) {
 // settings survive an upgrade even when the browser cache was cleared.
 export async function bootstrapFlowCfg(apiFetchFn) {
   try {
-    const r = await apiFetchFn("api/flow/cfg");
+    const r = await apiFetchFn("/api/flow/cfg");
     if (!r.ok) return;
     const serverCfg = await r.json();
     if (!serverCfg || !Object.keys(serverCfg).length) return;
@@ -301,12 +301,12 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
   const [collapsedCustom, setCollapsedCustom] = useState(false); // Default = open
 
   const loadHw = useCallback(async () => {
-    try { const r = await apiFetch("api/homewizard/data"); if (r.ok) setHwData(await r.json()); } catch {}
+    try { const r = await apiFetch("/api/homewizard/data"); if (r.ok) setHwData(await r.json()); } catch {}
   }, []);
 
   const loadHa = useCallback(async () => {
     try {
-      const r = await apiFetch("api/ha/entities");
+      const r = await apiFetch("/api/ha/entities");
       if (r.ok) { const d = await r.json(); setHaEntities(d.entities ?? []); }
     } catch {}
   }, []);
@@ -314,8 +314,8 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
   const loadInflux = useCallback(async () => {
     try {
       const [srcR, liveR] = await Promise.all([
-        apiFetch("api/influx/source"),
-        apiFetch("api/influx/live-slots"),
+        apiFetch("/api/influx/source"),
+        apiFetch("/api/influx/live-slots"),
       ]);
       if (srcR.ok)  setInfluxSrc(await srcR.json());
       if (liveR.ok) setInfluxLive(await liveR.json());
@@ -324,7 +324,7 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
 
   const loadSma = useCallback(async () => {
     try {
-      const r = await apiFetch("api/sma/source");
+      const r = await apiFetch("/api/sma/source");
       if (r.ok) setSmaSources(await r.json());
     } catch {}
   }, []);
@@ -450,7 +450,7 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
   const handleSave = async () => {
     try {
       saveFlowCfg(config);
-      await apiFetch("api/flow/cfg", {
+      await apiFetch("/api/flow/cfg", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),

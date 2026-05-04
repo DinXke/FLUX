@@ -58,7 +58,7 @@ export default function SmaInverterPanel({ refreshTick }) {
   const intervalRef = useRef(null);
 
   function fetch_data() {
-    apiFetch("api/sma/live")
+    apiFetch("/api/sma/live")
       .then((r) => r.json())
       .then((d) => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
