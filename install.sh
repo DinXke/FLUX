@@ -206,12 +206,14 @@ else
     GRAFANA_PASS=$(openssl rand -base64 24 | tr -d '\n/')
     INFLUX_TOKEN=$(openssl rand -hex 32)
     FLASK_SECRET=$(openssl rand -hex 32)
+    JWT_SECRET=$(openssl rand -hex 32)
 
     # Schrijf secrets naar .env
     sed -i "s|INFLUX_PASSWORD=.*|INFLUX_PASSWORD=$INFLUX_PASS|g" .env
     sed -i "s|GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=$GRAFANA_PASS|g" .env
     sed -i "s|INFLUX_TOKEN=.*|INFLUX_TOKEN=$INFLUX_TOKEN|g" .env
     sed -i "s|FLASK_SECRET_KEY=.*|FLASK_SECRET_KEY=$FLASK_SECRET|g" .env
+    sed -i "s|JWT_SECRET=.*|JWT_SECRET=$JWT_SECRET|g" .env
     sed -i "s|FLUX_ADMIN_PASSWORD=.*|FLUX_ADMIN_PASSWORD=$ADMIN_PASS|g" .env
 
     # Set GRAFANA_EXTERNAL_URL to server IP
