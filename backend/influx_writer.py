@@ -188,12 +188,12 @@ def _poll_esphome(devices: dict) -> dict:
                                     if v is None:
                                         try:
                                             v = float(str(data.get("state", "")).split()[0])
-                                        except Exception:
+                                        except (ValueError, IndexError):
                                             pass
                                     if v is not None:
                                         vals[key] = float(v)
-                            except Exception:
-                                pass
+                            except (ValueError, KeyError) as exc:
+                                log.debug("ESPHome SSE parse error dev=%s: %s", dev_id, exc)
         except Exception as exc:
             log.warning("ESPHome SSE poll failed  dev=%s  err=%s", dev_id, exc)
         if vals:
@@ -273,8 +273,10 @@ def _collect_and_write(app_context_fn):
         sma = _get_sma()
         if sma.get("online") and sma.get("ts", 0) > 0 and (time.time() - sma["ts"]) < 60:
             sma_data = sma
-    except Exception:
-        pass
+    except ImportError:
+        pass  # sma_modbus not available in this deployment
+    except Exception as exc:
+        log.warning("SMA live data error in influx writer: %s", exc)
 
     SLOT_ORDER = ["solar_power", "net_power", "bat_power", "bat_soc",
                   "ev_power", "voltage_l1", "voltage_l2", "voltage_l3",

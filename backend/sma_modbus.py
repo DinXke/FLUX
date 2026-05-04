@@ -222,6 +222,9 @@ def _read_input(client, address: int, count: int, unit_id: int) -> Optional[list
             log.debug("SMA FC04 error  addr=%d  unit=%d: %s", address, unit_id, result)
             return None
         return result.registers
+    except OSError as exc:
+        log.warning("SMA FC04 connection error  addr=%d: %s", address, exc)
+        return None
     except Exception as exc:
         log.debug("SMA FC04 exception  addr=%d: %s", address, exc)
         return None
@@ -237,6 +240,9 @@ def _read_holding(client, address: int, count: int, unit_id: int) -> Optional[li
             log.debug("SMA FC03 error  addr=%d  unit=%d: %s", address, unit_id, result)
             return None
         return result.registers
+    except OSError as exc:
+        log.warning("SMA FC03 connection error  addr=%d: %s", address, exc)
+        return None
     except Exception as exc:
         log.debug("SMA FC03 exception  addr=%d: %s", address, exc)
         return None
@@ -803,8 +809,8 @@ def scan_registers(host: str, port: int, unit_id: int,
                                 "s32":   s32,
                                 "label": _KNOWN_REGS.get(reg_1based, ""),
                             })
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.debug("SMA scan error addr=%d fc=%d: %s", addr, fc, exc)
                 addr += batch
                 done_blocks += 1
                 if progress_cb:

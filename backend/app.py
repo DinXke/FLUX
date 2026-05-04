@@ -211,10 +211,12 @@ def _get_esphome_inverter_state(ip: str, port: int):
                         if "inverter" in eid and "state" in eid:
                             s = data.get("state", "")
                             return s.lower().strip() if s else None
-                    except Exception:
-                        pass
-    except Exception:
-        pass
+                    except (ValueError, KeyError) as exc:
+                        log.debug("ESPHome inverter state parse error ip=%s: %s", ip, exc)
+    except (OSError, IOError) as exc:
+        log.debug("ESPHome inverter state unreachable ip=%s: %s", ip, exc)
+    except Exception as exc:
+        log.debug("ESPHome inverter state error ip=%s: %s", ip, exc)
     return None
 
 
@@ -1626,12 +1628,16 @@ def frank_consumption():
             d += timedelta(days=1)
 
         if country == "BE" and len(all_days) > 1:
-            from concurrent.futures import ThreadPoolExecutor
+            from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+            def _prefetch(day):
+                try:
+                    _fetch_consumption(auth_token, day, day + timedelta(days=1), country)
+                except Exception as exc:
+                    log.warning("Frank BE pre-fetch failed for %s: %s", day.isoformat(), exc)
             with ThreadPoolExecutor(max_workers=4) as pool:
-                list(pool.map(
-                    lambda day: _fetch_consumption(auth_token, day, day + timedelta(days=1), country),
-                    all_days,
-                ))
+                futures = {pool.submit(_prefetch, day): day for day in all_days}
+                for fut in _as_completed(futures):
+                    fut.result()  # exceptions already logged inside _prefetch
 
         # Fetch Frank consumption and P1 meter data for each day in range
         tz_name = _entsoe_settings().get("timezone") or "Europe/Brussels"

@@ -189,7 +189,13 @@ def load_strategy_settings() -> dict:
         with open(STRATEGY_SETTINGS_FILE, "r", encoding="utf-8") as f:
             stored = json.load(f)
         result = {**DEFAULT_SETTINGS, **stored}
-    except Exception:
+    except FileNotFoundError:
+        result = dict(DEFAULT_SETTINGS)
+    except json.JSONDecodeError as exc:
+        log.warning("strategy_settings.json corrupt, using defaults: %s", exc)
+        result = dict(DEFAULT_SETTINGS)
+    except OSError as exc:
+        log.warning("strategy_settings.json read error, using defaults: %s", exc)
         result = dict(DEFAULT_SETTINGS)
     # SMA Sunny Boy does not respond to Modbus MBAP over UDP — only TCP works.
     # Silently correct any saved True so a stale setting cannot re-enable UDP.
@@ -392,8 +398,8 @@ def build_plan(
                 dt = dt.astimezone(tz)
             slot_key = dt.replace(minute=0, second=0, microsecond=0).isoformat()
             solar_by_slot[slot_key] = solar_by_slot.get(slot_key, 0.0) + float(wh)
-        except Exception:
-            pass
+        except (ValueError, TypeError) as exc:
+            log.debug("solar_wh key %r skipped: %s", k, exc)
 
     # ── Generate hourly window ───────────────────────────────────────────────
     real_now = datetime.now(tz).replace(minute=0, second=0, microsecond=0)
