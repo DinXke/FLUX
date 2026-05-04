@@ -91,8 +91,8 @@ _DEFAULT_REGISTER_MAP: list[dict] = [
     {"key": "freq_hz",      "label": "Netfrequentie",     "reg": 30803, "fc": 4, "dtype": "U32", "mult": 0.01,   "unit": "0.01Hz"},
     {"key": "temp_c",       "label": "Interne temp.",     "reg": 30953, "fc": 3, "dtype": "S32", "mult": 0.1,    "unit": "0.1°C"},
     {"key": "op_time_s",    "label": "Bedrijfstijd",      "reg": 30541, "fc": 4, "dtype": "U32", "mult": 1.0,    "unit": "s"},
-    {"key": "dc_current_a", "label": "DC stroom str1",    "reg": 30769, "fc": 4, "dtype": "U32", "mult": 0.001,  "unit": "mA"},
-    {"key": "dc_voltage_v", "label": "DC spanning str1",  "reg": 30771, "fc": 4, "dtype": "U32", "mult": 0.01,   "unit": "0.01V"},
+    {"key": "dc_current_a", "label": "DC stroom str1",    "reg": 30769, "fc": 4, "dtype": "S32", "mult": 0.001,  "unit": "mA"},
+    {"key": "dc_voltage_v", "label": "DC spanning str1",  "reg": 30771, "fc": 4, "dtype": "S32", "mult": 0.01,   "unit": "0.01V"},
     {"key": "dc_power_w",   "label": "DC vermogen str1",  "reg": 30773, "fc": 4, "dtype": "S32", "mult": 1.0,    "unit": "W"},
 ]
 
@@ -212,40 +212,31 @@ def _to_u64(regs: list, idx: int) -> Optional[int]:
     return None if val == _SMA_U64_NAN else val
 
 
-def _read_input(client, address: int, count: int, unit_id: int) -> Optional[list]:
-    """Read `count` input registers (FC04) starting at 0-based `address`."""
+def _read(client, fc: int, address: int, count: int, unit_id: int) -> Optional[list]:
+    """Read `count` registers via FC03 (holding) or FC04 (input)."""
     try:
-        result = client.read_input_registers(
-            address=address, count=count, device_id=unit_id
-        )
+        if fc == 3:
+            result = client.read_holding_registers(address=address, count=count, device_id=unit_id)
+        else:
+            result = client.read_input_registers(address=address, count=count, device_id=unit_id)
         if hasattr(result, "isError") and result.isError():
-            log.debug("SMA FC04 error  addr=%d  unit=%d: %s", address, unit_id, result)
+            log.debug("SMA FC0%d error  addr=%d  unit=%d: %s", fc, address, unit_id, result)
             return None
         return result.registers
     except OSError as exc:
-        log.warning("SMA FC04 connection error  addr=%d: %s", address, exc)
+        log.warning("SMA FC0%d connection error  addr=%d: %s", fc, address, exc)
         return None
     except Exception as exc:
-        log.debug("SMA FC04 exception  addr=%d: %s", address, exc)
+        log.debug("SMA FC0%d exception  addr=%d: %s", fc, address, exc)
         return None
+
+
+def _read_input(client, address: int, count: int, unit_id: int) -> Optional[list]:
+    return _read(client, 4, address, count, unit_id)
 
 
 def _read_holding(client, address: int, count: int, unit_id: int) -> Optional[list]:
-    """Read `count` holding registers (FC03) starting at 0-based `address`."""
-    try:
-        result = client.read_holding_registers(
-            address=address, count=count, device_id=unit_id
-        )
-        if hasattr(result, "isError") and result.isError():
-            log.debug("SMA FC03 error  addr=%d  unit=%d: %s", address, unit_id, result)
-            return None
-        return result.registers
-    except OSError as exc:
-        log.warning("SMA FC03 connection error  addr=%d: %s", address, exc)
-        return None
-    except Exception as exc:
-        log.debug("SMA FC03 exception  addr=%d: %s", address, exc)
-        return None
+    return _read(client, 3, address, count, unit_id)
 
 
 def _read_status(client, unit_id: int) -> Optional[int]:
