@@ -236,5 +236,6 @@ volumes:
   grafana_data:
 
 networks:
-  default:
+  smartmarstek-network:
     name: smartmarstek-network
+    driver: bridge
