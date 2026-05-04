@@ -81,6 +81,14 @@ class ClaudeProvider(LLMProvider):
                 for block in response.content:
                     if getattr(block, "type", None) == "tool_use" and block.name == tool_name:
                         self._last_error = None
+                        self._last_stop_reason = getattr(response, "stop_reason", None)
+                        u = response.usage
+                        self._last_usage = {
+                            "input_tokens":                  getattr(u, "input_tokens",                  0) or 0,
+                            "output_tokens":                 getattr(u, "output_tokens",                 0) or 0,
+                            "cache_creation_input_tokens":   getattr(u, "cache_creation_input_tokens",   0) or 0,
+                            "cache_read_input_tokens":       getattr(u, "cache_read_input_tokens",       0) or 0,
+                        }
                         return block.input
 
                 log.error(

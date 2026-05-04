@@ -1255,14 +1255,15 @@ def build_plan_claude(
 
     if not plan_actions:
         log.warning("strategy_claude: no valid tool_use in response — falling back (%.1fs)", elapsed)
+        _usage = getattr(provider, "_last_usage", {}) or {}
         _set_debug(
             fallback=True,
             fallback_reason="Geen geldige tool_use in antwoord",
             model=model,
             elapsed_s=elapsed,
-            input_tokens=getattr(response.usage, "input_tokens", None),
-            output_tokens=getattr(response.usage, "output_tokens", None),
-            stop_reason=getattr(response, "stop_reason", None),
+            input_tokens=_usage.get("input_tokens"),
+            output_tokens=_usage.get("output_tokens"),
+            stop_reason=getattr(provider, "_last_stop_reason", None),
         )
         return build_plan(prices, solar_wh, consumption_by_hour, bat_soc_now, s,
                           start_dt, num_slots)
@@ -1272,10 +1273,11 @@ def build_plan_claude(
     for a, _ in plan_actions.values():
         action_counts[a] = action_counts.get(a, 0) + 1
 
+    _usage = getattr(provider, "_last_usage", {}) or {}
     log.info("strategy_claude: received %d actions in %.1fs  in=%s out=%s",
              len(plan_actions), elapsed,
-             getattr(response.usage, "input_tokens", "?"),
-             getattr(response.usage, "output_tokens", "?"))
+             _usage.get("input_tokens", "?"),
+             _usage.get("output_tokens", "?"))
 
     # ── Reconstruct slot list with SOC simulation ─────────────────────────
     bat_kwh      = bat_soc_now / 100.0 * cap_kwh
@@ -1358,10 +1360,11 @@ def build_plan_claude(
         })
 
     # ── Store debug info ──────────────────────────────────────────────────
-    _in_tok          = getattr(response.usage, "input_tokens",          0) or 0
-    _out_tok         = getattr(response.usage, "output_tokens",         0) or 0
-    _cache_write_tok = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-    _cache_read_tok  = getattr(response.usage, "cache_read_input_tokens",     0) or 0
+    _usage           = getattr(provider, "_last_usage", {}) or {}
+    _in_tok          = _usage.get("input_tokens",                0)
+    _out_tok         = _usage.get("output_tokens",               0)
+    _cache_write_tok = _usage.get("cache_creation_input_tokens", 0)
+    _cache_read_tok  = _usage.get("cache_read_input_tokens",     0)
     _eur     = _token_cost_eur(model, _in_tok, _out_tok, _cache_write_tok, _cache_read_tok)
     _ran_at  = datetime.now(timezone.utc).isoformat()
     _append_usage(_ran_at, model, _in_tok, _out_tok, _eur)
@@ -1382,7 +1385,7 @@ def build_plan_claude(
         cache_write_tokens=_cache_write_tok,
         cache_read_tokens=_cache_read_tok,
         cost_eur=round(_eur, 6),
-        stop_reason=getattr(response, "stop_reason", None),
+        stop_reason=getattr(provider, "_last_stop_reason", None),
         slots_sent=len(slots_input),
         slots_received=len(plan_actions),
         action_counts=action_counts,
