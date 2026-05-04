@@ -4454,6 +4454,7 @@ def get_strategy_plan():
                              - datetime.fromisoformat(cached_at_str)).total_seconds()
                     if age_s < 300:
                         result = dict(_plan_cache["result"])
+                        result.update(split_days(result.get("all", [])))
                         live = _live_soc()
                         if live is not None:
                             result["soc_now"] = live
@@ -4472,6 +4473,7 @@ def get_strategy_plan():
                              - datetime.fromisoformat(cached_at_str)).total_seconds()
                     if age_s < 1800:
                         result = dict(_plan_cache["result"])
+                        result.update(split_days(result.get("all", [])))
                         live = _live_soc()
                         if live is not None:
                             result["soc_now"] = live
@@ -5957,6 +5959,8 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
             log.info("_compute_forward_plan: Claude mode – prices unchanged (fp=%s), serving cache",
                      _price_fp)
             _plan_cache["result"]["soc_now"] = soc_now
+            # Re-split zodat today/tomorrow na middernacht correct blijven
+            _plan_cache["result"].update(split_days(_plan_cache["result"].get("all", [])))
             return _plan_cache["result"]
 
         log.info("_compute_forward_plan: Claude mode – %s (fp %s→%s)",
@@ -5986,6 +5990,8 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
                 log.info("_compute_forward_plan: auto/%s – prices unchanged, serving cache", _selected)
                 _plan_cache["result"]["soc_now"]    = soc_now
                 _plan_cache["result"]["engine_auto_info"] = _auto_info
+                # Re-split zodat today/tomorrow na middernacht correct blijven
+                _plan_cache["result"].update(split_days(_plan_cache["result"].get("all", [])))
                 return _plan_cache["result"]
             s_eff = _apply_device_soc(s)
             try:
@@ -6090,14 +6096,16 @@ _PLAN_CACHE_FILE = os.path.join(DATA_DIR, "strategy_plan_cache.json")
 
 def _persist_plan_cache() -> None:
     """Save _plan_cache to disk (called after every successful plan build)."""
+    _tmp = _PLAN_CACHE_FILE + ".tmp"
     try:
-        with open(_PLAN_CACHE_FILE, "w", encoding="utf-8") as _f:
+        with open(_tmp, "w", encoding="utf-8") as _f:
             json.dump({
                 "fetched_at":        _plan_cache.get("fetched_at"),
                 "price_fingerprint": _plan_cache.get("price_fingerprint"),
                 "result":            _plan_cache.get("result"),
                 # slots list can be large; derive from result["all"] on restore
             }, _f)
+        os.replace(_tmp, _PLAN_CACHE_FILE)
     except Exception as _e:
         log.warning("_persist_plan_cache: write failed: %s", _e)
 
@@ -6436,8 +6444,13 @@ def _load_automation() -> dict:
 
 
 def _save_automation(data: dict) -> None:
-    with open(AUTOMATION_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    tmp = AUTOMATION_FILE + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, AUTOMATION_FILE)
+    except Exception as e:
+        log.warning("_save_automation: write failed: %s", e)
 
 
 def _current_slot_action() -> str | None:
