@@ -1,5 +1,5 @@
 import { apiFetch } from "../auth.js";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AddDeviceModal from "./AddDeviceModal.jsx";
 import HomeWizardSettings from "./HomeWizardSettings.jsx";
 import HomeAssistantSettings from "./HomeAssistantSettings.jsx";
@@ -79,7 +79,7 @@ function EntsoESection() {
   const [error,      setError]      = useState(null);
   const [success,    setSuccess]    = useState(false);
 
-  useState(() => {
+  useEffect(() => {
     apiFetch("api/entsoe/settings").then((r) => r.json()).then((d) => {
       setConfigured(d.configured); setHint(d.apiKeyHint || "");
       if (d.timezone) setTimezone(d.timezone);
