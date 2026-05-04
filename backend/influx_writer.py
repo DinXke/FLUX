@@ -242,6 +242,42 @@ def _resolve_slot(key: str, cfg: dict, esphome_map: dict,
     return total / count if is_avg and count else total
 
 
+def _resolve_device_power(device: dict, hw_data: Optional[dict], ha_data: dict, esphome_map: dict, sma_data: Optional[dict] = None) -> Optional[float]:
+    """Resolve a custom device's power from its configured sources (similar to _resolve_slot)."""
+    sources = device.get("sources", [])
+    if not sources:
+        return None
+
+    total, count = None, 0
+    for sc in sources:
+        source    = sc.get("source")
+        device_id = sc.get("device_id")
+        sensor    = sc.get("sensor")
+        invert    = sc.get("invert", False)
+
+        v = None
+        if source == "esphome":
+            v = esphome_map.get(device_id, {}).get(sensor)
+        elif source == "homewizard":
+            dev = next((d for d in (hw_data or {}).get("devices", []) if d["id"] == device_id), None)
+            v = dev["sensors"].get(sensor, {}).get("value") if dev else None
+        elif source == "homeassistant":
+            entry = ha_data.get(sensor)
+            v = entry.get("value") if entry else None
+        elif source == "sma":
+            v = (sma_data or {}).get(sensor)
+        elif source == "influx":
+            pass
+
+        if v is not None:
+            total = (total or 0.0) + (-v if invert else v)
+            count += 1
+
+    if total is None:
+        return None
+    return total if count else None
+
+
 # ---------------------------------------------------------------------------
 # Main collection + write cycle
 # ---------------------------------------------------------------------------
@@ -624,6 +660,37 @@ def _collect_and_write(app_context_fn):
                 log.debug("InfluxDB bosch_appliance write OK  count=%d", bosch_count)
     except Exception as exc:
         log.debug("InfluxDB bosch_appliance write skip: %s", exc)
+
+    # ── Custom devices (marstek_flow_cfg.devices) ────────────────────────────
+    try:
+        devices = flow_cfg.get("devices", [])
+        if devices:
+            from influxdb_client import Point  # type: ignore
+            device_count = 0
+            for dev in devices:
+                try:
+                    dev_id = dev.get("id")
+                    if not dev_id:
+                        continue
+                    power_w = _resolve_device_power(dev, hw_data, ha_data, esphome_map, sma_data)
+                    if power_w is None:
+                        continue
+                    energy_kwh = power_w * WRITE_INTERVAL / 3600 / 1000
+                    dp = Point("device_power")
+                    dp = dp.tag("device_id", dev_id)
+                    dp = dp.tag("device_label", dev.get("label", dev_id))
+                    dp = dp.tag("device_icon", dev.get("icon", "🔌"))
+                    dp = dp.field("power_w", float(power_w))
+                    dp = dp.field("energy_kwh_delta", float(energy_kwh))
+                    dp = dp.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=dp)
+                    device_count += 1
+                except Exception as e:
+                    log.debug("Custom device write error (%s): %s", dev.get("id"), e)
+            if device_count > 0:
+                log.debug("InfluxDB device_power write OK  count=%d", device_count)
+    except Exception as exc:
+        log.debug("InfluxDB device_power write skip: %s", exc)
 
 
 # ---------------------------------------------------------------------------
