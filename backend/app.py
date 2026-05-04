@@ -4074,6 +4074,16 @@ def get_strategy_settings():
 @require_admin
 def post_strategy_settings():
     body = request.get_json(force=True) or {}
+
+    if "max_soc" in body:
+        max_soc = body["max_soc"]
+        if not isinstance(max_soc, (int, float)) or not (0 <= int(max_soc) <= 100):
+            return jsonify({"error": "max_soc moet een getal zijn tussen 0 en 100"}), 400
+        current = load_strategy_settings()
+        min_reserve = int(body.get("min_reserve_soc", current.get("min_reserve_soc", 10)))
+        if int(max_soc) <= min_reserve:
+            return jsonify({"error": f"max_soc ({int(max_soc)}) moet groter zijn dan min_reserve_soc ({min_reserve})"}), 400
+
     prev_mode = load_strategy_settings().get("strategy_mode")
     result = save_strategy_settings(body)
     if "min_reserve_soc" in body:
