@@ -46,7 +46,13 @@ import bosch_appliances
 
 import requests as _req  # aliased to avoid clash with flask.request
 import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # v2 uses self-signed cert
+
+# _lan_session is used exclusively for LAN/local devices with self-signed certs
+# (ESPHome, Home Assistant, HomeWizard, local InfluxDB, SMA).
+# External cloud APIs (_req.*) always use the default verify=True.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+_lan_session = _req.Session()
+_lan_session.verify = False
 from flask import Flask, Response, jsonify, request, send_from_directory, abort, stream_with_context
 try:
     from flask_cors import CORS
@@ -97,6 +103,31 @@ init_auth(app, _cfg.get_jwt_secret(), _cfg.get_jwt_expiry_hours(), DATA_DIR)
 STANDALONE_MODE = os.environ.get("STANDALONE_MODE", "").lower() == "true"
 if STANDALONE_MODE:
     log.info("Standalone mode detected – HA integration will be optional")
+
+# ---------------------------------------------------------------------------
+# Startup env-var validation — log warnings for missing critical variables
+# ---------------------------------------------------------------------------
+def _validate_env_vars() -> None:
+    _required_for_standalone = [
+        ("INFLUX_TOKEN", "InfluxDB schrijven werkt niet zonder token"),
+        ("INFLUX_URL",   None),
+    ]
+    _optional_with_warning = [
+        ("DAIKIN_CLIENT_ID",            "Daikin Onecta integratie uitgeschakeld"),
+        ("BOSCH_APPLIANCES_CLIENT_ID",  "Bosch Home Connect uitgeschakeld"),
+        ("FRANK_ENERGIE_EMAIL",         "Frank Energie login niet beschikbaar"),
+        ("ENTSO_E_API_KEY",             "ENTSO-E prijzen niet beschikbaar"),
+    ]
+    if STANDALONE_MODE:
+        for var, hint in _required_for_standalone:
+            if not os.environ.get(var, "").strip():
+                msg = hint or f"{var} niet ingesteld"
+                log.warning("Ontbrekende env var %s: %s", var, msg)
+    for var, hint in _optional_with_warning:
+        if not os.environ.get(var, "").strip():
+            log.debug("Optionele env var %s niet ingesteld: %s", var, hint)
+
+_validate_env_vars()
 
 
 @app.before_request
@@ -902,7 +933,7 @@ def _query_p1_via_ha_history(date_str: str, tz_name: str) -> dict:
 
     # Discover cumulative energy entities in HA (device_class=energy, total/total_increasing)
     try:
-        r = _req.get(f"{base}/api/states", headers=headers, timeout=10, verify=False)
+        r = _lan_session.get(f"{base}/api/states", headers=headers, timeout=10)
         if not r.ok:
             log.debug("P1 HA: states fetch failed %s", r.status_code)
             return {}
@@ -947,12 +978,12 @@ def _query_p1_via_ha_history(date_str: str, tz_name: str) -> dict:
     eids_param = imp_eid + ("," + exp_eid if exp_eid else "")
 
     try:
-        r = _req.get(
+        r = _lan_session.get(
             f"{base}/api/history/period/{fetch_from}",
             headers=headers,
             params={"end_time": fetch_to, "filter_entity_id": eids_param,
                     "minimal_response": "true", "no_attributes": "true"},
-            timeout=30, verify=False,
+            timeout=30,
         )
         if not r.ok:
             log.debug("P1 HA: history fetch failed %s", r.status_code)
@@ -1083,6 +1114,8 @@ def frank_status():
 # ---------------------------------------------------------------------------
 DAIKIN_CLIENT_ID = os.environ.get("DAIKIN_CLIENT_ID", "")
 DAIKIN_REDIRECT_URI = os.environ.get("DAIKIN_REDIRECT_URI", "http://localhost:5000/api/daikin/callback")
+if DAIKIN_CLIENT_ID and DAIKIN_REDIRECT_URI.startswith("http://") and "localhost" not in DAIKIN_REDIRECT_URI:
+    log.warning("DAIKIN_REDIRECT_URI gebruikt HTTP zonder localhost — stel HTTPS in voor productie")
 
 # Temporary in-memory PKCE state store (keyed by state param, expires after 10 min)
 _daikin_pkce_store: dict = {}  # state -> {code_verifier, expires_at}
@@ -1094,6 +1127,8 @@ _daikin_pkce_lock = threading.Lock()
 BOSCH_APPLIANCES_CLIENT_ID = os.environ.get("BOSCH_APPLIANCES_CLIENT_ID", "")
 BOSCH_APPLIANCES_CLIENT_SECRET = os.environ.get("BOSCH_APPLIANCES_CLIENT_SECRET", "")
 BOSCH_APPLIANCES_REDIRECT_URI = os.environ.get("BOSCH_APPLIANCES_REDIRECT_URI", "http://localhost:5000/api/bosch-appliances/callback")
+if BOSCH_APPLIANCES_CLIENT_ID and BOSCH_APPLIANCES_REDIRECT_URI.startswith("http://") and "localhost" not in BOSCH_APPLIANCES_REDIRECT_URI:
+    log.warning("BOSCH_APPLIANCES_REDIRECT_URI gebruikt HTTP zonder localhost — stel HTTPS in voor productie")
 BOSCH_APPLIANCES_SANDBOX = os.environ.get("BOSCH_APPLIANCES_SANDBOX", "false").lower() == "true"
 
 @app.route("/api/daikin/status", methods=["GET"])
@@ -1922,10 +1957,10 @@ def _hw_fetch(ip: str, path: str, token: str | None = None, timeout: int = 5,
     such as /api which don't require auth but the device only listens on HTTPS).
     """
     if token:
-        resp = _req.get(f"https://{ip}{path}", timeout=timeout, verify=False,
+        resp = _lan_session.get(f"https://{ip}{path}", timeout=timeout,
                         headers={"Authorization": f"Bearer {token}", "X-Api-Version": "2"})
     elif api_version == 2:
-        resp = _req.get(f"https://{ip}{path}", timeout=timeout, verify=False,
+        resp = _lan_session.get(f"https://{ip}{path}", timeout=timeout,
                         headers={"X-Api-Version": "2"})
     else:
         resp = _req.get(f"http://{ip}{path}", timeout=timeout)
@@ -1982,7 +2017,7 @@ def _hw_probe(ip: str) -> dict | None:
     # v2: HTTPS, self-signed cert, no token needed for /api info endpoint
     # Longer timeout: SSL handshake on IoT devices can take 1–2 s.
     try:
-        resp = _req.get(f"https://{ip}/api", timeout=3, verify=False,
+        resp = _lan_session.get(f"https://{ip}/api", timeout=3,
                         headers={"X-Api-Version": "2"})
         if resp.status_code == 200:
             d = resp.json()
@@ -2201,12 +2236,11 @@ def hw_pair_v2(device_id):
     dev = devices[device_id]
     ip  = dev["ip"]
     try:
-        resp = _req.post(
+        resp = _lan_session.post(
             f"https://{ip}/api/user",
             json={"name": "local/marstek-dashboard"},
             headers={"X-Api-Version": "2"},
             timeout=35,
-            verify=False,
         )
         resp.raise_for_status()
         token = resp.json().get("token", "")
@@ -2916,12 +2950,11 @@ def _ha_call_service(domain: str, service: str, data: dict) -> bool:
         log.debug("_ha_call_service: HA not configured")
         return False
     try:
-        r = _req.post(
+        r = _lan_session.post(
             f"{s['url']}/api/services/{domain}/{service}",
             headers=_ha_headers(s["token"]),
             json=data,
             timeout=5,
-            verify=False,
         )
         if r.status_code in (200, 201):
             log.info("HA service %s/%s OK  data=%s", domain, service, data)
@@ -2973,7 +3006,7 @@ def test_ha():
     if not s.get("token") or not s.get("url"):
         return jsonify({"error": "Niet geconfigureerd."}), 400
     try:
-        r = _req.get(f"{s['url']}/api/", headers=_ha_headers(s["token"]), timeout=5, verify=False)
+        r = _lan_session.get(f"{s['url']}/api/", headers=_ha_headers(s["token"]), timeout=5)
         if r.status_code == 401:
             return jsonify({"error": "Ongeldige token (401 Unauthorized)."}), 401
         r.raise_for_status()
@@ -2997,7 +3030,7 @@ def get_ha_entities():
         return jsonify({"entities": _ha_sensor_cache["data"]})
 
     try:
-        r = _req.get(f"{s['url']}/api/states", headers=_ha_headers(s["token"]), timeout=8, verify=False)
+        r = _lan_session.get(f"{s['url']}/api/states", headers=_ha_headers(s["token"]), timeout=8)
         r.raise_for_status()
         states = r.json()
     except Exception as exc:
@@ -3042,8 +3075,8 @@ def get_ha_state(entity_id):
     if not s.get("token") or not s.get("url"):
         return jsonify({"error": "Niet geconfigureerd."}), 400
     try:
-        r = _req.get(f"{s['url']}/api/states/{entity_id}",
-                     headers=_ha_headers(s["token"]), timeout=5, verify=False)
+        r = _lan_session.get(f"{s['url']}/api/states/{entity_id}",
+                     headers=_ha_headers(s["token"]), timeout=5)
         if r.status_code == 404:
             return jsonify({"error": f"Entity '{entity_id}' niet gevonden."}), 404
         r.raise_for_status()
@@ -3078,7 +3111,7 @@ def poll_ha_sensors():
 
     def fetch_one(eid):
         try:
-            r = _req.get(f"{s['url']}/api/states/{eid}", headers=headers, timeout=4, verify=False)
+            r = _lan_session.get(f"{s['url']}/api/states/{eid}", headers=headers, timeout=4)
             if not r.ok:
                 return eid, None
             data = r.json()
@@ -3368,12 +3401,12 @@ def get_forecast_actuals():
             return jsonify({"error": "HA niet geconfigureerd."}), 400
         try:
             url_ha = f"{s['url']}/api/history/period/{date_str}T00:00:00"
-            r = _req.get(url_ha,
+            r = _lan_session.get(url_ha,
                          headers=_ha_headers(s["token"]),
                          params={"end_time": f"{date_str}T23:59:59",
                                  "filter_entity_id": entity_id,
                                  "minimal_response": "true"},
-                         timeout=15, verify=False)
+                         timeout=15)
             r.raise_for_status()
             history = r.json()
             if not history or not history[0]:
@@ -3620,13 +3653,13 @@ def get_forecast_actuals():
             hdrs2 = _ha_headers(ha_s["token"])
             for eid2, inv2, sc2 in sol_entries:
                 try:
-                    r2 = _req.get(
+                    r2 = _lan_session.get(
                         f"{base2}/api/history/period/{date_str}T00:00:00",
                         headers=hdrs2,
                         params={"end_time": f"{date_str}T23:59:59",
                                 "filter_entity_id": eid2,
                                 "minimal_response": "true"},
-                        timeout=15, verify=False)
+                        timeout=15)
                     if not r2.ok:
                         continue
                     hist2 = r2.json()
@@ -3817,9 +3850,9 @@ def debug_soc():
                            if e.get("source") == "homeassistant" and e.get("sensor")]
                 for eid in ha_eids:
                     try:
-                        r = _req.get(f"{ha_s['url']}/api/states/{eid}",
+                        r = _lan_session.get(f"{ha_s['url']}/api/states/{eid}",
                                      headers=_ha_headers(ha_s["token"]),
-                                     timeout=4, verify=False)
+                                     timeout=4)
                         ha_soc_data[eid] = {"status": r.status_code,
                                             "value": r.json().get("state") if r.ok else None}
                     except Exception as ex:
@@ -4198,7 +4231,7 @@ def _query_ha_hourly_consumption(days: int = 21) -> list[dict]:
             chunk_start = start_dt
             while chunk_start < datetime.now(timezone.utc):
                 chunk_end = min(chunk_start + timedelta(days=7), datetime.now(timezone.utc))
-                r = _req.get(
+                r = _lan_session.get(
                     f"{base_url}/api/history/period/{chunk_start.isoformat()}",
                     headers=headers,
                     params={"filter_entity_id": eid,
@@ -4207,7 +4240,6 @@ def _query_ha_hourly_consumption(days: int = 21) -> list[dict]:
                             "no_attributes": "true",
                             "significant_changes_only": "false"},
                     timeout=60,
-                    verify=False,
                 )
                 if not r.ok:
                     log.warning("HA history %s chunk %s → HTTP %s", eid,
@@ -4350,13 +4382,12 @@ def ha_consumption_debug():
     entity_info = []
     for eid in all_eids:
         try:
-            r = _req.get(
+            r = _lan_session.get(
                 f"{base_url}/api/history/period/{probe_start.isoformat()}",
                 headers=headers,
                 params={"filter_entity_id": eid, "minimal_response": "true",
                         "no_attributes": "true"},
                 timeout=30,
-                verify=False,
             )
             if not r.ok:
                 entity_info.append({"entity_id": eid, "error": f"HTTP {r.status_code}",
@@ -4799,12 +4830,11 @@ def _influx_v1_query(url: str, username: str, password: str,
         # non-ASCII characters.  Build the header manually using UTF-8 instead.
         token = _b64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
         headers["Authorization"] = f"Basic {token}"
-    r = _req.get(
+    r = _lan_session.get(
         f"{url.rstrip('/')}/query",
         params=params,
         headers=headers,
         timeout=10,
-        verify=False,
     )
     r.raise_for_status()
     return r.json()
@@ -4853,14 +4883,14 @@ def influx_scan():
     detected = version
     if version == "auto":
         try:
-            r2 = _req.get(f"{url}/api/v2/ping", timeout=5, verify=False)
+            r2 = _lan_session.get(f"{url}/api/v2/ping", timeout=5)
             if r2.status_code < 400:
                 detected = "v2"
             else:
                 detected = "v1"
         except Exception:
             try:
-                r1 = _req.get(f"{url}/ping", timeout=5, verify=False)
+                r1 = _lan_session.get(f"{url}/ping", timeout=5)
                 if r1.status_code < 400:
                     detected = "v1"
                 else:
@@ -4948,9 +4978,9 @@ def influx_scan():
                     f'schema.measurementTagKeys(bucket: "{b}", measurement: "{measurement}")'
                 )
                 def _flux_query(q):
-                    r = _req.post(f"{url}/api/v2/query",
+                    r = _lan_session.post(f"{url}/api/v2/query",
                                   headers=headers, params={"org": org},
-                                  json={"query": q, "type": "flux"}, timeout=15, verify=False)
+                                  json={"query": q, "type": "flux"}, timeout=15)
                     r.raise_for_status()
                     rows = []
                     for line in r.text.splitlines():
@@ -4971,9 +5001,9 @@ def influx_scan():
                     f'import "influxdata/influxdb/schema"\n'
                     f'schema.measurements(bucket: "{b}")'
                 )
-                r2 = _req.post(f"{url}/api/v2/query",
+                r2 = _lan_session.post(f"{url}/api/v2/query",
                                headers=headers, params={"org": org},
-                               json={"query": flux, "type": "flux"}, timeout=15, verify=False)
+                               json={"query": flux, "type": "flux"}, timeout=15)
                 r2.raise_for_status()
                 measurements = []
                 for line in r2.text.splitlines():
@@ -4989,15 +5019,15 @@ def influx_scan():
 
             else:
                 # List buckets
-                r2 = _req.get(f"{url}/api/v2/buckets", headers=headers,
-                               params={"org": org} if org else {}, timeout=10, verify=False)
+                r2 = _lan_session.get(f"{url}/api/v2/buckets", headers=headers,
+                               params={"org": org} if org else {}, timeout=10)
                 r2.raise_for_status()
                 data = r2.json()
                 buckets = [{"name": b["name"], "id": b["id"]}
                            for b in data.get("buckets", [])
                            if not b["name"].startswith("_")]
                 # Also list orgs
-                ro = _req.get(f"{url}/api/v2/orgs", headers=headers, timeout=10, verify=False)
+                ro = _lan_session.get(f"{url}/api/v2/orgs", headers=headers, timeout=10)
                 orgs = [o["name"] for o in ro.json().get("orgs", [])] if ro.ok else []
                 result.update({"buckets": buckets, "orgs": orgs})
 
@@ -5134,9 +5164,9 @@ def _query_external_influx_consumption(days: int = 21) -> list[dict]:
                 f'  |> aggregateWindow(every: 1h, fn: mean, createEmpty: false)\n'
                 f'  |> map(fn: (r) => ({{r with _value: r._value * {sign * scale}}}))'
             )
-            r = _req.post(f"{url.rstrip('/')}/api/v2/query",
+            r = _lan_session.post(f"{url.rstrip('/')}/api/v2/query",
                           headers=headers, params={"org": org},
-                          json={"query": flux, "type": "flux"}, timeout=30, verify=False)
+                          json={"query": flux, "type": "flux"}, timeout=30)
             r.raise_for_status()
             for line in r.text.splitlines():
                 if line.startswith("#") or not line.strip():
@@ -5232,9 +5262,9 @@ def _query_external_influx_slot_latest(slot_key: str) -> list[float]:
                     f'  |> filter(fn: (r) => r._measurement == "{meas}" and r._field == "{field}"){tag_filter}\n'
                     f'  |> last()'
                 )
-                r = _req.post(f"{url.rstrip('/')}/api/v2/query",
+                r = _lan_session.post(f"{url.rstrip('/')}/api/v2/query",
                               headers=headers, params={"org": org},
-                              json={"query": flux, "type": "flux"}, timeout=10, verify=False)
+                              json={"query": flux, "type": "flux"}, timeout=10)
                 r.raise_for_status()
                 for line in r.text.splitlines():
                     if line.startswith("#") or not line.strip():
@@ -5359,8 +5389,7 @@ def _influx_context():
                 data_path = _hw_data_path(dev)
                 token = dev.get("token")
                 if token:
-                    r = _req.get(f"https://{dev['ip']}{data_path}", timeout=3,
-                                 verify=False,
+                    r = _lan_session.get(f"https://{dev['ip']}{data_path}", timeout=3,
                                  headers={"Authorization": f"Bearer {token}",
                                           "X-Api-Version": "2"})
                 else:
@@ -5394,8 +5423,8 @@ def _influx_context():
             headers = _ha_headers(ha_s["token"])
             def _fetch_ha(eid):
                 try:
-                    r = _req.get(f"{ha_s['url']}/api/states/{eid}",
-                                 headers=headers, timeout=4, verify=False)
+                    r = _lan_session.get(f"{ha_s['url']}/api/states/{eid}",
+                                 headers=headers, timeout=4)
                     if r.ok:
                         d = r.json()
                         try:
@@ -6147,9 +6176,9 @@ def _read_live_flow_slots(*slot_keys: str) -> dict[str, float | None]:
         if ha_eids and ha_s.get("token") and ha_s.get("url"):
             for eid in set(ha_eids):
                 try:
-                    r = _req.get(f"{ha_s['url']}/api/states/{eid}",
+                    r = _lan_session.get(f"{ha_s['url']}/api/states/{eid}",
                                  headers=_ha_headers(ha_s["token"]),
-                                 timeout=3, verify=False)
+                                 timeout=3)
                     if r.ok:
                         ha_data[eid] = {"value": float(r.json().get("state", "nan"))}
                 except Exception:
@@ -6237,9 +6266,9 @@ def _live_soc() -> float | None:
                 socs = []
                 for e in ha_entries:
                     try:
-                        r = _req.get(f"{ha_s['url']}/api/states/{e['sensor']}",
+                        r = _lan_session.get(f"{ha_s['url']}/api/states/{e['sensor']}",
                                      headers=_ha_headers(ha_s["token"]),
-                                     timeout=4, verify=False)
+                                     timeout=4)
                         if r.ok:
                             socs.append(float(r.json().get("state", "nan")))
                     except Exception:
@@ -6304,9 +6333,9 @@ def _live_soc() -> float | None:
     try:
         _ha_s2 = _ha_effective_settings()
         if _ha_s2.get("token") and _ha_s2.get("url"):
-            _r2 = _req.get(f"{_ha_s2['url']}/api/states",
+            _r2 = _lan_session.get(f"{_ha_s2['url']}/api/states",
                            headers=_ha_headers(_ha_s2["token"]),
-                           timeout=5, verify=False)
+                           timeout=5)
             if _r2.ok:
                 _soc_kw = {"soc", "laadniveau", "laadstand", "state_of_charge",
                            "battery_soc", "bat_soc", "battery_level", "battery_percent",
@@ -7343,12 +7372,12 @@ def _update_frank_ha_sensors() -> None:
         ha_url = s.get("url")
         ha_token = s.get("token")
         headers = _ha_headers(ha_token)
-        _req.post(f"{ha_url}/api/states/sensor.frank_consumption_today", headers=headers,
+        _lan_session.post(f"{ha_url}/api/states/sensor.frank_consumption_today", headers=headers,
                  json={"state": f"{today_kwh:.2f}", "attributes": {"unit_of_measurement": "kWh",
-                       "device_class": "energy", "friendly_name": "Frank Consumption Today"}}, timeout=5, verify=False)
-        _req.post(f"{ha_url}/api/states/sensor.p1_grid_consumption_today", headers=headers,
+                       "device_class": "energy", "friendly_name": "Frank Consumption Today"}}, timeout=5)
+        _lan_session.post(f"{ha_url}/api/states/sensor.p1_grid_consumption_today", headers=headers,
                  json={"state": f"{p1_import:.2f}", "attributes": {"unit_of_measurement": "kWh",
-                       "device_class": "energy", "friendly_name": "P1 Grid Consumption Today"}}, timeout=5, verify=False)
+                       "device_class": "energy", "friendly_name": "P1 Grid Consumption Today"}}, timeout=5)
         log.debug("Updated HA Frank sensors: frank=%.2f kWh, p1=%.2f kWh", today_kwh, p1_import)
     except Exception as exc:
         log.debug("HA Frank sensor update error: %s", exc)

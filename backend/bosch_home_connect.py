@@ -7,7 +7,11 @@ import os
 import time
 import logging
 import requests
+import urllib3
 from typing import Dict, List, Optional
+
+# Suppress InsecureRequestWarning for local Bosch bridge (self-signed cert)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 log = logging.getLogger(__name__)
 
