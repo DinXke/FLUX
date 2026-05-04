@@ -19,6 +19,7 @@ retrieved with get_last_debug().
 import json
 import logging
 import os
+import threading
 import time as _time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -60,6 +61,9 @@ _SOC_HISTORY_FILE    = os.path.join(_DATA_DIR, "_soc_history.json")
 _PLAN_HISTORY_FILE   = os.path.join(_DATA_DIR, "_plan_history.json")
 _PLAN_ACCURACY_FILE  = os.path.join(_DATA_DIR, "_plan_accuracy.json")
 
+_usage_lock       = threading.Lock()
+_soc_history_lock = threading.Lock()
+
 
 def _load_usage() -> list[dict]:
     """Load all usage records from disk. Returns list of {ran_at, model, in, out, eur}."""
@@ -72,16 +76,19 @@ def _load_usage() -> list[dict]:
 
 def _append_usage(ran_at: str, model: str, in_tok: int, out_tok: int, eur: float) -> None:
     """Append one usage record and prune entries older than 366 days."""
-    records = _load_usage()
-    records.append({"ran_at": ran_at, "model": model,
-                    "in": in_tok, "out": out_tok, "eur": round(eur, 6)})
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=366)).isoformat()
-    records = [r for r in records if r.get("ran_at", "") >= cutoff]
-    try:
-        with open(_USAGE_FILE, "w", encoding="utf-8") as f:
-            json.dump(records, f)
-    except Exception as e:
-        log.warning("claude_usage: write failed: %s", e)
+    with _usage_lock:
+        records = _load_usage()
+        records.append({"ran_at": ran_at, "model": model,
+                        "in": in_tok, "out": out_tok, "eur": round(eur, 6)})
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=366)).isoformat()
+        records = [r for r in records if r.get("ran_at", "") >= cutoff]
+        try:
+            tmp = _USAGE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(records, f)
+            os.replace(tmp, _USAGE_FILE)
+        except Exception as e:
+            log.warning("claude_usage: write failed: %s", e)
 
 
 def get_usage_stats() -> dict:
@@ -224,13 +231,16 @@ def _get_soc_profile(tz_name: str) -> tuple[list, int]:
 
     # ── Persist cache ─────────────────────────────────────────────────────
     if history:
-        try:
-            payload = dict(history)
-            payload["_meta"] = {"updated_at": datetime.now(timezone.utc).isoformat()}
-            with open(_SOC_HISTORY_FILE, "w", encoding="utf-8") as f:
-                json.dump(payload, f)
-        except Exception as e:
-            log.warning("soc_profile: cache write failed: %s", e)
+        with _soc_history_lock:
+            try:
+                payload = dict(history)
+                payload["_meta"] = {"updated_at": datetime.now(timezone.utc).isoformat()}
+                tmp = _SOC_HISTORY_FILE + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(payload, f)
+                os.replace(tmp, _SOC_HISTORY_FILE)
+            except Exception as e:
+                log.warning("soc_profile: cache write failed: %s", e)
 
     return _build_soc_profile(history), len(history)
 

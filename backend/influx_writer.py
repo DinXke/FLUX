@@ -43,23 +43,25 @@ WRITE_INTERVAL = 30   # seconds between writes
 
 _write_api = None
 _influx_ok  = False
+_write_api_lock = threading.Lock()
 
 
 def _get_write_api():
     global _write_api, _influx_ok
-    if _write_api is not None:
+    with _write_api_lock:
+        if _write_api is not None:
+            return _write_api
+        try:
+            from influxdb_client import InfluxDBClient, WriteOptions  # type: ignore
+            from influxdb_client.client.write_api import SYNCHRONOUS   # type: ignore
+            client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
+            _write_api = client.write_api(write_options=SYNCHRONOUS)
+            _influx_ok = True
+            log.info("InfluxDB connected  url=%s  org=%s  bucket=%s", INFLUX_URL, INFLUX_ORG, INFLUX_BUCKET)
+        except Exception as exc:
+            log.warning("InfluxDB not available: %s", exc)
+            _write_api = None
         return _write_api
-    try:
-        from influxdb_client import InfluxDBClient, WriteOptions  # type: ignore
-        from influxdb_client.client.write_api import SYNCHRONOUS   # type: ignore
-        client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
-        _write_api = client.write_api(write_options=SYNCHRONOUS)
-        _influx_ok = True
-        log.info("InfluxDB connected  url=%s  org=%s  bucket=%s", INFLUX_URL, INFLUX_ORG, INFLUX_BUCKET)
-    except Exception as exc:
-        log.warning("InfluxDB not available: %s", exc)
-        _write_api = None
-    return _write_api
 
 
 # ---------------------------------------------------------------------------

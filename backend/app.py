@@ -574,6 +574,7 @@ except Exception as e:
 
 FRANK_SESSION_FILE = os.path.join(BASE_DIR, "frank_session.json")
 _price_cache: dict = {}   # keyed by ISO date string
+_price_cache_lock = threading.Lock()
 
 
 def _country_from_token(token: str) -> str | None:
@@ -657,8 +658,9 @@ def _ensure_fresh_token(session: dict) -> str:
     session["ts"] = int(time.time())
     _save_frank_session(session)
     # Invalidate BE caches tied to old token
-    _be_site_ref_cache.clear()
-    _be_period_cache.clear()
+    with _be_cache_lock:
+        _be_site_ref_cache.clear()
+        _be_period_cache.clear()
     log.info("Frank token vernieuwd")
     return new_auth
 
@@ -745,6 +747,7 @@ query PeriodUsageAndCosts($date: String!, $siteReference: String!) {
 
 _be_site_ref_cache: dict = {}
 _be_period_cache: dict = {}
+_be_cache_lock = threading.Lock()
 
 
 def _frank_request(query: str, variables: dict, auth_token: str | None = None,
@@ -815,7 +818,8 @@ def _fetch_consumption(auth_token: str | None, start: date, end: date,
 
             # Get site reference (in-process cache)
             # NOTE: userSites must NOT use x-country header (causes auth-not-authorised)
-            site_ref = _be_site_ref_cache.get(cache_key)
+            with _be_cache_lock:
+                site_ref = _be_site_ref_cache.get(cache_key)
             if not site_ref:
                 try:
                     sr_data = _frank_request(_QUERY_USER_SITES, {},
@@ -823,7 +827,8 @@ def _fetch_consumption(auth_token: str | None, start: date, end: date,
                     sites = sr_data.get("userSites") or []
                     site_ref = sites[0].get("reference") if sites else None
                     if site_ref:
-                        _be_site_ref_cache[cache_key] = site_ref
+                        with _be_cache_lock:
+                            _be_site_ref_cache[cache_key] = site_ref
                         log.info("BE siteReference: %s", site_ref)
                     else:
                         log.warning("BE userSites returned no reference: %s", sites)
@@ -836,7 +841,9 @@ def _fetch_consumption(auth_token: str | None, start: date, end: date,
 
             # periodUsageAndCosts returns ONE day of data per call (24 items)
             day_cache_key = f"{cache_key}_{str(start)}"
-            if day_cache_key not in _be_period_cache:
+            with _be_cache_lock:
+                cached_period = _be_period_cache.get(day_cache_key)
+            if cached_period is None:
                 try:
                     p_data = _frank_request(
                         _QUERY_BE_PERIOD_CONSUMPTION,
@@ -847,12 +854,16 @@ def _fetch_consumption(auth_token: str | None, start: date, end: date,
                     electricity = period.get("electricity") or {}
                     items = electricity.get("items") or []
                     log.info("BE period consumption day=%s  items=%d", start, len(items))
-                    _be_period_cache[day_cache_key] = items
+                    with _be_cache_lock:
+                        _be_period_cache[day_cache_key] = items
+                    cached_period = items
                 except Exception as exc:
                     log.warning("BE period consumption day=%s error: %s", start, exc)
-                    _be_period_cache[day_cache_key] = []
+                    with _be_cache_lock:
+                        _be_period_cache[day_cache_key] = []
+                    cached_period = []
 
-            rows = _be_period_cache.get(day_cache_key, [])
+            rows = cached_period
         else:  # NL
             data = _frank_request(_QUERY_NL_CONSUMPTION,
                                    {"startDate": str(start), "endDate": str(end)},
@@ -1041,7 +1052,8 @@ def frank_login():
             "ts":           int(time.time()),
         }
         _save_frank_session(session)
-        _price_cache.clear()
+        with _price_cache_lock:
+            _price_cache.clear()
         log.info("Frank login OK  email=%s", email)
         return jsonify({"ok": True, "email": email})
     except Exception as exc:
@@ -1053,7 +1065,8 @@ def frank_login():
 def frank_logout():
     if os.path.exists(FRANK_SESSION_FILE):
         os.remove(FRANK_SESSION_FILE)
-    _price_cache.clear()
+    with _price_cache_lock:
+        _price_cache.clear()
     return jsonify({"ok": True})
 
 
@@ -1073,6 +1086,7 @@ DAIKIN_REDIRECT_URI = os.environ.get("DAIKIN_REDIRECT_URI", "http://localhost:50
 
 # Temporary in-memory PKCE state store (keyed by state param, expires after 10 min)
 _daikin_pkce_store: dict = {}  # state -> {code_verifier, expires_at}
+_daikin_pkce_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Bosch Home Connect Appliances Integration
@@ -1107,15 +1121,15 @@ def daikin_authorize():
         if not DAIKIN_CLIENT_ID:
             return jsonify({"error": "DAIKIN_CLIENT_ID niet geconfigureerd in .env"}), 400
 
-        # Clean expired entries
         now = _time.time()
-        expired = [s for s, v in _daikin_pkce_store.items() if v["expires_at"] < now]
-        for s in expired:
-            _daikin_pkce_store.pop(s, None)
-
         state = _secrets.token_urlsafe(16)
         code_verifier, code_challenge = daikin_onecta.generate_pkce_pair()
-        _daikin_pkce_store[state] = {"code_verifier": code_verifier, "expires_at": now + 600}
+        with _daikin_pkce_lock:
+            # Clean expired entries
+            expired = [s for s, v in _daikin_pkce_store.items() if v["expires_at"] < now]
+            for s in expired:
+                del _daikin_pkce_store[s]
+            _daikin_pkce_store[state] = {"code_verifier": code_verifier, "expires_at": now + 600}
 
         auth_url = daikin_onecta.get_daikin_auth_url(
             DAIKIN_CLIENT_ID, DAIKIN_REDIRECT_URI, state, code_challenge
@@ -1141,7 +1155,8 @@ def daikin_callback():
     if not code or not state:
         return flask_redirect("/?daikin=error")
 
-    pkce = _daikin_pkce_store.pop(state, None)
+    with _daikin_pkce_lock:
+        pkce = _daikin_pkce_store.pop(state, None)
     if not pkce:
         log.error("Daikin OAuth2 state mismatch or expired")
         return flask_redirect("/?daikin=error")
@@ -1781,7 +1796,8 @@ def get_electricity_prices():
     tomorrow = today + timedelta(days=1)
 
     cache_key = today.isoformat()
-    cached = _price_cache.get(cache_key)
+    with _price_cache_lock:
+        cached = _price_cache.get(cache_key)
     if cached and (time.time() - cached["ts"]) < 1800:
         return jsonify(cached["data"])
 
@@ -1809,7 +1825,8 @@ def get_electricity_prices():
             "loggedIn": bool(auth_token),
             "email":    session.get("email"),
         }
-        _price_cache[cache_key] = {"data": result, "ts": time.time()}
+        with _price_cache_lock:
+            _price_cache[cache_key] = {"data": result, "ts": time.time()}
         return jsonify(result)
     except Exception as exc:
         log.error("Prices fetch error: %s", exc, exc_info=True)
@@ -2799,7 +2816,8 @@ def get_energie_advies_prices():
     tomorrow = today + timedelta(days=1)
 
     cache_key = today.isoformat()
-    cached = _price_cache.get(cache_key)
+    with _price_cache_lock:
+        cached = _price_cache.get(cache_key)
     if cached and (time.time() - cached["ts"]) < 300:
         data = cached["data"]
     else:
@@ -2819,7 +2837,8 @@ def get_energie_advies_prices():
                 "loggedIn": bool(auth_token),
                 "email":    session.get("email"),
             }
-            _price_cache[cache_key] = {"data": data, "ts": time.time()}
+            with _price_cache_lock:
+                _price_cache[cache_key] = {"data": data, "ts": time.time()}
         except Exception as exc:
             log.error("energie-advies prices error: %s", exc, exc_info=True)
             return jsonify({"error": str(exc)}), 502
