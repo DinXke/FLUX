@@ -189,30 +189,86 @@ async def detection_repeaters():
 class RepeaterIn(BaseModel):
     name: str
     pubkey_prefix: str
+    is_public: bool = False
+    user_id: str
+
+
+class RepeaterUpdate(BaseModel):
+    is_public: bool
+    user_id: str
 
 
 @app.get("/api/repeaters")
-async def list_repeaters():
-    return _load_repeaters()
+async def list_repeaters(user_id: str = Query("")):
+    repeaters = _load_repeaters()
+
+    mine = [r for r in repeaters if r.get("owner_id") == user_id]
+    public = [r for r in repeaters if r.get("is_public", False)]
+
+    if user_id:
+        return {"mine": mine, "public": public}
+    return {"mine": [], "public": public}
 
 
 @app.post("/api/repeaters", status_code=201)
 async def add_repeater(body: RepeaterIn):
     repeaters = _load_repeaters()
-    new = {"id": str(uuid.uuid4()), "name": body.name, "pubkey_prefix": body.pubkey_prefix, "last_heard": None}
+    new = {
+        "id": str(uuid.uuid4()),
+        "name": body.name,
+        "pubkey_prefix": body.pubkey_prefix,
+        "is_public": body.is_public,
+        "owner_id": body.user_id,
+        "last_seen": None,
+    }
     repeaters.append(new)
     _save_repeaters(repeaters)
     return new
 
 
-@app.delete("/api/repeaters/{repeater_id}")
-async def delete_repeater(repeater_id: str):
+@app.patch("/api/repeaters/{repeater_id}")
+async def update_repeater(repeater_id: str, body: RepeaterUpdate):
     repeaters = _load_repeaters()
-    remaining = [r for r in repeaters if r["id"] != repeater_id]
-    if len(remaining) == len(repeaters):
+    repeater = next((r for r in repeaters if r["id"] == repeater_id), None)
+
+    if not repeater:
         raise HTTPException(status_code=404, detail="Repeater niet gevonden")
+    if repeater.get("owner_id") != body.user_id:
+        raise HTTPException(status_code=403, detail="Onvoldoende rechten")
+
+    repeater["is_public"] = body.is_public
+    _save_repeaters(repeaters)
+    return repeater
+
+
+@app.delete("/api/repeaters/{repeater_id}")
+async def delete_repeater(repeater_id: str, user_id: str = Query("")):
+    repeaters = _load_repeaters()
+    repeater = next((r for r in repeaters if r["id"] == repeater_id), None)
+
+    if not repeater:
+        raise HTTPException(status_code=404, detail="Repeater niet gevonden")
+    if repeater.get("owner_id") != user_id:
+        raise HTTPException(status_code=403, detail="Onvoldoende rechten")
+
+    remaining = [r for r in repeaters if r["id"] != repeater_id]
     _save_repeaters(remaining)
     return {}
+
+
+@app.get("/api/repeaters/public")
+async def list_public_repeaters():
+    """Alle publieke repeaters — geen authenticatie vereist."""
+    repeaters = _load_repeaters()
+    return [r for r in repeaters if r.get("is_public", False)]
+
+
+@app.get("/api/repeaters/watch-keys")
+async def list_watch_keys():
+    """Alle unieke pubkey_prefix-waarden van mine + public repeaters."""
+    repeaters = _load_repeaters()
+    keys = list({r["pubkey_prefix"] for r in repeaters if r.get("pubkey_prefix")})
+    return {"watch_keys": keys}
 
 
 # ─── Static frontend ──────────────────────────────────────────────────────────

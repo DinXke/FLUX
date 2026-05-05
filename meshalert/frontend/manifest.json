@@ -1,0 +1,60 @@
+{
+  "name": "MeshAlert - Mesh Network Detection Dashboard",
+  "short_name": "MeshAlert",
+  "description": "Real-time mesh network detection and monitoring dashboard",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a0f18",
+  "theme_color": "#2196f3",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%232196f3' width='192' height='192'/><text x='96' y='120' font-size='80' font-weight='bold' fill='white' text-anchor='middle'>🔍</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect fill='%232196f3' width='512' height='512'/><text x='256' y='340' font-size='220' font-weight='bold' fill='white' text-anchor='middle'>🔍</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 540 720'><rect fill='%230a0f18' width='540' height='720'/><text x='270' y='360' font-size='120' font-weight='bold' fill='%232196f3' text-anchor='middle'>MeshAlert</text></svg>",
+      "sizes": "540x720",
+      "type": "image/svg+xml",
+      "form_factor": "narrow"
+    }
+  ],
+  "categories": ["utilities", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Live Feed",
+      "short_name": "Feed",
+      "description": "View real-time detections",
+      "url": "./?tab=live",
+      "icons": [
+        {
+          "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><rect fill='%232196f3' width='96' height='96'/><circle cx='48' cy='48' r='25' fill='white' opacity='0.8'/></svg>",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Timeline",
+      "short_name": "History",
+      "description": "View detection history",
+      "url": "./?tab=timeline",
+      "icons": [
+        {
+          "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><rect fill='%232196f3' width='96' height='96'/><line x1='24' y1='24' x2='72' y2='24' stroke='white' stroke-width='8'/><line x1='24' y1='48' x2='72' y2='48' stroke='white' stroke-width='8'/><line x1='24' y1='72' x2='72' y2='72' stroke='white' stroke-width='8'/></svg>",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ]
+}

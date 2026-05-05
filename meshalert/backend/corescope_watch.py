@@ -35,7 +35,7 @@ WATCH_PUBKEYS: list[str] = _env_list("WATCH_PUBKEYS", "fc1c4b,DinX-EDG,JZH.H39")
 ALERT_COOLDOWN = int(os.getenv("ALERT_COOLDOWN_MINUTES", "5")) * 60
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-CORESCOPE_WS_URL = os.getenv("CORESCOPE_WS_URL", "ws://corescope:8765")
+CORESCOPE_WS_URL = os.getenv("CORESCOPE_WS_URL", "wss://analyzer.on8ar.eu/")
 
 
 def init_db(path: str) -> None:

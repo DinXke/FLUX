@@ -4,6 +4,29 @@ import '../styles/LiveFeed.css'
 function LiveFeed() {
   const [detections, setDetections] = useState([])
   const [status, setStatus] = useState('connecting')
+  const [enabledRepeaters, setEnabledRepeaters] = useState(new Set())
+
+  useEffect(() => {
+    const stored = localStorage.getItem('meshalert_personal_prefs')
+    if (stored) {
+      try {
+        const prefs = JSON.parse(stored)
+        const enabled = new Set(
+          Object.keys(prefs.alerts || {}).filter((key) => prefs.alerts[key] === 'on')
+        )
+        setEnabledRepeaters(enabled)
+      } catch (e) {
+        console.error('Failed to parse stored prefs:', e)
+      }
+    }
+  }, [])
+
+  function shouldShowDetection(detection) {
+    if (enabledRepeaters.size === 0) {
+      return true
+    }
+    return enabledRepeaters.has(detection.repeater_id || detection.node)
+  }
 
   useEffect(() => {
     const eventSource = new EventSource('/api/detections/stream')
@@ -11,7 +34,9 @@ function LiveFeed() {
     eventSource.addEventListener('detection', (event) => {
       try {
         const detection = JSON.parse(event.data)
-        setDetections((prev) => [detection, ...prev.slice(0, 9)])
+        if (shouldShowDetection(detection)) {
+          setDetections((prev) => [detection, ...prev.slice(0, 9)])
+        }
         setStatus('connected')
       } catch (e) {
         console.error('Failed to parse detection:', e)
@@ -23,7 +48,7 @@ function LiveFeed() {
     })
 
     return () => eventSource.close()
-  }, [])
+  }, [enabledRepeaters])
 
   return (
     <div className="live-feed">
