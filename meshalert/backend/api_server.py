@@ -96,10 +96,11 @@ async def _sse_generator() -> AsyncGenerator[str, None]:
     try:
         yield "data: {\"status\": \"connected\"}\n\n"
         while True:
-            det = await asyncio.wait_for(q.get(), timeout=25)
-            yield f"event: detection\ndata: {json.dumps(det)}\n\n"
-    except asyncio.TimeoutError:
-        yield ": keepalive\n\n"
+            try:
+                det = await asyncio.wait_for(q.get(), timeout=25)
+                yield f"event: detection\ndata: {json.dumps(det)}\n\n"
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
     except asyncio.CancelledError:
         pass
     finally:
