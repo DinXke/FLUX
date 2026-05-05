@@ -5,8 +5,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY . /app/backend/
 
-EXPOSE 5001
+# Frontend dist wordt via volume gemount of pre-built meegekopieerd
+ENV DATA_DIR=/app/data \
+    STATIC_DIR=/app/frontend/dist \
+    PORT=7842 \
+    PYTHONPATH=/app/backend
 
-CMD ["python", "app.py"]
+EXPOSE 7842
+
+CMD ["python", "-m", "uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "7842"]
