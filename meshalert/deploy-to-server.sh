@@ -1,12 +1,12 @@
 #!/bin/bash
 # MeshAlert deployment script voor FLUX server (10.10.30.112)
-# Uitvoering: ssh root@10.10.30.112 'bash -s' < deploy-to-server.sh
+# Uitvoering: ssh flux@10.10.30.112 'bash -s' < deploy-to-server.sh
 
 set -euo pipefail
 
 DEPLOY_PATH="/flux"
 MESHALERT_PATH="$DEPLOY_PATH/meshalert"
-SERVER_USER="root"
+SERVER_USER="flux"
 SERVER_HOST="10.10.30.112"
 
 echo "=== MeshAlert Deployment to $SERVER_HOST ==="
