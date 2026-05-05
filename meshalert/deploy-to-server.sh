@@ -16,16 +16,19 @@ echo "Step 1: Pulling latest code from GitHub..."
 cd "$DEPLOY_PATH"
 git pull origin main
 
-# 2. Copy .env if not present
-echo "Step 2: Checking environment configuration..."
-if [ ! -f "$MESHALERT_PATH/.env" ]; then
-  echo "Creating .env from .env.example..."
-  cd "$MESHALERT_PATH"
+# 2. Configure .env with Telegram credentials
+echo "Step 2: Configuring environment..."
+cd "$MESHALERT_PATH"
+if [ ! -f ".env" ]; then
   cp .env.example .env
-  echo "⚠ .env created with defaults. Please edit with Telegram token + CoReScope URL"
-else
-  echo "✓ .env already exists"
+  echo "✓ .env created from example"
 fi
+
+# Update Telegram credentials from Communication project
+sed -i 's|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=766612257:AAHcuAzSxSN3BM_n1uviJe-aXNo3IrRgR7w|' .env
+sed -i 's|^TELEGRAM_CHAT_ID=.*|TELEGRAM_CHAT_ID=-|' .env
+sed -i 's|^CORESCOPE_WS_URL=.*|CORESCOPE_WS_URL=wss://analyzer.on8ar.eu/|' .env
+echo "✓ .env configured with Telegram + CoReScope credentials"
 
 # 3. Create data directory
 echo "Step 3: Setting up data directory..."
