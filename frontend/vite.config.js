@@ -8,7 +8,6 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       injectRegister: null,
-      // Use relative paths so HA ingress base tag works
       base: "./",
       manifest: {
         name: "FLUX",
@@ -37,13 +36,25 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico,woff2}"],
-        // Don't cache API calls — always fetch live data
         navigateFallback: null,
         runtimeCaching: [],
       },
     }),
   ],
   base: "./",
+  build: {
+    rollupOptions: {
+      input: {
+        main: new URL('./index.html', import.meta.url).pathname,
+        'mesh-dashboard': new URL('./mesh-dashboard.html', import.meta.url).pathname,
+      },
+      output: {
+        entryFileNames: '[name]/[name]-[hash].js',
+        chunkFileNames: 'chunks/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
+      },
+    },
+  },
   server: {
     proxy: {
       "/api": {
