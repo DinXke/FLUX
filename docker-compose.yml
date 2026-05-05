@@ -234,6 +234,45 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  meshalert:
+    build:
+      context: ./meshalert
+      dockerfile: Dockerfile
+    container_name: smartmarstek-meshalert
+    restart: unless-stopped
+    networks:
+      - smartmarstek-network
+    ports:
+      - "7842:7842"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7842/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    environment:
+      DATA_DIR: /app/data
+      STATIC_DIR: /app/frontend/dist
+      PORT: 7842
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./meshalert/data:/app/data
+    profiles:
+      - meshalert
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
 volumes:
   flux_data:
   influxdb_data:
