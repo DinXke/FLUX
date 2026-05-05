@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  meshalert-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: meshalert-backend
+    ports:
+      - "5001:5001"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      FLASK_ENV: "production"
+    volumes:
+      - ./backend:/app/backend
+      - meshalert-data:/app/data
+    networks:
+      - meshalert
+
+  meshalert-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: meshalert-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - meshalert-backend
+    networks:
+      - meshalert
+
+volumes:
+  meshalert-data:
+
+networks:
+  meshalert:
+    driver: bridge

@@ -1,0 +1,169 @@
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.filters {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding: 1.5rem;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  align-items: center;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filter-group label {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.filter-group select {
+  padding: 0.5rem 1rem;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  min-width: 150px;
+}
+
+.filter-group select:hover {
+  border-color: var(--accent);
+}
+
+.result-count {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin-left: auto;
+}
+
+.loading {
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-secondary);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+}
+
+.timeline-table {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+}
+
+thead {
+  background: var(--bg-dark);
+  border-bottom: 2px solid var(--border);
+}
+
+th {
+  padding: 1rem;
+  text-align: left;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+tbody tr:hover {
+  background: rgba(33, 150, 243, 0.05);
+}
+
+.node-cell {
+  color: var(--accent);
+  font-weight: 500;
+  font-family: monospace;
+}
+
+.rssi-cell {
+  font-family: monospace;
+  font-weight: 500;
+}
+
+.rssi-strong {
+  color: var(--success);
+}
+
+.rssi-good {
+  color: #8bc34a;
+}
+
+.rssi-weak {
+  color: var(--warning);
+}
+
+.rssi-poor {
+  color: var(--error);
+}
+
+.path-cell {
+  font-family: monospace;
+  font-weight: 500;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.pagination button {
+  padding: 0.5rem 1.5rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: all 0.3s ease;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: #1976d2;
+  transform: translateY(-1px);
+}
+
+.pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  min-width: 150px;
+  text-align: center;
+}
