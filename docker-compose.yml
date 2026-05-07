@@ -11,6 +11,8 @@ services:
       - 8.8.8.8
       - 8.8.4.4
       - 1.1.1.1
+    sysctls:
+      net.ipv4.ip_forward: 1
     ports:
       - "5000:5000"
     depends_on:
@@ -284,3 +286,6 @@ networks:
   smartmarstek-network:
     name: smartmarstek-network
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.enable_icc: "true"
