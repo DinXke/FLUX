@@ -135,6 +135,21 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────
+# Step 2b: Enable IP Forwarding (required for Docker container LAN access)
+# ─────────────────────────────────────────────────────────────────────────
+log_title "Enabling IP forwarding..."
+
+if sysctl net.ipv4.ip_forward | grep -q "= 1"; then
+    log_info "IP forwarding already enabled"
+else
+    sysctl -w net.ipv4.ip_forward=1 > /dev/null
+    if [[ -f /etc/sysctl.conf ]]; then
+        grep -q "^net.ipv4.ip_forward" /etc/sysctl.conf || echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+    fi
+    log_info "IP forwarding enabled (persistent in /etc/sysctl.conf)"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────
 # Step 3: Clone Repository
 # ─────────────────────────────────────────────────────────────────────────
 log_title "Cloning repository..."
