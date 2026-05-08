@@ -150,6 +150,41 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────
+# Step 2c: Tailscale subnet routing (protect local subnet from Tailscale override)
+# ─────────────────────────────────────────────────────────────────────────
+log_title "Configuring Tailscale subnet routing rules..."
+
+# Detect local subnet (e.g. 10.10.30.0/24) from primary interface
+LOCAL_IP=$(hostname -I | awk '{print $1}')
+LOCAL_SUBNET=$(ip route | awk '/proto kernel/ && !/172\./ && !/127\./ {print $1}' | head -1)
+
+if [[ -n "$LOCAL_SUBNET" && -n "$LOCAL_IP" ]]; then
+    # Install systemd service to add ip rules before tailscaled, preventing
+    # Tailscale from routing local subnet traffic through the VPN tunnel
+    cat > /etc/systemd/system/flux-routing.service << SVCEOF
+[Unit]
+Description=FLUX subnet routing rules (protect local subnet from Tailscale override)
+After=network.target
+Before=tailscaled.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c 'ip rule add to ${LOCAL_SUBNET} lookup main priority 5000 2>/dev/null || true; ip rule add from ${LOCAL_IP} lookup main priority 5000 2>/dev/null || true'
+ExecStop=/bin/bash -c 'ip rule del to ${LOCAL_SUBNET} lookup main priority 5000 2>/dev/null || true; ip rule del from ${LOCAL_IP} lookup main priority 5000 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+    systemctl daemon-reload
+    systemctl enable flux-routing.service
+    systemctl start flux-routing.service
+    log_info "Subnet routing rules installed (local=$LOCAL_IP, subnet=$LOCAL_SUBNET)"
+else
+    log_warn "Could not detect local subnet, skipping ip rule setup"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────
 # Step 3: Clone Repository
 # ─────────────────────────────────────────────────────────────────────────
 log_title "Cloning repository..."
