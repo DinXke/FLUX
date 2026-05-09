@@ -246,10 +246,12 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
       .then((serverCfg) => {
         if (!serverCfg?.custom_nodes?.length) return;
         const local = loadFlowCfg();
-        const localIds = (local.custom_nodes ?? []).map((n) => n.id).join(",");
-        const serverIds = serverCfg.custom_nodes.map((n) => n.id).join(",");
-        if (localIds !== serverIds) {
-          saveFlowCfg({ ...local, custom_nodes: serverCfg.custom_nodes });
+        const localNodes = local.custom_nodes ?? [];
+        // Compare by content (not just IDs) so source changes from server are applied
+        if (JSON.stringify(serverCfg.custom_nodes) !== JSON.stringify(localNodes)) {
+          const updated = { ...local, custom_nodes: serverCfg.custom_nodes };
+          saveFlowCfg(updated);
+          window.dispatchEvent(new Event("marstek_flow_cfg_changed"));
         }
       })
       .catch(() => {});
