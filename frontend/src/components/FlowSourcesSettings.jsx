@@ -76,8 +76,10 @@ export const DEVICE_PRESETS = [
   { label: "Vaatwasser",  icon: "🍽️" },
   { label: "Elektrische oven", icon: "🔥" },
   { label: "EV-lader",    icon: "🚗" },
-  { label: "Warmtepomp",  icon: "♨️" },
-  { label: "Andere",      icon: "🔌" },
+  { label: "Warmtepomp",           icon: "♨️" },
+  { label: "Zwembadwarmtepomp",    icon: "🏊" },
+  { label: "Zwembad zandfilter",   icon: "🔵" },
+  { label: "Andere",               icon: "🔌" },
 ];
 
 const ESPHOME_SENSORS = [
@@ -287,9 +289,10 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
   const [haEntities,  setHaEntities]  = useState([]);
   const [influxSrc,   setInfluxSrc]   = useState(null);
   const [influxLive,  setInfluxLive]  = useState({});
-  const [smaSources,  setSmaSources]  = useState([]);
-  const [saved,       setSaved]       = useState(false);
-  const [error,       setError]       = useState(null);
+  const [smaSources,     setSmaSources]     = useState([]);
+  const [loxoneEntities, setLoxoneEntities] = useState([]);
+  const [saved,          setSaved]          = useState(false);
+  const [error,          setError]          = useState(null);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [collapsedSlots, setCollapsedSlots] = useState(() => {
     const collapsed = {};
@@ -329,7 +332,17 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
     } catch {}
   }, []);
 
-  useEffect(() => { loadHw(); loadHa(); loadInflux(); loadSma(); }, [loadHw, loadHa, loadInflux, loadSma]);
+  const loadLoxone = useCallback(async () => {
+    try {
+      const r = await apiFetch("/api/loxone/config");
+      if (r.ok) {
+        const d = await r.json();
+        setLoxoneEntities(d.selected_entities ?? []);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadHw(); loadHa(); loadInflux(); loadSma(); loadLoxone(); }, [loadHw, loadHa, loadInflux, loadSma, loadLoxone]);
 
   // ── Build options ─────────────────────────────────────────────────────────
   const esphomeOptions = [];
@@ -381,6 +394,17 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
     label: s.label,
     unit: s.unit,
     current: s.current ?? null,
+    hint: "",
+  }));
+
+  const loxoneOptions = (loxoneEntities ?? []).map((e) => ({
+    key: `loxone::loxone::${e.uuid}`,
+    source: "loxone",
+    deviceId: "loxone",
+    sensor: e.uuid,
+    label: `${e.name}${e.room ? ` — ${e.room}` : ""}`,
+    unit: "W",
+    current: null,
     hint: "",
   }));
 
@@ -464,7 +488,7 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
     <div className="settings-section">
       <div className="settings-section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span>⚡ Vermogensstroom bronnen</span>
-        <button className="btn btn-ghost btn-sm" onClick={() => { loadHw(); loadHa(); loadInflux(); loadSma(); }}>Vernieuwen</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => { loadHw(); loadHa(); loadInflux(); loadSma(); loadLoxone(); }}>Vernieuwen</button>
       </div>
       <div style={{ padding: "4px 20px 12px", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
         Wijs per positie één of meer sensoren toe. Meerdere bronnen worden opgeteld.
@@ -514,7 +538,7 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {config.custom_nodes.map((node, idx) => {
                   // Collect all sensor options for this custom node
-                  const allOptions = [...esphomeOptions, ...hwOptions, ...influxOptions, ...smaOptions, ...haOptions];
+                  const allOptions = [...esphomeOptions, ...hwOptions, ...influxOptions, ...smaOptions, ...haOptions, ...loxoneOptions];
                   const selected = node.source ? [node.source] : [];
 
                   return (
@@ -604,9 +628,10 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
           ha:      haOptions.filter((o) => o.unit === slotDef.unit),
           influx:  influxOptions.filter((o) => o.unit === slotDef.unit),
           sma:     smaOptions.filter((o) => o.unit === slotDef.unit),
+          loxone:  loxoneOptions.filter((o) => o.unit === slotDef.unit),
         };
         const haSelected  = arr.filter((sc) => sc.source === "homeassistant");
-        const hasAnything = compatible.esphome.length + compatible.hw.length + compatible.ha.length + compatible.influx.length + compatible.sma.length > 0;
+        const hasAnything = compatible.esphome.length + compatible.hw.length + compatible.ha.length + compatible.influx.length + compatible.sma.length + compatible.loxone.length > 0;
 
         return (
           <div key={slotKey}>
@@ -748,6 +773,36 @@ export default function FlowSourcesSettings({ devices = [], powerMap = {} }) {
                       <div className="flow-source-group">
                         <div className="flow-opt-group-label">☀️ SMA Reader</div>
                         {compatible.sma.map((opt) => {
+                          const checked = isSelected(arr, opt);
+                          const inv     = getInvert(arr, opt);
+                          return (
+                            <div key={opt.key} className={`flow-opt-row${checked ? " flow-opt-row--checked" : ""}`}>
+                              <label className="flow-opt-check">
+                                <input type="checkbox" checked={checked}
+                                  onChange={(e) => toggleOption(slotKey, opt, e.target.checked)} />
+                                <span className="flow-opt-label">{opt.label}</span>
+                                {opt.current != null && <span className="flow-opt-val">{fmtVal(opt.current, opt.unit)}</span>}
+                              </label>
+                              {checked && (
+                                <div className="flow-opt-extras">
+                                  <label className="flow-opt-invert">
+                                    <input type="checkbox" checked={inv}
+                                      onChange={(e) => toggleInvert(slotKey, opt, e.target.checked)} />
+                                    Omkeren
+                                  </label>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Loxone checkboxes */}
+                    {compatible.loxone.length > 0 && (
+                      <div className="flow-source-group">
+                        <div className="flow-opt-group-label">🏡 Loxone</div>
+                        {compatible.loxone.map((opt) => {
                           const checked = isSelected(arr, opt);
                           const inv     = getInvert(arr, opt);
                           return (

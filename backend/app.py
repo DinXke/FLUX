@@ -2545,6 +2545,17 @@ def loxone_entity_value(uuid: str):
         return jsonify({"error": str(exc)}), 502
 
 
+@app.route("/api/loxone/live", methods=["GET"])
+def loxone_live():
+    """Return current power (W) for all selected Loxone entities as {uuid: watts}."""
+    try:
+        devices = loxone_module.poll_selected_entities(DATA_DIR)
+        return jsonify({d.uuid: d.current_power_w for d in devices})
+    except Exception as exc:
+        log.error("Loxone live error: %s", exc)
+        return jsonify({}), 200  # Return empty dict, not an error, so flow still renders
+
+
 @app.route("/api/loxone/config", methods=["GET"])
 def loxone_config_get():
     cfg = loxone_module.load_loxone_config(DATA_DIR)

@@ -46,7 +46,7 @@ function flowDur(power) {
 }
 
 /** Resolve one source entry → numeric value or null */
-function resolveOne(sc, batteries, hwData, haData, influxLive, smaLive) {
+function resolveOne(sc, batteries, hwData, haData, influxLive, smaLive, loxoneLive) {
   if (sc.source === "esphome") {
     const bat = batteries.find((b) => b.id === sc.device_id);
     const v = bat?.[sc.sensor];
@@ -74,6 +74,11 @@ function resolveOne(sc, batteries, hwData, haData, influxLive, smaLive) {
     if (v == null) return null;
     return sc.invert ? -v : v;
   }
+  if (sc.source === "loxone") {
+    const v = loxoneLive?.[sc.sensor];
+    if (v == null) return null;
+    return sc.invert ? -v : v;
+  }
   return null;
 }
 
@@ -81,7 +86,7 @@ function resolveOne(sc, batteries, hwData, haData, influxLive, smaLive) {
  * Resolve a flow slot: supports array of sources (summed) or single object (backward compat).
  * For bat_soc the values are averaged instead of summed.
  */
-function resolveSlot(key, cfg, batteries, hwData, haData, influxLive, smaLive) {
+function resolveSlot(key, cfg, batteries, hwData, haData, influxLive, smaLive, loxoneLive) {
   let slotCfg = cfg?.[key];
   if (!slotCfg) return null;
   if (!Array.isArray(slotCfg)) slotCfg = [slotCfg]; // backward compat
@@ -91,7 +96,7 @@ function resolveSlot(key, cfg, batteries, hwData, haData, influxLive, smaLive) {
   let count = 0;
 
   for (const sc of slotCfg) {
-    const v = resolveOne(sc, batteries, hwData, haData, influxLive, smaLive);
+    const v = resolveOne(sc, batteries, hwData, haData, influxLive, smaLive, loxoneLive);
     if (v != null) {
       total = (total ?? 0) + v;
       count++;
@@ -215,10 +220,11 @@ function FlowLabel({ x, y, text, color, small }) {
 // ---------------------------------------------------------------------------
 
 export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
-  const [hwData,     setHwData]     = useState(null);
-  const [haData,     setHaData]     = useState({});  // {entity_id: {value, unit}}
-  const [influxLive, setInfluxLive] = useState({});
-  const [smaLive,    setSmaLive]    = useState({});
+  const [hwData,      setHwData]     = useState(null);
+  const [haData,      setHaData]     = useState({});  // {entity_id: {value, unit}}
+  const [influxLive,  setInfluxLive] = useState({});
+  const [smaLive,     setSmaLive]    = useState({});
+  const [loxoneLive,  setLoxoneLive] = useState({});  // {uuid: watts}
   const [cfg,        setCfg]        = useState(() => loadFlowCfg());
 
   // Reload config when settings page saves it
@@ -274,6 +280,15 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
     } catch { /* SMA not configured */ }
   }, []);
 
+  const pollLoxone = useCallback(async (currentCfg) => {
+    const hasLoxone = Object.values(currentCfg).flat().some((sc) => sc?.source === "loxone");
+    if (!hasLoxone) return;
+    try {
+      const r = await apiFetch("/api/loxone/live");
+      if (r.ok) setLoxoneLive(await r.json());
+    } catch { /* Loxone not configured */ }
+  }, []);
+
   // Poll all HA entity_ids that are referenced in the current config
   const pollHa = useCallback(async (currentCfg) => {
     const entityIds = Object.values(currentCfg)
@@ -295,9 +310,10 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
     pollHa(cfg);
     pollInflux(cfg);
     pollSma(cfg);
-    const id = setInterval(() => { pollHw(); pollHa(cfg); pollInflux(cfg); pollSma(cfg); }, 10000);
+    pollLoxone(cfg);
+    const id = setInterval(() => { pollHw(); pollHa(cfg); pollInflux(cfg); pollSma(cfg); pollLoxone(cfg); }, 10000);
     return () => clearInterval(id);
-  }, [pollHw, pollHa, pollInflux, pollSma, cfg]);
+  }, [pollHw, pollHa, pollInflux, pollSma, pollLoxone, cfg]);
 
   // ── Aggregate ESPHome defaults ─────────────────────────────────────────────
   let totalAc = null, totalBat = null;
@@ -313,7 +329,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
     : null;
 
   // ── Resolve configured slots ───────────────────────────────────────────────
-  const solarPower  = resolveSlot("solar_power", cfg, batteries, hwData, haData, influxLive, smaLive);
+  const solarPower  = resolveSlot("solar_power", cfg, batteries, hwData, haData, influxLive, smaLive, loxoneLive);
 
   // Check if SMA is configured as solar source
   const hasSmaReader = cfg?.solar_power && (Array.isArray(cfg.solar_power)
@@ -327,17 +343,17 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
   );
 
   // net_power: positive = import from grid
-  const netPowerRaw = resolveSlot("net_power",   cfg, batteries, hwData, haData, influxLive, smaLive);
+  const netPowerRaw = resolveSlot("net_power",   cfg, batteries, hwData, haData, influxLive, smaLive, loxoneLive);
 
   // bat_power: positive = discharging
-  const batPowerRaw = resolveSlot("bat_power",   cfg, batteries, hwData, haData, influxLive, smaLive);
+  const batPowerRaw = resolveSlot("bat_power",   cfg, batteries, hwData, haData, influxLive, smaLive, loxoneLive);
 
-  const batSoc = resolveSlot("bat_soc", cfg, batteries, hwData, haData, influxLive, smaLive) ?? avgSoc;
+  const batSoc = resolveSlot("bat_soc", cfg, batteries, hwData, haData, influxLive, smaLive, loxoneLive) ?? avgSoc;
 
   // Phase voltages overrides
-  const v1 = resolveSlot("voltage_l1", cfg, batteries, hwData, haData, influxLive, smaLive);
-  const v2 = resolveSlot("voltage_l2", cfg, batteries, hwData, haData, influxLive, smaLive);
-  const v3 = resolveSlot("voltage_l3", cfg, batteries, hwData, haData, influxLive, smaLive);
+  const v1 = resolveSlot("voltage_l1", cfg, batteries, hwData, haData, influxLive, smaLive, loxoneLive);
+  const v2 = resolveSlot("voltage_l2", cfg, batteries, hwData, haData, influxLive, smaLive, loxoneLive);
+  const v3 = resolveSlot("voltage_l3", cfg, batteries, hwData, haData, influxLive, smaLive, loxoneLive);
 
   // ── Unified sign convention ────────────────────────────────────────────────
   // netDisplayPower: positive = export to grid (drives arrow direction logic)
@@ -393,7 +409,7 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
   const customNodes = cfg.custom_nodes ?? [];
   const customNodeValues = customNodes.map((node) => {
     if (!node.source) return null;
-    return resolveOne(node.source, batteries, hwData, haData, influxLive, smaLive);
+    return resolveOne(node.source, batteries, hwData, haData, influxLive, smaLive, loxoneLive);
   });
 
   // ── SVG layout ─────────────────────────────────────────────────────────────
