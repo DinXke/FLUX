@@ -4529,13 +4529,13 @@ def get_strategy_plan():
         if not force_refresh and _plan_cache.get("result"):
             if s.get("strategy_mode") == "claude":
                 # Claude mode: serve disk-restored or in-memory cache with a
-                # short page-load TTL (5 min). Full fingerprint check only
+                # short page-load TTL (30 min). Full fingerprint check only
                 # happens in the hourly automation tick, not on every page load.
                 cached_at_str = _plan_cache.get("fetched_at")
                 if cached_at_str:
                     age_s = (datetime.now(timezone.utc)
                              - datetime.fromisoformat(cached_at_str)).total_seconds()
-                    if age_s < 300:
+                    if age_s < 1800:
                         result = dict(_plan_cache["result"])
                         result.update(split_days(result.get("all", [])))
                         live = _live_soc()
@@ -4543,7 +4543,7 @@ def get_strategy_plan():
                             result["soc_now"] = live
                         result["age_s"] = int(age_s)
                         return jsonify(result)
-                # Older than 5 min but still valid: update SoC and serve
+                # Older than 30 min but still valid: update SoC and serve
                 # without re-calling Claude (fingerprint check will guard it).
                 pass  # fall through to _compute_forward_plan (fingerprint-gated)
             else:
@@ -6048,6 +6048,7 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
         if not force_claude and _have_cache and _cached_fp == _price_fp:
             log.info("_compute_forward_plan: Claude mode – prices unchanged (fp=%s), serving cache",
                      _price_fp)
+            _plan_cache["fetched_at"] = datetime.now(timezone.utc).isoformat()
             _plan_cache["result"]["soc_now"] = soc_now
             # Re-split zodat today/tomorrow na middernacht correct blijven
             _plan_cache["result"].update(split_days(_plan_cache["result"].get("all", [])))
@@ -6078,6 +6079,7 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
         if _selected in ("claude", "openai"):
             if not force_claude and _have_cache and _cached_fp == _price_fp:
                 log.info("_compute_forward_plan: auto/%s – prices unchanged, serving cache", _selected)
+                _plan_cache["fetched_at"] = datetime.now(timezone.utc).isoformat()
                 _plan_cache["result"]["soc_now"]    = soc_now
                 _plan_cache["result"]["engine_auto_info"] = _auto_info
                 # Re-split zodat today/tomorrow na middernacht correct blijven
@@ -6110,6 +6112,7 @@ def _compute_forward_plan(force_claude: bool = False) -> dict:
         if not force_claude and _have_cache and _cached_fp == _price_fp:
             log.info("_compute_forward_plan: rule_based – prices unchanged (fp=%s), serving cache",
                      _price_fp)
+            _plan_cache["fetched_at"] = datetime.now(timezone.utc).isoformat()
             _plan_cache["result"]["soc_now"] = soc_now
             return _plan_cache["result"]
         s_eff = _apply_device_soc(s)
