@@ -281,8 +281,13 @@ export default function HomeFlow({ batteries = [], phaseVoltages, acVoltage }) {
   }, []);
 
   const pollLoxone = useCallback(async (currentCfg) => {
-    const hasLoxone = Object.values(currentCfg).flat().some((sc) => sc?.source === "loxone");
-    if (!hasLoxone) return;
+    const slotHasLoxone = Object.values(currentCfg)
+      .filter(Array.isArray)
+      .flat()
+      .some((sc) => sc?.source === "loxone");
+    const nodeHasLoxone = (currentCfg.custom_nodes ?? [])
+      .some((n) => n?.source?.source === "loxone");
+    if (!slotHasLoxone && !nodeHasLoxone) return;
     try {
       const r = await apiFetch("/api/loxone/live");
       if (r.ok) setLoxoneLive(await r.json());

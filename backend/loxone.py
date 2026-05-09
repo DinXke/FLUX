@@ -238,7 +238,8 @@ def poll_selected_entities(data_dir: str) -> List[LoxoneDevice]:
                 name=entity.get("name", uuid),
                 type=entity.get("type", ""),
                 room=entity.get("room", ""),
-                current_power_w=float(val) if val is not None else 0.0,
+                # Loxone energy-type sensors return kW; convert to W for FLUX
+                current_power_w=float(val) * 1000.0 if val is not None else 0.0,
                 last_updated=time.time(),
             )
             results.append(dev)
