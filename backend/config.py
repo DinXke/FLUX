@@ -258,6 +258,37 @@ class Config:
         return os.environ.get("HOMEWIZARD_IP", "")
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Loxone Settings
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def get_loxone_config(self) -> dict:
+        """Get Loxone Miniserver connection settings."""
+        if self.standalone_mode:
+            return {
+                "enabled": os.environ.get("LOXONE_ENABLED", "false").lower() == "true",
+                "host": os.environ.get("LOXONE_HOST", ""),
+                "port": int(os.environ.get("LOXONE_PORT", "80")),
+                "username": os.environ.get("LOXONE_USERNAME", ""),
+                "password": os.environ.get("LOXONE_PASSWORD", ""),
+                "poll_interval": int(os.environ.get("LOXONE_POLL_INTERVAL", "30")),
+                "selected_entities": [],
+            }
+        else:
+            return self._load_json("loxone_config.json", {
+                "enabled": False,
+                "host": "",
+                "port": 80,
+                "username": "",
+                "password": "",
+                "poll_interval": 30,
+                "selected_entities": [],
+            })
+
+    def set_loxone_config(self, cfg: dict) -> bool:
+        """Save Loxone connection settings."""
+        return self._save_json("loxone_config.json", cfg)
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Authentication & Authorization
     # ─────────────────────────────────────────────────────────────────────────
 

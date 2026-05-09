@@ -43,6 +43,7 @@ import daikin_onecta
 import daikin_planner
 import bosch_home_connect
 import bosch_appliances
+import loxone as loxone_module
 
 import requests as _req  # aliased to avoid clash with flask.request
 import urllib3
@@ -2506,6 +2507,76 @@ def bosch_unpair():
     except Exception as exc:
         log.error("Bosch unpair error: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 502
+
+
+# ---------------------------------------------------------------------------
+# Loxone Integration
+# ---------------------------------------------------------------------------
+
+@app.route("/api/loxone/status", methods=["GET"])
+def loxone_status():
+    try:
+        status = loxone_module.get_connection_status(DATA_DIR)
+        return jsonify(status)
+    except Exception as exc:
+        log.error("Loxone status error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/loxone/entities", methods=["GET"])
+def loxone_entities():
+    try:
+        entities = loxone_module.discover_entities(DATA_DIR)
+        return jsonify({"entities": entities, "count": len(entities)})
+    except Exception as exc:
+        log.error("Loxone entities error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/loxone/entities/<uuid>/value", methods=["GET"])
+def loxone_entity_value(uuid: str):
+    try:
+        val = loxone_module.get_entity_value(DATA_DIR, uuid)
+        if val is None:
+            return jsonify({"error": "Could not read entity value"}), 502
+        return jsonify({"uuid": uuid, "value": val})
+    except Exception as exc:
+        log.error("Loxone entity value error: %s", exc)
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/loxone/config", methods=["GET"])
+def loxone_config_get():
+    cfg = loxone_module.load_loxone_config(DATA_DIR)
+    # Never expose password in GET
+    safe = {k: v for k, v in cfg.items() if k != "password"}
+    safe["password_set"] = bool(cfg.get("password"))
+    return jsonify(safe)
+
+
+@app.route("/api/loxone/config", methods=["POST"])
+@require_admin
+def loxone_config_post():
+    try:
+        body = request.get_json(force=True)
+        current = loxone_module.load_loxone_config(DATA_DIR)
+
+        # Preserve password if not sent
+        if "password" not in body or body["password"] == "":
+            body["password"] = current.get("password", "")
+
+        # Validate required fields when enabling
+        if body.get("enabled") and not body.get("host"):
+            return jsonify({"error": "host required when enabled"}), 400
+
+        ok = loxone_module.save_loxone_config(DATA_DIR, body)
+        if not ok:
+            return jsonify({"error": "Failed to save config"}), 500
+
+        return jsonify({"ok": True})
+    except Exception as exc:
+        log.error("Loxone config save error: %s", exc)
+        return jsonify({"error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------

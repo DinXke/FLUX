@@ -692,6 +692,35 @@ def _collect_and_write(app_context_fn):
     except Exception as exc:
         log.debug("InfluxDB device_power write skip: %s", exc)
 
+    # ── Loxone energy entities ───────────────────────────────────────────────
+    try:
+        import loxone as loxone_module  # type: ignore
+        loxone_devices = loxone_module.poll_selected_entities(_DATA_DIR)
+        if loxone_devices:
+            from influxdb_client import Point  # type: ignore
+            loxone_count = 0
+            for dev in loxone_devices:
+                try:
+                    lp = Point("loxone_device")
+                    lp = lp.tag("source", "loxone")
+                    lp = lp.tag("device", dev.name)
+                    lp = lp.tag("uuid", dev.uuid)
+                    lp = lp.tag("type", dev.type)
+                    lp = lp.tag("room", dev.room)
+                    lp = lp.field("power_w", float(dev.current_power_w))
+                    lp = lp.field("energy_kwh_delta", float(dev.current_power_w) * WRITE_INTERVAL / 3600 / 1000)
+                    lp = lp.time(datetime.now(timezone.utc))
+                    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=lp)
+                    loxone_count += 1
+                except Exception as e:
+                    log.debug("Loxone device write error (%s): %s", dev.name, e)
+            if loxone_count > 0:
+                log.debug("InfluxDB loxone_device write OK  count=%d", loxone_count)
+    except ImportError:
+        pass
+    except Exception as exc:
+        log.debug("InfluxDB loxone_device write skip: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # Background thread entry point
