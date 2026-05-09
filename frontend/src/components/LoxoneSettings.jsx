@@ -2,6 +2,55 @@ import { apiFetch } from "../auth.js";
 import { useState, useEffect, useCallback } from "react";
 import { loadFlowCfg, saveFlowCfg } from "./FlowSourcesSettings.jsx";
 
+const ENTITY_ICONS = { EnergySocket: "⚡", EnergyMonitor: "⚡", Meter: "📊", PowerMeter: "📊" };
+const loxSource = (uuid) => ({ source: "loxone", device_id: "loxone", sensor: uuid, invert: false });
+const normalise = (s) => s?.toLowerCase().replace(/\s+/g, "");
+
+function syncLoxoneToFlow(selectedEntities) {
+  if (!selectedEntities?.length) return;
+  const flowCfg = loadFlowCfg();
+  const existingNodes = flowCfg.custom_nodes ?? [];
+  const selectedUuids = new Set(selectedEntities.map((e) => e.uuid));
+
+  // Koppel bestaande nodes met overeenkomende naam aan Loxone bron
+  let nodes = existingNodes.map((n) => {
+    if (n?.source?.source === "loxone") return n;
+    if (n?.source != null) return n;
+    const match = selectedEntities.find((e) => normalise(e.name) === normalise(n.name));
+    if (match) return { ...n, source: loxSource(match.uuid) };
+    return n;
+  });
+
+  // Verwijder verouderde loxone nodes die niet meer geselecteerd zijn
+  nodes = nodes.filter((n) => {
+    if (n?.source?.source === "loxone") return selectedUuids.has(n.source.sensor);
+    return true;
+  });
+
+  // Voeg ontbrekende entiteiten toe als nieuwe nodes
+  const linkedUuids = new Set(
+    nodes.filter((n) => n?.source?.source === "loxone").map((n) => n.source.sensor)
+  );
+  for (const entity of selectedEntities) {
+    if (linkedUuids.has(entity.uuid)) continue;
+    nodes.push({
+      id: `loxone_${entity.uuid}`,
+      name: entity.name,
+      icon: ENTITY_ICONS[entity.type] ?? "🏡",
+      source: loxSource(entity.uuid),
+    });
+  }
+
+  const updated = { ...flowCfg, custom_nodes: nodes };
+  saveFlowCfg(updated);
+  apiFetch("/api/flow/cfg", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updated),
+  }).catch(() => {});
+  window.dispatchEvent(new Event("marstek_flow_cfg_changed"));
+}
+
 export default function LoxoneSettings() {
   const [cfg,        setCfg]        = useState(null);
   const [host,       setHost]       = useState("");
@@ -32,7 +81,10 @@ export default function LoxoneSettings() {
       setUsername(d.username || "");
       setEnabled(d.enabled ?? false);
       setPollInt(d.poll_interval ?? 30);
-      setSelected(new Set((d.selected_entities || []).map((e) => e.uuid)));
+      const sel = d.selected_entities || [];
+      setSelected(new Set(sel.map((e) => e.uuid)));
+      // Auto-sync bij laden: zorg dat geselecteerde entiteiten als custom nodes bestaan
+      if (sel.length > 0) syncLoxoneToFlow(sel);
     } catch { /* ignore */ }
   }, []);
 
@@ -91,48 +143,6 @@ export default function LoxoneSettings() {
       setEntError(e.message);
     }
     setLoadingEnt(false);
-  };
-
-  const syncLoxoneToFlow = (selectedEntities) => {
-    const flowCfg = loadFlowCfg();
-    const existingNodes = flowCfg.custom_nodes ?? [];
-
-    // Verwijder verouderde loxone nodes die niet meer geselecteerd zijn
-    const selectedUuids = new Set(selectedEntities.map((e) => e.uuid));
-    const filtered = existingNodes.filter((n) => {
-      const src = n?.source;
-      if (src?.source === "loxone") return selectedUuids.has(src.sensor);
-      return true; // behoud non-loxone nodes
-    });
-
-    // Voeg nieuwe loxone nodes toe als ze nog niet bestaan
-    const existingUuids = new Set(
-      filtered
-        .filter((n) => n?.source?.source === "loxone")
-        .map((n) => n.source.sensor)
-    );
-
-    const ENTITY_ICONS = { EnergySocket: "⚡", EnergyMonitor: "⚡", Meter: "📊", PowerMeter: "📊" };
-
-    for (const entity of selectedEntities) {
-      if (existingUuids.has(entity.uuid)) continue;
-      filtered.push({
-        id: `loxone_${entity.uuid}`,
-        name: entity.name,
-        icon: ENTITY_ICONS[entity.type] ?? "🏡",
-        source: { source: "loxone", device_id: "loxone", sensor: entity.uuid, invert: false },
-      });
-    }
-
-    const updated = { ...flowCfg, custom_nodes: filtered };
-    saveFlowCfg(updated);
-    // Synchroniseer ook naar server zodat andere browsers/apparaten het zien
-    apiFetch("/api/flow/cfg", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updated),
-    }).catch(() => {});
-    window.dispatchEvent(new Event("marstek_flow_cfg_changed"));
   };
 
   const toggleEntity = (uuid) =>
