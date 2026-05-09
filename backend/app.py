@@ -5519,7 +5519,12 @@ def _influx_context():
                     _dt_raw = _dt_raw.replace(tzinfo=_tz_utc.utc)
                 _dt_loc = _dt_raw.astimezone(_ZI(_tz))
                 if _dt_loc.date() == _now_local.date() and _dt_loc.hour == _now_local.hour:
-                    _buy = float(_row["marketPrice"]) + _markup
+                    _buy = (
+                        float(_row.get("marketPrice", 0)) +
+                        float(_row.get("marketPriceTax", 0)) +
+                        float(_row.get("sourcingMarkupPrice", 0)) +
+                        float(_row.get("energyTaxPrice", 0))
+                    ) + _markup
                     current_price_data = {
                         "buy_eur_kwh": round(_buy, 6),
                         "feed_in_eur_kwh": _feed_in,
