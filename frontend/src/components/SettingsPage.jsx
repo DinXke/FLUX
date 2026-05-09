@@ -6,6 +6,7 @@ import HomeAssistantSettings from "./HomeAssistantSettings.jsx";
 import ForecastSettings from "./ForecastSettings.jsx";
 import StrategySettings from "./StrategySettings.jsx";
 import InfluxSettings from "./InfluxSettings.jsx";
+import LoxoneSettings from "./LoxoneSettings.jsx";
 import FlowSourcesSettings from "./FlowSourcesSettings.jsx";
 import PvLimiterSettings from "./PvLimiterSettings.jsx";
 import CapTariffSettings from "./CapTariffSettings.jsx";
@@ -434,6 +435,7 @@ const GROUPS = [
       { id: "homewizard",    label: "🏠 HomeWizard"     },
       { id: "homeassistant", label: "🔗 Home Assistant" },
       { id: "influxdb",      label: "🗄️ InfluxDB"       },
+      { id: "loxone",        label: "🏡 Loxone"          },
       { id: "flowbronnen",   label: "🔀 Stroom­vlak"    },
     ],
   },
@@ -584,6 +586,7 @@ export default function SettingsPage({
       {activeTab === "homewizard"    && <HomeWizardSettings />}
       {activeTab === "homeassistant" && <HomeAssistantSettings />}
       {activeTab === "influxdb"      && <InfluxSettings />}
+      {activeTab === "loxone"        && <LoxoneSettings />}
       {activeTab === "flowbronnen"   && <FlowSourcesSettings devices={devices} powerMap={powerMap ?? {}} />}
       {activeTab === "apparaten"     && (
         <TabApparaten devices={devices} powerMap={powerMap}
