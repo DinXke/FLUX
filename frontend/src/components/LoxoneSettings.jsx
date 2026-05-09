@@ -1,5 +1,6 @@
 import { apiFetch } from "../auth.js";
 import { useState, useEffect, useCallback } from "react";
+import { loadFlowCfg, saveFlowCfg } from "./FlowSourcesSettings.jsx";
 
 export default function LoxoneSettings() {
   const [cfg,        setCfg]        = useState(null);
@@ -92,6 +93,48 @@ export default function LoxoneSettings() {
     setLoadingEnt(false);
   };
 
+  const syncLoxoneToFlow = (selectedEntities) => {
+    const flowCfg = loadFlowCfg();
+    const existingNodes = flowCfg.custom_nodes ?? [];
+
+    // Verwijder verouderde loxone nodes die niet meer geselecteerd zijn
+    const selectedUuids = new Set(selectedEntities.map((e) => e.uuid));
+    const filtered = existingNodes.filter((n) => {
+      const src = n?.source;
+      if (src?.source === "loxone") return selectedUuids.has(src.sensor);
+      return true; // behoud non-loxone nodes
+    });
+
+    // Voeg nieuwe loxone nodes toe als ze nog niet bestaan
+    const existingUuids = new Set(
+      filtered
+        .filter((n) => n?.source?.source === "loxone")
+        .map((n) => n.source.sensor)
+    );
+
+    const ENTITY_ICONS = { EnergySocket: "⚡", EnergyMonitor: "⚡", Meter: "📊", PowerMeter: "📊" };
+
+    for (const entity of selectedEntities) {
+      if (existingUuids.has(entity.uuid)) continue;
+      filtered.push({
+        id: `loxone_${entity.uuid}`,
+        name: entity.name,
+        icon: ENTITY_ICONS[entity.type] ?? "🏡",
+        source: { source: "loxone", device_id: "loxone", sensor: entity.uuid, invert: false },
+      });
+    }
+
+    const updated = { ...flowCfg, custom_nodes: filtered };
+    saveFlowCfg(updated);
+    // Synchroniseer ook naar server zodat andere browsers/apparaten het zien
+    apiFetch("/api/flow/cfg", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    }).catch(() => {});
+    window.dispatchEvent(new Event("marstek_flow_cfg_changed"));
+  };
+
   const toggleEntity = (uuid) =>
     setSelected((prev) => {
       const n = new Set(prev);
@@ -123,6 +166,10 @@ export default function LoxoneSettings() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Opslaan mislukt.");
+
+      // Auto-sync: voeg geselecteerde entiteiten toe als custom nodes in de flow
+      syncLoxoneToFlow(selectedEntities);
+
       setSaveOk(true);
       setTimeout(() => setSaveOk(false), 3000);
       loadConfig();
