@@ -180,7 +180,8 @@ class TestPollSelectedEntities(unittest.TestCase):
         devices = lox.poll_selected_entities(self.tmp)
         self.assertEqual(len(devices), 2)
         for dev in devices:
-            self.assertAlmostEqual(dev.current_power_w, 250.0)
+            # Loxone API returns kW; poll_selected_entities converts to W (* 1000)
+            self.assertAlmostEqual(dev.current_power_w, 250.0 * 1000.0)
 
         # Both EnergySocket and Meter types → LoxoneEnergySocket
         energy_devs = [d for d in devices if isinstance(d, lox.LoxoneEnergySocket)]
