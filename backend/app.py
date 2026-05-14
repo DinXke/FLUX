@@ -6704,22 +6704,17 @@ def _automation_tick() -> None:
         return
 
     # ── Auto-refresh plan when stale ─────────────────────────────────────────
-    # For Claude mode: only refresh when prices have changed (fingerprint).
-    # Time-based hourly refresh would re-call Claude every hour which costs money.
-    # For rule-based: refresh hourly so solar forecast + SoC stay current.
+    # Refresh every hour for all modes. For Claude mode, _compute_forward_plan()
+    # uses price-fingerprint caching internally: Claude is only re-called when
+    # prices actually changed, so hourly checks don't incur extra AI costs.
+    # This ensures price changes (e.g. Frank Energie mid-day update) are detected
+    # within 1 hour instead of waiting 25 hours.
     fetched_at_str = _plan_cache.get("fetched_at")
     plan_stale = fetched_at_str is None
     s_now = load_strategy_settings()
     if not plan_stale:
         age_s = (datetime.now(timezone.utc) - datetime.fromisoformat(fetched_at_str)).total_seconds()
-        if s_now.get("strategy_mode") == "claude":
-            # Claude: stale only when no cache at all; fingerprint check inside
-            # _compute_forward_plan() will skip the actual Claude call if prices
-            # haven't changed, but still costs a prices+solar fetch. Only trigger
-            # when cache is >25h old (prices would definitely have changed).
-            plan_stale = age_s >= 90000   # 25 hours
-        else:
-            plan_stale = age_s >= 3600    # rule-based: refresh every hour
+        plan_stale = age_s >= 3600    # refresh every hour for all modes
     if plan_stale:
         log.info("Automation: plan stale (age=%.0fs, engine=%s) – recomputing…",
                  (datetime.now(timezone.utc) - datetime.fromisoformat(fetched_at_str)).total_seconds()
