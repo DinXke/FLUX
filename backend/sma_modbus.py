@@ -777,3 +777,21 @@ def scan_registers(host: str, port: int, unit_id: int,
             unique.append(item)
 
     return sorted(unique, key=lambda x: (x["reg"], x["fc"]))
+
+
+def get_sma_sensor_metadata() -> list[dict]:
+    result = []
+    for reg in _DEFAULT_REGISTER_MAP:
+        sensor = {"key": reg["key"], "label": reg["label"], "unit": reg["unit"]}
+        if reg.get("mult") == 0.01 and "V" in reg["unit"]:
+            sensor["unit"] = "V"
+        elif reg.get("mult") == 0.01 and "Hz" in reg["unit"]:
+            sensor["unit"] = "Hz"
+        elif reg.get("mult") == 0.1 and "°C" in reg["unit"]:
+            sensor["unit"] = "°C"
+        elif reg.get("mult") == 0.001 and "A" in reg["unit"]:
+            sensor["unit"] = "A"
+        elif reg["unit"] == "kWh":
+            sensor["unit"] = "Wh"
+        result.append(sensor)
+    return result
