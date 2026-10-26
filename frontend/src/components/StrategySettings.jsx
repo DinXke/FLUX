@@ -26,13 +26,14 @@ const DEFAULTS = {
   strategy_mode:                  "rule_based",
   strategy_ai_provider:           "claude",
   claude_api_key:                 "",
-  claude_model:                   "claude-haiku-4-5-20251001",
+  claude_model:                   "claude-opus-5-5",
+  claude_effort:                  "high",
   openai_api_key:                 "",
   openai_model:                   "gpt-4o",
   auto_complexity_threshold:      0.03,
   auto_complexity_high_threshold: 0.06,
-  auto_claude_model_simple:       "claude-haiku-4-5-20251001",
-  auto_claude_model_complex:      "claude-sonnet-4-6",
+  auto_claude_model_simple:       "claude-haiku-5-5",
+  auto_claude_model_complex:      "claude-opus-5-5",
   auto_openai_model_simple:       "gpt-4o-mini",
   auto_openai_model_complex:      "gpt-4o",
 };
@@ -118,7 +119,12 @@ export default function StrategySettings() {
         strategy_mode:        vals.strategy_mode || "rule_based",
         strategy_ai_provider: vals.strategy_ai_provider || "claude",
         claude_api_key:       vals.claude_api_key || "",
-        claude_model:         vals.claude_model   || "claude-haiku-4-5-20251001",
+        claude_model:         vals.claude_model   || "claude-opus-5-5",
+        claude_effort:        vals.claude_effort  || "high",
+        auto_complexity_threshold:      parseFloat(vals.auto_complexity_threshold)      || 0.03,
+        auto_complexity_high_threshold: parseFloat(vals.auto_complexity_high_threshold) || 0.06,
+        auto_claude_model_simple:  vals.auto_claude_model_simple  || "claude-haiku-5-5",
+        auto_claude_model_complex: vals.auto_claude_model_complex || "claude-opus-5-5",
         openai_api_key:       vals.openai_api_key || "",
         openai_model:         vals.openai_model   || "gpt-4o",
         auto_openai_model_simple:  vals.auto_openai_model_simple  || "gpt-4o-mini",
@@ -447,9 +453,27 @@ export default function StrategySettings() {
                   <div className="settings-row-label" style={{ marginBottom: 4 }}>Model</div>
                   <select className="form-input" style={{ width: 220 }}
                     value={vals.claude_model} onChange={(e) => set("claude_model", e.target.value)}>
-                    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (~€0,001)</option>
-                    <option value="claude-sonnet-4-6">Sonnet 4.6 (~€0,01)</option>
-                    <option value="claude-opus-4-7">Opus 4.7 (~€0,05)</option>
+                    <option value="claude-opus-5-5">Opus 5.5 — aanbevolen (~€0,02)</option>
+                    <option value="claude-sonnet-5-5">Sonnet 5.5 (~€0,007)</option>
+                    <option value="claude-haiku-5-5">Haiku 5.5 (~€0,0005)</option>
+                    <option value="claude-fable-5-1">Fable 5.1 — duurst (~€0,05)</option>
+                    <option value="claude-opus-4-7">Opus 4.7 (oud, ~€0,02)</option>
+                    <option value="claude-sonnet-4-6">Sonnet 4.6 (oud, ~€0,01)</option>
+                    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (oud, ~€0,002)</option>
+                  </select>
+                </div>
+                <div style={{ flexShrink: 0 }}>
+                  <div className="settings-row-label" style={{ marginBottom: 4 }}
+                    title="Denkdiepte (output_config.effort). Hoger = grondiger maar trager en duurder. Genegeerd door Haiku 4.5.">
+                    Effort
+                  </div>
+                  <select className="form-input" style={{ width: 120 }}
+                    value={vals.claude_effort || "high"} onChange={(e) => set("claude_effort", e.target.value)}>
+                    <option value="low">Laag</option>
+                    <option value="medium">Middel</option>
+                    <option value="high">Hoog (aanbevolen)</option>
+                    <option value="xhigh">Extra hoog</option>
+                    <option value="max">Maximaal</option>
                   </select>
                 </div>
               </div>
@@ -552,8 +576,11 @@ export default function StrategySettings() {
                   <select className="form-input" style={{ width: "100%" }}
                     value={vals.auto_claude_model_simple}
                     onChange={(e) => set("auto_claude_model_simple", e.target.value)}>
-                    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (~€0,001)</option>
-                    <option value="claude-sonnet-4-6">Sonnet 4.6 (~€0,01)</option>
+                    <option value="claude-haiku-5-5">Haiku 5.5 (~€0,0005)</option>
+                    <option value="claude-sonnet-5-5">Sonnet 5.5 (~€0,007)</option>
+                    <option value="claude-opus-5-5">Opus 5.5 (~€0,02)</option>
+                    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (oud, ~€0,002)</option>
+                    <option value="claude-sonnet-4-6">Sonnet 4.6 (oud, ~€0,01)</option>
                   </select>
                 </div>
                 <div style={{ flex: 1 }}>
@@ -561,9 +588,13 @@ export default function StrategySettings() {
                   <select className="form-input" style={{ width: "100%" }}
                     value={vals.auto_claude_model_complex}
                     onChange={(e) => set("auto_claude_model_complex", e.target.value)}>
-                    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (~€0,001)</option>
-                    <option value="claude-sonnet-4-6">Sonnet 4.6 (~€0,01)</option>
-                    <option value="claude-opus-4-7">Opus 4.7 (~€0,05)</option>
+                    <option value="claude-opus-5-5">Opus 5.5 — aanbevolen (~€0,02)</option>
+                    <option value="claude-sonnet-5-5">Sonnet 5.5 (~€0,007)</option>
+                    <option value="claude-haiku-5-5">Haiku 5.5 (~€0,0005)</option>
+                    <option value="claude-fable-5-1">Fable 5.1 — duurst (~€0,05)</option>
+                    <option value="claude-opus-4-7">Opus 4.7 (oud, ~€0,02)</option>
+                    <option value="claude-sonnet-4-6">Sonnet 4.6 (oud, ~€0,01)</option>
+                    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (oud, ~€0,002)</option>
                   </select>
                 </div>
               </div>

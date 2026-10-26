@@ -29,14 +29,23 @@ log = logging.getLogger("strategy_claude")
 
 WEEKDAY_NL = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"]
 
-# Per-model pricing (USD per token, converted to EUR at 0.92)
-# Cache read tokens are 90% cheaper than uncached input tokens.
+# Per-model pricing (USD per MTok, converted to EUR at 0.92)
+# cache_write = 5-minuten-cache (≈1,25× input); cache_read ≈ 0,1× input (bij 5.x soms lager).
+# Bron: Anthropic-prijslijst okt 2026. Opus 4.7 stond eerder op 15/75 (= oude Opus 4/4.1-prijs);
+# officieel is het 5/25. Haiku 4.5 stond op 0,80/4 (= oude Haiku 3.5-prijs); officieel 1/5.
 _MODEL_PRICING = {
-    "claude-haiku-4-5-20251001": {"in": 0.80, "out": 4.00, "cache_write": 1.00, "cache_read": 0.08},
-    "claude-haiku-4-5":          {"in": 0.80, "out": 4.00, "cache_write": 1.00, "cache_read": 0.08},
-    "claude-sonnet-4-6":         {"in": 3.00, "out": 15.00, "cache_write": 3.75, "cache_read": 0.30},
-    "claude-opus-4-7":           {"in": 15.00, "out": 75.00, "cache_write": 18.75, "cache_read": 1.50},
+    "claude-haiku-4-5-20251001": {"in": 1.00,  "out": 5.00,  "cache_write": 1.25,  "cache_read": 0.10},
+    "claude-haiku-4-5":          {"in": 1.00,  "out": 5.00,  "cache_write": 1.25,  "cache_read": 0.10},
+    "claude-sonnet-4-6":         {"in": 3.00,  "out": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
+    "claude-opus-4-7":           {"in": 5.00,  "out": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
+    # Huidige generatie (okt 2026). Haiku 5.5-prijs geldt voor prompts ≤ 100K tokens
+    # (FLUX-prompts zitten daar ruim onder).
+    "claude-haiku-5-5":          {"in": 0.10,  "out": 0.50,  "cache_write": 0.125, "cache_read": 0.01},
+    "claude-sonnet-5-5":         {"in": 2.00,  "out": 10.00, "cache_write": 2.50,  "cache_read": 0.20},
+    "claude-opus-5-5":           {"in": 4.00,  "out": 20.00, "cache_write": 5.00,  "cache_read": 0.20},
+    "claude-fable-5-1":          {"in": 10.00, "out": 50.00, "cache_write": 12.50, "cache_read": 0.25},
 }
+DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
 _USD_TO_EUR = 0.92
 
 def _token_cost_eur(model: str, in_tok: int, out_tok: int,
@@ -762,7 +771,7 @@ def build_plan_claude(
         model = s.get("openai_model", "gpt-4o")
     else:  # default to claude
         api_key = s.get("claude_api_key", "").strip()
-        model = s.get("claude_model", "claude-sonnet-4-6")
+        model = s.get("claude_model") or DEFAULT_CLAUDE_MODEL
 
     if not api_key:
         log.warning("strategy_claude: no API key configured for %s — falling back to rule-based", ai_provider)
@@ -770,7 +779,8 @@ def build_plan_claude(
         return build_plan(prices, solar_wh, consumption_by_hour, bat_soc_now, s,
                           start_dt, num_slots)
 
-    provider = get_provider(ai_provider, api_key, model)
+    provider = get_provider(ai_provider, api_key, model,
+                            effort=s.get("claude_effort") or "high")
     if not provider:
         log.error("strategy_claude: unknown provider '%s' — falling back to rule-based", ai_provider)
         _set_debug(fallback=True, fallback_reason=f"Onbekende AI provider: {ai_provider}")
@@ -1100,10 +1110,12 @@ def build_plan_claude(
                             },
                         },
                         "required": ["time", "action", "reason"],
+                        "additionalProperties": False,
                     },
                 },
             },
             "required": ["plan"],
+            "additionalProperties": False,
         },
     }
 
@@ -1122,7 +1134,8 @@ def build_plan_claude(
         user_message=user_message,
         tool_def=tool_def,
         tool_name="submit_battery_plan",
-        max_tokens=8192,
+        # Ruimte voor adaptief denken (5.x denkt altijd) + 48 slots met motivatie
+        max_tokens=16000,
     )
     elapsed = round(_time.monotonic() - t0, 2)
 

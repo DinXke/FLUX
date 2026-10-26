@@ -36,7 +36,7 @@ BASE_SETTINGS = {
     "pv_limiter_service_param": "",
     "strategy_mode": "rule_based",
     "claude_api_key": "",
-    "claude_model": "claude-sonnet-4-6",
+    "claude_model": "claude-opus-5-5",
     "cap_tariff_enabled":    False,
     "cap_tariff_max_grid_w": 8000,
     "neg_price_discharge_enabled": True,
