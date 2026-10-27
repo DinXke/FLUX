@@ -110,8 +110,13 @@ DEFAULT_SETTINGS = {
     "strategy_ai_provider":  "claude",
     # Anthropic API key (used when strategy_ai_provider = "claude" or "auto")
     "claude_api_key":       "",
-    # Claude model to use for planning (Sonnet = recommended; Haiku = cheapest/fastest)
-    "claude_model":         "claude-sonnet-4-6",
+    # Claude model to use for planning (Opus 5.5 = aanbevolen; Sonnet 5.5 = goedkoper;
+    # Haiku 5.5 = goedkoopst; Fable 5.1 = duurst/meest capabel)
+    "claude_model":         "claude-opus-5-5",
+    # Claude output_config.effort: low | medium | high | xhigh | max.
+    # Opus 5.5 staat standaard op "medium"; voor de batterijstrategie expliciet "high".
+    # Genegeerd door modellen zonder effort (bv. Haiku 4.5) en door OpenAI.
+    "claude_effort":        "high",
     # OpenAI API key (used when strategy_ai_provider = "openai" or "auto")
     "openai_api_key":       "",
     # OpenAI model to use for planning (gpt-4o = recommended; gpt-4o-mini = cheaper)
@@ -123,8 +128,8 @@ DEFAULT_SETTINGS = {
     # in between → Claude Haiku/gpt-4o-mini (average day)
     "auto_complexity_threshold":      0.03,
     "auto_complexity_high_threshold": 0.06,
-    "auto_claude_model_simple":       "claude-haiku-4-5-20251001",
-    "auto_claude_model_complex":      "claude-sonnet-4-6",
+    "auto_claude_model_simple":       "claude-haiku-5-5",
+    "auto_claude_model_complex":      "claude-opus-5-5",
     "auto_openai_model_simple":       "gpt-4o-mini",
     "auto_openai_model_complex":      "gpt-4o",
     # Capaciteitstarief-bescherming (België: maandelijkse piekkwartier)
@@ -234,8 +239,8 @@ def compute_price_complexity(prices: list, settings: Optional[dict] = None) -> d
         model_complex  = s.get("auto_openai_model_complex", "gpt-4o")
         provider       = "openai"
     else:  # default to claude
-        model_simple   = s.get("auto_claude_model_simple",  "claude-haiku-4-5-20251001")
-        model_complex  = s.get("auto_claude_model_complex", "claude-sonnet-4-6")
+        model_simple   = s.get("auto_claude_model_simple",  "claude-haiku-5-5")
+        model_complex  = s.get("auto_claude_model_complex", "claude-opus-5-5")
         provider       = "claude"
 
     vals = [float(p["marketPrice"]) for p in (prices or [])

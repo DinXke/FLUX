@@ -879,7 +879,8 @@ Huidige regelstrategie-instellingen ophalen.
   "grid_charge_allowed": false,
   "frank_auth_token": "...",
   "use_claude": false,
-  "claude_model": "claude-opus-4-5",
+  "claude_model": "claude-opus-5-5",
+  "claude_effort": "high",
   "openai_api_key": ""
 }
 ```

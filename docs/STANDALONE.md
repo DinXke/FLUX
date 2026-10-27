@@ -73,7 +73,7 @@ INFLUX_TOKEN=your_influx_token
 
 # Claude API (if using AI strategy)
 CLAUDE_API_KEY=your_claude_key
-CLAUDE_MODEL=claude-haiku-4-5-20251001
+CLAUDE_MODEL=claude-opus-5-5
 
 # OpenAI API (alternative to Claude)
 OPENAI_API_KEY=your_openai_key

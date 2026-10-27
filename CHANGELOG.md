@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Huidige Claude-modellen**: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5` en `claude-fable-5-1` in de prijstabel (`_MODEL_PRICING`) en in de modelkeuze (Instellingen > Strategie, ook bij auto-modus). Oudere modellen blijven kiesbaar (gemarkeerd als "oud").
+- **Instelling `claude_effort`** (standaard `high`): denkdiepte via `output_config.effort` (low/medium/high/xhigh/max), met keuzelijst naast het model. Op Opus 5.5 is de API-standaard `medium`, daarom expliciet `high` voor de batterijstrategie. Wordt niet meegestuurd naar modellen zonder effort (Haiku 4.5) en `xhigh` valt terug op `high` bij de 4.6-modellen.
+
+### Changed
+- **Standaardmodel `claude_model` → `claude-opus-5-5`** (was `claude-sonnet-4-6`; frontend-standaard was `claude-haiku-4-5-20251001`). Auto-modus: gemiddelde dag `claude-haiku-5-5`, complexe dag `claude-opus-5-5`. Bestaande installaties houden het model dat in `strategy_settings.json` staat.
+- **Claude-aanroep compatibel met de 5.x-modellen** (`llm_provider.py`): geforceerde `tool_choice` (`{"type":"tool"}`) vervangen door `{"type":"auto"}` + `strict: true` op de tool (gesloten schema: `additionalProperties: false`, `required`) + een expliciete instructie in de prompt om `submit_battery_plan` aan te roepen. Geforceerde tool_choice gaf een HTTP 400 op Opus 5.5, Sonnet 5.5 en Fable 5.1. Eén codepad voor alle Claude-modellen. Geen `thinking`-parameter (5.x denkt adaptief) en geen `temperature`/`top_p`/`top_k`.
+- **Antwoordverwerking**: `stop_reason` wordt gecontroleerd (`refusal` en `max_tokens` geven een duidelijke foutreden); het `tool_use`-blok wordt opgezocht tussen eventuele thinking/text-blokken en de input moet een object zijn. Zonder geldig tool_use-blok volgt zoals voorheen de terugval op rule-based.
+- `max_tokens` voor de Claude-planning 8192 → 16000 en API-timeout 120 → 240 s (ruimte voor adaptief denken).
+- **anthropic-SDK** `>=0.40.0` → `>=2.3.0,<3` (nodig voor `output_config` en strict tools; 2.x gebruikt httpx2 en vraagt Python ≥ 3.10, de images draaien 3.13).
+
+### Fixed
+- **Prijzen**: Opus 4.7 stond op 15/75 USD per MTok (oude Opus 4/4.1-prijs), officieel 5/25. Haiku 4.5 stond op 0,80/4 (oude Haiku 3.5-prijs), officieel 1/5. Kostenramingen voor die modellen waren dus 3× te hoog resp. 20 % te laag.
+- **Auto-modus-instellingen werden niet opgeslagen**: `auto_claude_model_simple`, `auto_claude_model_complex`, `auto_complexity_threshold` en `auto_complexity_high_threshold` ontbraken in de opslaan-payload van StrategySettings.
+
 ## [1.28.1] - 2026-04-26
 
 ### Fixed
